@@ -64,13 +64,20 @@ export const AppSidebar = () => {
         })}
       </nav>
 
-      <div className="border-t border-border/50 p-3">
+      <div className="border-t border-border/50 p-3 space-y-2">
         {!collapsed && (
           <div className="rounded-lg bg-muted/50 p-3">
-            <p className="text-xs font-medium text-muted-foreground">Central Admin</p>
-            <p className="text-xs text-primary">v2.0 Pro</p>
+            <p className="text-xs font-medium text-muted-foreground">{user?.email}</p>
+            <p className="text-xs text-primary">Admin</p>
           </div>
         )}
+        <button
+          onClick={signOut}
+          className="flex items-center gap-2 w-full rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+        >
+          <LogOut className="h-4 w-4 shrink-0" />
+          {!collapsed && <span>Cerrar sesión</span>}
+        </button>
       </div>
     </aside>
   );
