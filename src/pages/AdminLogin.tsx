@@ -65,13 +65,17 @@ const AdminLogin = () => {
           setIsSignUp(false);
         }
       } else {
+        toast.info("1/3 Iniciando autenticación...");
         const { data, error: signInError } = await supabase.auth.signInWithPassword({
           email,
           password,
         });
+        
         if (signInError) {
+          toast.error("Error en login: " + signInError.message);
           setError(signInError.message);
         } else if (data?.user) {
+          toast.info("2/3 Autenticado. Verificando rol de administrador...");
           const { data: roleData, error: roleError } = await supabase
             .from("user_roles")
             .select("role")
@@ -79,14 +83,20 @@ const AdminLogin = () => {
             .maybeSingle();
 
           if (roleError) {
+            toast.error("Error de DB: " + roleError.message);
             console.error(roleError);
             setError("Error al verificar permisos: " + roleError.message);
           } else if (roleData?.role !== "admin") {
+            toast.warning("Permiso denegado. Cerrando sesión...");
             await supabase.auth.signOut();
             setError("No tienes permisos de administrador");
           } else {
-            navigate("/");
+            toast.success("3/3 Redirigiendo al panel...");
+            setTimeout(() => navigate("/"), 500); // Pequeño retraso para ver el toast
           }
+        } else {
+          toast.error("Respuesta vacía del servidor.");
+          setError("No se recibió respuesta válida del servidor.");
         }
       }
     } catch (err: any) {
