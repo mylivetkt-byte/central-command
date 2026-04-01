@@ -2,7 +2,8 @@ import { DashboardLayout } from "@/components/DashboardLayout";
 import { KPICard } from "@/components/KPICard";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery } from "@tanstack/react-query";
-import { Package, Truck, Clock, DollarSign, Users, AlertTriangle, CheckCircle, XCircle } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { Package, Truck, Clock, DollarSign, Users, AlertTriangle, CheckCircle, XCircle, Zap, MapPin } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import { motion } from "framer-motion";
 
@@ -14,6 +15,7 @@ const formatCurrency = (v: number) =>
 const tooltipStyle = { background: "hsl(222,47%,9%)", border: "1px solid hsl(217,33%,17%)", borderRadius: 8, color: "hsl(210,40%,96%)" };
 
 const Dashboard = () => {
+  const navigate = useNavigate();
   // Pedidos de hoy
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -94,6 +96,21 @@ const Dashboard = () => {
           <p className="text-sm text-muted-foreground">
             Datos en tiempo real desde Supabase — {new Date().toLocaleDateString("es-CO", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
           </p>
+        </div>
+        
+        <div className="flex gap-3">
+          <button 
+            onClick={() => navigate("/dispatch")}
+            className="flex items-center gap-2 rounded-xl bg-primary px-6 py-3 text-sm font-bold text-primary-foreground shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
+          >
+            <Zap className="h-4 w-4" /> Publicar Nuevo Envío
+          </button>
+          <button 
+            onClick={() => navigate("/map-tracking")}
+            className="flex items-center gap-2 rounded-xl bg-card border border-border px-6 py-3 text-sm font-bold text-foreground hover:bg-muted transition-all"
+          >
+            <MapPin className="h-4 w-4 text-primary" /> Ver Mapa en Vivo
+          </button>
         </div>
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">

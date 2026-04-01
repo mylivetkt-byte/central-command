@@ -168,9 +168,9 @@ const Dispatch = () => {
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-foreground">Despacho de Servicios</h1>
+            <h1 className="text-2xl font-bold text-foreground">Despacho de Envíos</h1>
             <p className="text-sm text-muted-foreground">
-              Crea y asigna pedidos a los mensajeros en tiempo real
+              Crea y asigna envíos a los mensajeros en tiempo real
             </p>
           </div>
           <div className="flex gap-2">
@@ -184,7 +184,7 @@ const Dispatch = () => {
               onClick={() => setShowNewForm(true)}
               className="flex items-center gap-2 rounded-lg bg-gradient-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:opacity-90 transition-opacity"
             >
-              <Plus className="h-4 w-4" /> Publicar Servicio
+              <Plus className="h-4 w-4" /> Publicar Nuevo Envío
             </button>
           </div>
         </div>
@@ -216,7 +216,7 @@ const Dispatch = () => {
               <div className="flex items-center justify-between mb-5">
                 <h3 className="font-bold text-foreground flex items-center gap-2">
                   <Send className="h-4 w-4 text-primary" />
-                  Nuevo Servicio de Domicilio
+                  Nuevo Envío de Domicilio
                 </h3>
                 <button onClick={() => setShowNewForm(false)} className="text-muted-foreground hover:text-foreground">
                   <X className="h-5 w-5" />
