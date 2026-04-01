@@ -38,13 +38,13 @@ const Drivers = () => {
           zone,
           vehicle_type,
           phone,
-          user:id (
+          profiles (
             full_name,
             email
           )
-        `);
+        `) as any;
       if (error) throw error;
-      return data || [];
+      return (data as any) || [];
     },
   });
 
@@ -66,7 +66,7 @@ const Drivers = () => {
 
   // Cambiar estado del repartidor
   const updateStatus = useMutation({
-    mutationFn: async ({ driverId, status }: { driverId: string; status: string }) => {
+    mutationFn: async ({ driverId, status }: { driverId: string; status: any }) => {
       const { error } = await supabase
         .from("driver_profiles")
         .update({ status })
@@ -81,7 +81,7 @@ const Drivers = () => {
   });
 
   const filtered = drivers.filter((d: any) =>
-    (d.user?.full_name || "").toLowerCase().includes(search.toLowerCase()) ||
+    (d.profiles?.full_name || "").toLowerCase().includes(search.toLowerCase()) ||
     (d.phone || "").includes(search)
   );
 
@@ -145,11 +145,11 @@ const Drivers = () => {
                   >
                     <div className="flex items-center gap-3">
                       <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/20 text-sm font-bold text-primary shrink-0">
-                        {getInitials(d.user?.full_name || "?")}
+                        {getInitials(d.profiles?.full_name || "?")}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-foreground truncate">
-                          {d.user?.full_name || "Sin nombre"}
+                          {d.profiles?.full_name || "Sin nombre"}
                         </p>
                         <p className="text-xs text-muted-foreground">
                           {d.zone || "Sin zona"} · {d.total_deliveries || 0} entregas
@@ -175,14 +175,14 @@ const Drivers = () => {
                   <div className="glass-card p-6">
                     <div className="flex items-center gap-4 mb-6">
                       <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/20 text-xl font-bold text-primary">
-                        {getInitials(selectedDriver.user?.full_name || "?")}
+                        {getInitials(selectedDriver.profiles?.full_name || "?")}
                       </div>
                       <div className="flex-1">
                         <h2 className="text-lg font-bold text-foreground">
-                          {selectedDriver.user?.full_name || "Sin nombre"}
+                          {selectedDriver.profiles?.full_name || "Sin nombre"}
                         </h2>
                         <p className="text-sm text-muted-foreground">
-                          {selectedDriver.user?.email}
+                          {/* Email removed as it's not in public.profiles */}
                         </p>
                         {selectedDriver.phone && (
                           <a href={`tel:${selectedDriver.phone}`} className="flex items-center gap-1 text-xs text-primary mt-1">

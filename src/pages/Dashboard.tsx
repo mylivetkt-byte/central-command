@@ -36,7 +36,7 @@ const Dashboard = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("driver_profiles")
-        .select(`id, status, total_deliveries, rating, acceptance_rate, current_load, zone, user:id (full_name)`);
+        .select(`id, status, total_deliveries, rating, acceptance_rate, current_load, zone, profiles (full_name)`) as any;
       if (error) throw error;
       return data || [];
     },
@@ -155,7 +155,7 @@ const Dashboard = () => {
                   <div key={d.id} className="flex items-center gap-3 rounded-lg bg-muted/30 p-3">
                     <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary/20 text-xs font-bold text-primary">{i + 1}</span>
                     <div className="flex-1">
-                      <p className="text-sm font-medium text-foreground">{d.user?.full_name || "Sin nombre"}</p>
+                      <p className="text-sm font-medium text-foreground">{d.profiles?.full_name || "Sin nombre"}</p>
                       <p className="text-xs text-muted-foreground">{d.total_deliveries || 0} entregas · {d.zone || "Sin zona"}</p>
                     </div>
                     <span className="text-sm font-semibold text-accent">{d.acceptance_rate || 0}%</span>

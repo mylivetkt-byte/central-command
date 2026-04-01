@@ -68,11 +68,11 @@ const Dispatch = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("driver_profiles")
-        .select(`id, status, current_load, zone, rating, user:id (full_name)`)
+        .select(`id, status, current_load, zone, rating, profiles (full_name)`)
         .eq("status", "activo")
-        .order("current_load", { ascending: true });
+        .order("current_load", { ascending: true }) as any;
       if (error) throw error;
-      return data || [];
+      return (data as any) || [];
     },
     refetchInterval: 10000,
   });
@@ -447,7 +447,7 @@ const Dispatch = () => {
                         {(d.user?.full_name || "?").split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2)}
                       </div>
                       <div>
-                        <p className="text-sm font-medium text-foreground">{d.user?.full_name || "Sin nombre"}</p>
+                        <p className="text-sm font-medium text-foreground">{d.profiles?.full_name || "Sin nombre"}</p>
                         <p className="text-xs text-muted-foreground flex items-center gap-1">
                           <Package className="h-3 w-3" /> {d.current_load || 0} pedidos · {d.zone || "Sin zona"}
                         </p>

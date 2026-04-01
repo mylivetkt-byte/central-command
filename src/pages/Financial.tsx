@@ -25,7 +25,7 @@ const Financial = () => {
   const { data: drivers = [], isLoading: isLoadingDrivers } = useQuery({
     queryKey: ["financial-drivers"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("driver_profiles").select("*, user:id(full_name)");
+      const { data, error } = await supabase.from("driver_profiles").select("*, profiles (full_name)");
       if (error) throw error;
       return data || [];
     },
