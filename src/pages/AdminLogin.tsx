@@ -39,44 +39,53 @@ const AdminLogin = () => {
     setLoading(true);
     setError("");
 
-    if (isSignUp) {
-      const { error: signUpError } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: { full_name: fullName, role: "admin" },
-          emailRedirectTo: window.location.origin,
-        },
-      });
-      if (signUpError) {
-        setError(signUpError.message);
-      } else {
-        toast.success("¡Cuenta de admin creada! Ya puedes iniciar sesión.");
-        setIsSignUp(false);
-      }
-    } else {
-      const { data, error: signInError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-      if (signInError) {
-        setError(signInError.message);
-      } else if (data.user) {
-        const { data: roleData } = await supabase
-          .from("user_roles")
-          .select("role")
-          .eq("user_id", data.user.id)
-          .maybeSingle();
-
-        if (roleData?.role !== "admin") {
-          await supabase.auth.signOut();
-          setError("No tienes permisos de administrador");
+    try {
+      if (isSignUp) {
+        const { error: signUpError } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: { full_name: fullName, role: "admin" },
+            emailRedirectTo: window.location.origin,
+          },
+        });
+        if (signUpError) {
+          setError(signUpError.message);
         } else {
-          navigate("/");
+          toast.success("¡Cuenta de admin creada! Ya puedes iniciar sesión.");
+          setIsSignUp(false);
+        }
+      } else {
+        const { data, error: signInError } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+        if (signInError) {
+          setError(signInError.message);
+        } else if (data?.user) {
+          const { data: roleData, error: roleError } = await supabase
+            .from("user_roles")
+            .select("role")
+            .eq("user_id", data.user.id)
+            .maybeSingle();
+
+          if (roleError) {
+            console.error(roleError);
+            setError("Error al verificar permisos: " + roleError.message);
+          } else if (roleData?.role !== "admin") {
+            await supabase.auth.signOut();
+            setError("No tienes permisos de administrador");
+          } else {
+            navigate("/");
+          }
         }
       }
+    } catch (err: any) {
+      console.error(err);
+      setError("Ocurrió un error inesperado al iniciar sesión: " + (err?.message || err));
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
