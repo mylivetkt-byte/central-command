@@ -1,9 +1,10 @@
 import { NavLink as RouterNavLink, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, BarChart3, Truck, Users, DollarSign,
-  AlertTriangle, ClipboardList, Map, Zap, ChevronLeft, ChevronRight
+  AlertTriangle, ClipboardList, Map, Zap, ChevronLeft, ChevronRight, LogOut
 } from "lucide-react";
 import { useState } from "react";
+import { useAuth } from "@/hooks/useAuth";
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
