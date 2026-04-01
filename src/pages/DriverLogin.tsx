@@ -27,14 +27,15 @@ const DriverLogin = () => {
         email,
         password,
         options: {
-          data: { full_name: fullName, phone },
+          data: { full_name: fullName, phone, role: "driver" },
           emailRedirectTo: window.location.origin,
         },
       });
       if (signUpError) {
         setError(signUpError.message);
       } else {
-        toast.success("Revisa tu correo para confirmar tu cuenta. Un administrador activará tu perfil.");
+        toast.success("¡Cuenta creada! Ya puedes iniciar sesión.");
+        setIsSignUp(false);
       }
     } else {
       const { data, error: signInError } = await supabase.auth.signInWithPassword({

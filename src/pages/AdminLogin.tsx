@@ -26,7 +26,6 @@ const AdminLogin = () => {
         email,
         password,
         options: {
-        options: {
           data: { full_name: fullName, role: "admin" },
           emailRedirectTo: window.location.origin,
         },
