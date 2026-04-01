@@ -1,4 +1,4 @@
-import React from "react";
+import React, { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
@@ -23,13 +23,13 @@ import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
 
-const AdminRoute = ({ children }: { children: React.ReactNode }) => (
+const AdminRoute = ({ children }: { children: ReactNode }) => (
   <ProtectedRoute requiredRole="admin" redirectTo="/admin-login">
     {children}
   </ProtectedRoute>
 );
 
-const DriverRoute = ({ children }: { children: React.ReactNode }) => (
+const DriverRoute = ({ children }: { children: ReactNode }) => (
   <ProtectedRoute requiredRole="driver" redirectTo="/driver-login">
     {children}
   </ProtectedRoute>
