@@ -45,6 +45,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (_event, session) => {
         if (!isMounted) return;
+        // 🔑 Poner loading=true mientras se resuelve el rol
+        // Esto evita que ProtectedRoute vea role=null antes de que se cargue
+        setLoading(true);
         setSession(session);
         setUser(session?.user ?? null);
         if (session?.user) {
@@ -55,19 +58,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         if (isMounted) setLoading(false);
       }
     );
-
-    // Initialize session on mount
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      if (!isMounted) return;
-      setSession(session);
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        await fetchRole(session.user.id); // ✅ await so loading turns off AFTER role is fetched
-      } else {
-        setRole(null);
-      }
-      if (isMounted) setLoading(false); // ✅ always turn off loading
-    });
 
     // Failsafe: never leave loading stuck
     const timeout = setTimeout(() => {
