@@ -3,6 +3,8 @@ import { BrowserRouter, Route, Routes } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { AuthProvider } from "@/hooks/useAuth";
+import { ProtectedRoute } from "@/components/ProtectedRoute";
 import Dashboard from "./pages/Dashboard";
 import Analytics from "./pages/Analytics";
 import Operations from "./pages/Operations";
@@ -12,9 +14,24 @@ import Financial from "./pages/Financial";
 import Alerts from "./pages/Alerts";
 import Audit from "./pages/Audit";
 import Reports from "./pages/Reports";
+import AdminLogin from "./pages/AdminLogin";
+import DriverLogin from "./pages/DriverLogin";
+import DriverApp from "./pages/DriverApp";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
+
+const AdminRoute = ({ children }: { children: React.ReactNode }) => (
+  <ProtectedRoute requiredRole="admin" redirectTo="/admin-login">
+    {children}
+  </ProtectedRoute>
+);
+
+const DriverRoute = ({ children }: { children: React.ReactNode }) => (
+  <ProtectedRoute requiredRole="driver" redirectTo="/driver-login">
+    {children}
+  </ProtectedRoute>
+);
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -22,18 +39,29 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Dashboard />} />
-          <Route path="/analytics" element={<Analytics />} />
-          <Route path="/operations" element={<Operations />} />
-          <Route path="/drivers" element={<Drivers />} />
-          <Route path="/dispatch" element={<Dispatch />} />
-          <Route path="/financial" element={<Financial />} />
-          <Route path="/alerts" element={<Alerts />} />
-          <Route path="/audit" element={<Audit />} />
-          <Route path="/reports" element={<Reports />} />
-          <Route path="*" element={<NotFound />} />
-        </Routes>
+        <AuthProvider>
+          <Routes>
+            {/* Auth */}
+            <Route path="/admin-login" element={<AdminLogin />} />
+            <Route path="/driver-login" element={<DriverLogin />} />
+
+            {/* Admin Central */}
+            <Route path="/" element={<AdminRoute><Dashboard /></AdminRoute>} />
+            <Route path="/analytics" element={<AdminRoute><Analytics /></AdminRoute>} />
+            <Route path="/operations" element={<AdminRoute><Operations /></AdminRoute>} />
+            <Route path="/drivers" element={<AdminRoute><Drivers /></AdminRoute>} />
+            <Route path="/dispatch" element={<AdminRoute><Dispatch /></AdminRoute>} />
+            <Route path="/financial" element={<AdminRoute><Financial /></AdminRoute>} />
+            <Route path="/alerts" element={<AdminRoute><Alerts /></AdminRoute>} />
+            <Route path="/audit" element={<AdminRoute><Audit /></AdminRoute>} />
+            <Route path="/reports" element={<AdminRoute><Reports /></AdminRoute>} />
+
+            {/* Driver App */}
+            <Route path="/driver" element={<DriverRoute><DriverApp /></DriverRoute>} />
+
+            <Route path="*" element={<NotFound />} />
+          </Routes>
+        </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>
