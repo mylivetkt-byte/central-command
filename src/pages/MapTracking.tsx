@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import DashboardLayout from '@/components/DashboardLayout';
+import { DashboardLayout } from '@/components/DashboardLayout';
 import LiveMap from '@/components/LiveMap';
 import DeliveryTracker from '@/components/DeliveryTracker';
 import { Card } from '@/components/ui/card';
