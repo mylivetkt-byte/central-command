@@ -26,14 +26,16 @@ const AdminLogin = () => {
         email,
         password,
         options: {
-          data: { full_name: fullName },
+        options: {
+          data: { full_name: fullName, role: "admin" },
           emailRedirectTo: window.location.origin,
         },
       });
       if (signUpError) {
         setError(signUpError.message);
       } else {
-        toast.success("Revisa tu correo para confirmar tu cuenta");
+        toast.success("¡Cuenta de admin creada! Ya puedes iniciar sesión.");
+        setIsSignUp(false);
       }
     } else {
       const { data, error: signInError } = await supabase.auth.signInWithPassword({
