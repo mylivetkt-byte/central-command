@@ -162,7 +162,7 @@ export default function DeliveryTracker({
           filter: `driver_id=eq.${delivery.driver_id}`
         },
         (payload) => {
-          setDriverLocation(payload.new);
+          setDriverLocation(payload.new as DriverLocation);
         }
       )
       .subscribe();

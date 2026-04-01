@@ -13,13 +13,7 @@ interface DriverLocation {
   heading: number | null;
   speed: number | null;
   updated_at: string;
-  driver?: {
-    full_name: string;
-    driver_profiles: {
-      status: string;
-      current_load: number;
-    };
-  };
+  driver?: any;
 }
 
 interface Delivery {
@@ -108,19 +102,10 @@ export default function LiveMap({
     const fetchDriverLocations = async () => {
       const { data, error } = await supabase
         .from('driver_locations')
-        .select(`
-          *,
-          driver:driver_id (
-            full_name,
-            driver_profiles (
-              status,
-              current_load
-            )
-          )
-        `);
+        .select('*');
 
       if (!error && data) {
-        setDriverLocations(data);
+        setDriverLocations(data as any[]);
       }
     };
 
