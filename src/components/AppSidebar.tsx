@@ -1,9 +1,10 @@
 import { NavLink as RouterNavLink, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, BarChart3, Truck, Users, DollarSign,
-  AlertTriangle, ClipboardList, Map, Zap, ChevronLeft, ChevronRight
+  AlertTriangle, ClipboardList, Map, Zap, ChevronLeft, ChevronRight, LogOut
 } from "lucide-react";
 import { useState } from "react";
+import { useAuth } from "@/hooks/useAuth";
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -20,6 +21,7 @@ const navItems = [
 export const AppSidebar = () => {
   const [collapsed, setCollapsed] = useState(false);
   const location = useLocation();
+  const { signOut, user } = useAuth();
 
   return (
     <aside
@@ -62,13 +64,20 @@ export const AppSidebar = () => {
         })}
       </nav>
 
-      <div className="border-t border-border/50 p-3">
+      <div className="border-t border-border/50 p-3 space-y-2">
         {!collapsed && (
           <div className="rounded-lg bg-muted/50 p-3">
-            <p className="text-xs font-medium text-muted-foreground">Central Admin</p>
-            <p className="text-xs text-primary">v2.0 Pro</p>
+            <p className="text-xs font-medium text-muted-foreground">{user?.email}</p>
+            <p className="text-xs text-primary">Admin</p>
           </div>
         )}
+        <button
+          onClick={signOut}
+          className="flex items-center gap-2 w-full rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+        >
+          <LogOut className="h-4 w-4 shrink-0" />
+          {!collapsed && <span>Cerrar sesión</span>}
+        </button>
       </div>
     </aside>
   );
