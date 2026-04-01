@@ -1,5 +1,6 @@
 import { DashboardLayout } from "@/components/DashboardLayout";
-import { dailyStats, drivers, formatCurrency } from "@/data/mockData";
+import { supabase } from "@/integrations/supabase/client";
+import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { Download, FileText, Table } from "lucide-react";
 import { useState } from "react";
@@ -10,25 +11,81 @@ const tooltipStyle = { background: "hsl(222,47%,9%)", border: "1px solid hsl(217
 
 type DateFilter = "hoy" | "ayer" | "semana" | "mes" | "custom";
 
+const formatCurrency = (v: number) =>
+  new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(v);
+
 const Reports = () => {
   const [filter, setFilter] = useState<DateFilter>("semana");
   const [report, setReport] = useState<"deliveries" | "revenue" | "drivers">("deliveries");
 
-  const getData = () => {
+  const { data: deliveries = [], isLoading: isLoadingDeliveries } = useQuery({
+    queryKey: ["reports-deliveries"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("deliveries").select("*").order("created_at", { ascending: false });
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  const { data: drivers = [], isLoading: isLoadingDrivers } = useQuery({
+    queryKey: ["reports-drivers"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("driver_profiles").select("*, user:id(full_name)");
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  const getDaysForFilter = () => {
     switch (filter) {
-      case "hoy": return dailyStats.slice(-1);
-      case "ayer": return dailyStats.slice(-2, -1);
-      case "semana": return dailyStats.slice(-7);
-      case "mes": return dailyStats;
-      default: return dailyStats.slice(-7);
+      case "hoy": return 1;
+      case "ayer": return 2; // Extraer el de ayer
+      case "semana": return 7;
+      case "mes": return 30;
+      default: return 7;
     }
   };
 
-  const data = getData();
+  const daysLength = getDaysForFilter();
+
+  let data = Array.from({ length: daysLength }, (_, i) => {
+    const date = new Date();
+    date.setDate(date.getDate() - (daysLength - 1 - i));
+    date.setHours(0, 0, 0, 0);
+    const nextDay = new Date(date);
+    nextDay.setDate(nextDay.getDate() + 1);
+
+    const dayDeliveries = deliveries.filter((d: any) => {
+      const created = new Date(d.created_at);
+      return created >= date && created < nextDay;
+    });
+
+    const revenue = dayDeliveries
+      .filter((d: any) => d.status === "entregado")
+      .reduce((sum: number, d: any) => sum + Number(d.amount || 0), 0);
+
+    return {
+      date: date.toISOString().slice(0, 10),
+      deliveries: dayDeliveries.length,
+      revenue,
+    };
+  });
+
+  if (filter === "ayer") {
+    data = data.slice(0, 1);
+  }
 
   const exportReport = (format: string) => {
     toast.success(`Exportando reporte en ${format}`, { description: "El archivo se descargará en breve" });
   };
+
+  if (isLoadingDeliveries || isLoadingDrivers) {
+    return (
+      <DashboardLayout>
+        <div className="flex justify-center p-20"><div className="animate-spin h-8 w-8 border-2 border-primary border-t-transparent rounded-full" /></div>
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout>
@@ -36,7 +93,7 @@ const Reports = () => {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-foreground">Reportes</h1>
-            <p className="text-sm text-muted-foreground">Genera y exporta informes operativos</p>
+            <p className="text-sm text-muted-foreground">Genera y exporta informes operativos reales</p>
           </div>
           <div className="flex gap-2">
             <button onClick={() => exportReport("Excel")} className="flex items-center gap-1 rounded-lg bg-accent/10 px-3 py-2 text-xs font-medium text-accent hover:bg-accent/20 transition-colors">
@@ -68,56 +125,70 @@ const Reports = () => {
           {report === "deliveries" && (
             <>
               <h3 className="mb-4 text-sm font-semibold text-foreground">Domicilios por Día</h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={data}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(217,33%,17%)" />
-                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: "hsl(215,20%,55%)" }} tickFormatter={v => v.slice(5)} />
-                  <YAxis tick={{ fontSize: 10, fill: "hsl(215,20%,55%)" }} />
-                  <Tooltip contentStyle={tooltipStyle} />
-                  <Bar dataKey="deliveries" fill="hsl(217,91%,60%)" radius={[6, 6, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              {data.some((d: any) => d.deliveries > 0) ? (
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={data}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(217,33%,17%)" />
+                    <XAxis dataKey="date" tick={{ fontSize: 10, fill: "hsl(215,20%,55%)" }} tickFormatter={v => v.slice(5)} />
+                    <YAxis tick={{ fontSize: 10, fill: "hsl(215,20%,55%)" }} allowDecimals={false} />
+                    <Tooltip contentStyle={tooltipStyle} />
+                    <Bar dataKey="deliveries" fill="hsl(217,91%,60%)" radius={[6, 6, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">Sin datos para el período seleccionado.</div>
+              )}
             </>
           )}
+
           {report === "revenue" && (
             <>
               <h3 className="mb-4 text-sm font-semibold text-foreground">Ingresos por Día</h3>
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={data}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(217,33%,17%)" />
-                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: "hsl(215,20%,55%)" }} tickFormatter={v => v.slice(5)} />
-                  <YAxis tick={{ fontSize: 10, fill: "hsl(215,20%,55%)" }} tickFormatter={v => `$${(v / 1000000).toFixed(1)}M`} />
-                  <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => formatCurrency(v)} />
-                  <Bar dataKey="revenue" fill="hsl(160,84%,39%)" radius={[6, 6, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              {data.some((d: any) => d.revenue > 0) ? (
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={data}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(217,33%,17%)" />
+                    <XAxis dataKey="date" tick={{ fontSize: 10, fill: "hsl(215,20%,55%)" }} tickFormatter={v => v.slice(5)} />
+                    <YAxis tick={{ fontSize: 10, fill: "hsl(215,20%,55%)" }} tickFormatter={v => `$${(v / 1000).toFixed(0)}k`} />
+                    <Tooltip contentStyle={tooltipStyle} formatter={(v: number) => formatCurrency(v)} />
+                    <Bar dataKey="revenue" fill="hsl(160,84%,39%)" radius={[6, 6, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">Sin ingresos generados en este período.</div>
+              )}
             </>
           )}
+
           {report === "drivers" && (
             <>
               <h3 className="mb-4 text-sm font-semibold text-foreground">Entregas por Repartidor</h3>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-border/50 text-left text-xs text-muted-foreground">
-                      <th className="pb-3 pr-4">Repartidor</th>
-                      <th className="pb-3 pr-4">Entregas</th>
-                      <th className="pb-3 pr-4">Ingresos</th>
-                      <th className="pb-3">Rating</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {drivers.sort((a, b) => b.totalDeliveries - a.totalDeliveries).map(d => (
-                      <tr key={d.id} className="border-b border-border/30 hover:bg-muted/20">
-                        <td className="py-3 pr-4 font-medium text-foreground">{d.name}</td>
-                        <td className="py-3 pr-4">{d.totalDeliveries}</td>
-                        <td className="py-3 pr-4">{formatCurrency(d.revenue)}</td>
-                        <td className="py-3">⭐ {d.rating}</td>
+              {drivers.length === 0 ? (
+                <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">Sin repartidores registrados.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border/50 text-left text-xs text-muted-foreground">
+                        <th className="pb-3 pr-4">Repartidor</th>
+                        <th className="pb-3 pr-4">Entregas Totales</th>
+                        <th className="pb-3 pr-4">Rating</th>
+                        <th className="pb-3">Estado</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {[...(drivers as any[])].sort((a: any, b: any) => (b.total_deliveries || 0) - (a.total_deliveries || 0)).map((d: any) => (
+                        <tr key={d.id} className="border-b border-border/30 hover:bg-muted/20">
+                          <td className="py-3 pr-4 font-medium text-foreground">{d.user?.full_name || "Sin nombre"}</td>
+                          <td className="py-3 pr-4">{d.total_deliveries || 0}</td>
+                          <td className="py-3 pr-4">⭐ {d.rating || "N/A"}</td>
+                          <td className="py-3 capitalize text-muted-foreground">{d.status || "inactivo"}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </>
           )}
         </motion.div>

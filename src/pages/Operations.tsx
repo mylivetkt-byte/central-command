@@ -1,14 +1,38 @@
 import { DashboardLayout } from "@/components/DashboardLayout";
-import { deliveries, drivers, formatCurrency } from "@/data/mockData";
 import { KPICard } from "@/components/KPICard";
+import { supabase } from "@/integrations/supabase/client";
+import { useQuery } from "@tanstack/react-query";
 import { Truck, Clock, MapPin, Package } from "lucide-react";
 import { motion } from "framer-motion";
 
+const formatCurrency = (v: number) =>
+  new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(v);
+
 const Operations = () => {
-  const active = deliveries.filter(d => ["aceptado", "en_camino"].includes(d.status));
+  const { data: deliveries = [] } = useQuery({
+    queryKey: ["operations-deliveries"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("deliveries").select("*, driver:driver_profiles(user:id(full_name))").order("created_at", { ascending: false });
+      if (error) throw error;
+      return data || [];
+    },
+    refetchInterval: 10000,
+  });
+
+  const { data: drivers = [] } = useQuery({
+    queryKey: ["operations-drivers"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("driver_profiles").select("*, user:id(full_name)");
+      if (error) throw error;
+      return data || [];
+    },
+    refetchInterval: 10000,
+  });
+
+  const active = deliveries.filter(d => ["aceptado", "en_camino"].includes(d.status || ""));
   const pending = deliveries.filter(d => d.status === "pendiente");
   const completed = deliveries.filter(d => d.status === "entregado");
-  const activeDrivers = drivers.filter(d => ["activo", "en_ruta"].includes(d.status));
+  const activeDrivers = drivers.filter(d => ["activo", "en_ruta"].includes(d.status || ""));
 
   return (
     <DashboardLayout>
@@ -46,8 +70,8 @@ const Operations = () => {
                 <div className="relative group">
                   <div className={`h-4 w-4 rounded-full ${d.status === "en_ruta" ? "bg-primary" : "bg-accent"} shadow-lg`} />
                   <div className="absolute bottom-5 left-1/2 -translate-x-1/2 hidden group-hover:block bg-card border border-border rounded-lg px-2 py-1 whitespace-nowrap z-10">
-                    <p className="text-xs font-medium text-foreground">{d.name}</p>
-                    <p className="text-xs text-muted-foreground">{d.zone} · {d.currentLoad} pedidos</p>
+                    <p className="text-xs font-medium text-foreground">{d.user?.full_name || "M"}</p>
+                    <p className="text-xs text-muted-foreground">{d.zone || "Sin zona"} · {d.current_load || 0} pedidos</p>
                   </div>
                 </div>
               </div>
@@ -62,15 +86,14 @@ const Operations = () => {
               {active.map(d => (
                 <div key={d.id} className="flex items-center justify-between rounded-lg bg-muted/30 p-3">
                   <div>
-                    <p className="text-sm font-medium text-foreground">{d.orderId}</p>
-                    <p className="text-xs text-muted-foreground">{d.driverName}</p>
-                    <p className="text-xs text-muted-foreground">{d.deliveryAddress}</p>
+                    <p className="text-sm font-medium text-foreground">{d.order_id}</p>
+                    <p className="text-xs text-muted-foreground">{d.driver?.user?.full_name}</p>
+                    <p className="text-xs text-muted-foreground flex items-center gap-1"><MapPin className="h-3 w-3 text-primary" /> {d.delivery_address}</p>
                   </div>
                   <div className="text-right">
                     <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${d.status === "en_camino" ? "bg-primary/10 text-primary" : "bg-accent/10 text-accent"}`}>
-                      {d.status.replace("_", " ")}
+                      {d.status}
                     </span>
-                    {d.isDelayed && <p className="text-xs text-destructive mt-1">⚠ Demorado</p>}
                   </div>
                 </div>
               ))}
@@ -84,13 +107,13 @@ const Operations = () => {
               {pending.map(d => (
                 <div key={d.id} className="flex items-center justify-between rounded-lg bg-warning/5 border border-warning/20 p-3">
                   <div>
-                    <p className="text-sm font-medium text-foreground">{d.orderId}</p>
-                    <p className="text-xs text-muted-foreground">{d.customerName}</p>
-                    <p className="text-xs text-muted-foreground">{d.pickupAddress}</p>
+                    <p className="text-sm font-medium text-foreground">{d.order_id}</p>
+                    <p className="text-xs text-muted-foreground">{d.customer_name}</p>
+                    <p className="text-xs text-muted-foreground flex items-center gap-1"><MapPin className="h-3 w-3 text-accent" /> {d.pickup_address}</p>
                   </div>
                   <div className="text-right">
                     <span className="inline-block rounded-full bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">pendiente</span>
-                    <p className="text-xs text-muted-foreground mt-1">{formatCurrency(d.amount)}</p>
+                    <p className="text-xs text-muted-foreground mt-1">{formatCurrency(Number(d.amount || 0))}</p>
                   </div>
                 </div>
               ))}
