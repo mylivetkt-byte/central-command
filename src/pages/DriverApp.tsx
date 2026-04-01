@@ -9,6 +9,8 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { motion, useMotionValue, useTransform, AnimatePresence } from "framer-motion";
+import DriverGPSControl from "@/components/DriverGPSControl";
+import { useDriverLocation } from "@/hooks/useDriverLocation";
 
 interface DeliveryOrder {
   id: string;
@@ -74,8 +76,7 @@ const DriverApp = () => {
   const [pendingOrders, setPendingOrders] = useState<DeliveryOrder[]>([]);
   const [activeDelivery, setActiveDelivery] = useState<DeliveryOrder | null>(null);
   const [driverProfile, setDriverProfile] = useState<any>(null);
-  const [locationEnabled, setLocationEnabled] = useState(false);
-  const watchIdRef = useRef<number | null>(null);
+  const { isTracking } = useDriverLocation();
   const notificationSound = useRef<HTMLAudioElement | null>(null);
 
   // Initialize notification sound
@@ -131,39 +132,6 @@ const DriverApp = () => {
       .then(({ data }) => setDriverProfile(data));
   }, [user]);
 
-  // Real-time location tracking
-  const startLocationTracking = useCallback(() => {
-    if (!user || !navigator.geolocation) return;
-
-    watchIdRef.current = navigator.geolocation.watchPosition(
-      async (pos) => {
-        setLocationEnabled(true);
-        await supabase.from("driver_locations").upsert({
-          driver_id: user.id,
-          lat: pos.coords.latitude,
-          lng: pos.coords.longitude,
-          heading: pos.coords.heading,
-          speed: pos.coords.speed,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: "driver_id" });
-      },
-      (err) => {
-        console.error("Geolocation error:", err);
-        toast.error("No se pudo acceder a tu ubicación. Activa el GPS.");
-        setLocationEnabled(false);
-      },
-      { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 }
-    );
-  }, [user]);
-
-  useEffect(() => {
-    startLocationTracking();
-    return () => {
-      if (watchIdRef.current !== null) {
-        navigator.geolocation.clearWatch(watchIdRef.current);
-      }
-    };
-  }, [startLocationTracking]);
 
   const acceptOrder = async (delivery: DeliveryOrder) => {
     if (!user) return;
@@ -241,9 +209,9 @@ const DriverApp = () => {
             <div>
               <p className="text-sm font-semibold text-foreground">{user?.user_metadata?.full_name || "Mensajero"}</p>
               <div className="flex items-center gap-1.5">
-                <span className={`h-2 w-2 rounded-full ${locationEnabled ? "bg-accent animate-pulse" : "bg-destructive"}`} />
+                <span className={`h-2 w-2 rounded-full ${isTracking ? "bg-accent animate-pulse" : "bg-destructive"}`} />
                 <span className="text-xs text-muted-foreground">
-                  {locationEnabled ? "GPS activo" : "Sin GPS"}
+                  {isTracking ? "GPS activo" : "Sin GPS"}
                 </span>
               </div>
             </div>
@@ -274,6 +242,11 @@ const DriverApp = () => {
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24">
+        {/* Control de GPS */}
+        <div className="mb-6">
+          <DriverGPSControl />
+        </div>
+
         {/* Active delivery */}
         <AnimatePresence>
           {activeDelivery && (

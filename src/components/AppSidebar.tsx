@@ -1,7 +1,7 @@
 import { NavLink as RouterNavLink, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, BarChart3, Truck, Users, DollarSign,
-  AlertTriangle, ClipboardList, Map, Zap, ChevronLeft, ChevronRight, LogOut
+  AlertTriangle, ClipboardList, Map, Zap, ChevronLeft, ChevronRight, LogOut, MapPin
 } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
@@ -9,6 +9,7 @@ import { useAuth } from "@/hooks/useAuth";
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
   { to: "/analytics", label: "Analíticas", icon: BarChart3 },
+  { to: "/map-tracking", label: "Mapa en Vivo", icon: MapPin },
   { to: "/operations", label: "Operaciones", icon: Map },
   { to: "/drivers", label: "Repartidores", icon: Users },
   { to: "/dispatch", label: "Despacho", icon: Zap },

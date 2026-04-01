@@ -17,6 +17,7 @@ import Reports from "./pages/Reports";
 import AdminLogin from "./pages/AdminLogin";
 import DriverLogin from "./pages/DriverLogin";
 import DriverApp from "./pages/DriverApp";
+import MapTracking from "./pages/MapTracking";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -55,6 +56,7 @@ const App = () => (
             <Route path="/alerts" element={<AdminRoute><Alerts /></AdminRoute>} />
             <Route path="/audit" element={<AdminRoute><Audit /></AdminRoute>} />
             <Route path="/reports" element={<AdminRoute><Reports /></AdminRoute>} />
+            <Route path="/map-tracking" element={<AdminRoute><MapTracking /></AdminRoute>} />
 
             {/* Driver App */}
             <Route path="/driver" element={<DriverRoute><DriverApp /></DriverRoute>} />
