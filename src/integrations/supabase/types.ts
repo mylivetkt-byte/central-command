@@ -117,7 +117,15 @@ export type Database = {
           updated_at?: string
           zone?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "deliveries_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       delivery_audit_log: {
         Row: {
@@ -182,7 +190,15 @@ export type Database = {
           speed?: number | null
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "driver_locations_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       driver_profiles: {
         Row: {
@@ -196,6 +212,7 @@ export type Database = {
           status: Database["public"]["Enums"]["driver_status"]
           total_deliveries: number
           updated_at: string
+          vehicle_type: string | null
           zone: string | null
         }
         Insert: {
@@ -209,6 +226,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["driver_status"]
           total_deliveries?: number
           updated_at?: string
+          vehicle_type?: string | null
           zone?: string | null
         }
         Update: {
@@ -222,14 +240,24 @@ export type Database = {
           status?: Database["public"]["Enums"]["driver_status"]
           total_deliveries?: number
           updated_at?: string
+          vehicle_type?: string | null
           zone?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "driver_profiles_id_fkey"
+            columns: ["id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       profiles: {
         Row: {
           avatar_url: string | null
           created_at: string
+          email: string | null
           full_name: string
           id: string
           phone: string | null
@@ -238,6 +266,7 @@ export type Database = {
         Insert: {
           avatar_url?: string | null
           created_at?: string
+          email?: string | null
           full_name: string
           id: string
           phone?: string | null
@@ -246,6 +275,7 @@ export type Database = {
         Update: {
           avatar_url?: string | null
           created_at?: string
+          email?: string | null
           full_name?: string
           id?: string
           phone?: string | null

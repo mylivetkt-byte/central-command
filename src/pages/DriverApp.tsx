@@ -1,16 +1,17 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
-  Bike, MapPin, Clock, DollarSign, CheckCircle, XCircle,
-  Navigation, LogOut, Package, Phone, ChevronUp
+  Bike, LogOut, Package, Navigation, Clock, History, Radio
 } from "lucide-react";
 import { toast } from "sonner";
-import { motion, useMotionValue, useTransform, AnimatePresence } from "framer-motion";
-import DriverGPSControl from "@/components/DriverGPSControl";
+import { AnimatePresence, motion } from "framer-motion";
 import { useDriverLocation } from "@/hooks/useDriverLocation";
+import OrderCard from "@/components/driver/OrderCard";
+import ActiveDeliveryView from "@/components/driver/ActiveDeliveryView";
+import DeliveryHistory from "@/components/driver/DeliveryHistory";
 
 interface DeliveryOrder {
   id: string;
@@ -24,67 +25,27 @@ interface DeliveryOrder {
   estimated_time: number | null;
   status: string;
   zone: string | null;
+  pickup_lat: number | null;
+  pickup_lng: number | null;
+  delivery_lat: number | null;
+  delivery_lng: number | null;
 }
 
-const formatCurrency = (v: number) =>
-  new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(v);
-
-const SwipeToAccept = ({ onAccept, onReject }: { onAccept: () => void; onReject: () => void }) => {
-  const x = useMotionValue(0);
-  const background = useTransform(x, [-150, 0, 150], [
-    "hsl(0, 84%, 60%)", "hsl(217, 33%, 14%)", "hsl(160, 84%, 39%)"
-  ]);
-  const acceptOpacity = useTransform(x, [0, 150], [0, 1]);
-  const rejectOpacity = useTransform(x, [-150, 0], [1, 0]);
-
-  const handleDragEnd = (_: any, info: { offset: { x: number } }) => {
-    if (info.offset.x > 120) {
-      onAccept();
-    } else if (info.offset.x < -120) {
-      onReject();
-    }
-  };
-
-  return (
-    <div className="relative h-14 rounded-xl overflow-hidden bg-muted border border-border/50">
-      <motion.div className="absolute inset-0 rounded-xl" style={{ backgroundColor: background }} />
-      <div className="absolute inset-0 flex items-center justify-between px-4 pointer-events-none">
-        <motion.span className="text-destructive-foreground text-sm font-medium" style={{ opacity: rejectOpacity }}>
-          <XCircle className="h-5 w-5 inline mr-1" /> Rechazar
-        </motion.span>
-        <span className="text-muted-foreground text-xs">← Desliza →</span>
-        <motion.span className="text-accent-foreground text-sm font-medium" style={{ opacity: acceptOpacity }}>
-          Aceptar <CheckCircle className="h-5 w-5 inline ml-1" />
-        </motion.span>
-      </div>
-      <motion.div
-        drag="x"
-        dragConstraints={{ left: -150, right: 150 }}
-        dragElastic={0.1}
-        onDragEnd={handleDragEnd}
-        style={{ x }}
-        className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-10 w-16 rounded-lg bg-foreground/90 flex items-center justify-center cursor-grab active:cursor-grabbing z-10"
-      >
-        <Package className="h-5 w-5 text-background" />
-      </motion.div>
-    </div>
-  );
-};
+type Tab = "orders" | "history";
 
 const DriverApp = () => {
   const { user, signOut } = useAuth();
   const [pendingOrders, setPendingOrders] = useState<DeliveryOrder[]>([]);
   const [activeDelivery, setActiveDelivery] = useState<DeliveryOrder | null>(null);
   const [driverProfile, setDriverProfile] = useState<any>(null);
-  const { isTracking } = useDriverLocation();
+  const [activeTab, setActiveTab] = useState<Tab>("orders");
+  const { isTracking, startTracking, stopTracking } = useDriverLocation();
   const notificationSound = useRef<HTMLAudioElement | null>(null);
 
-  // Initialize notification sound
   useEffect(() => {
     notificationSound.current = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJavm66LcF93h5ammJZxX2V/k6Wlm4t0ZHaHlaOdlIBvZHOFk56cloR0aXWFlJ2bln95bnSEk5yblYJ5b3WEk5uZlIF5cHaDkpqYkoB5cXeDkpmXkX94cXeDkpmXkYB4");
   }, []);
 
-  // Watch for pending orders
   useEffect(() => {
     if (!user) return;
 
@@ -94,7 +55,7 @@ const DriverApp = () => {
         .select("*")
         .eq("status", "pendiente")
         .order("created_at", { ascending: false });
-      
+
       if (data && data.length > (pendingOrders?.length ?? 0)) {
         notificationSound.current?.play().catch(() => {});
       }
@@ -125,13 +86,11 @@ const DriverApp = () => {
     return () => { supabase.removeChannel(channel); };
   }, [user]);
 
-  // Fetch driver profile
   useEffect(() => {
     if (!user) return;
     supabase.from("driver_profiles").select("*").eq("id", user.id).maybeSingle()
       .then(({ data }) => setDriverProfile(data));
   }, [user]);
-
 
   const acceptOrder = async (delivery: DeliveryOrder) => {
     if (!user) return;
@@ -150,7 +109,6 @@ const DriverApp = () => {
       toast.error("No se pudo aceptar el pedido");
     } else {
       toast.success("¡Pedido aceptado!");
-      // Log audit
       await supabase.from("delivery_audit_log").insert({
         delivery_id: delivery.id,
         event: "Pedido aceptado",
@@ -193,6 +151,33 @@ const DriverApp = () => {
     }
   };
 
+  // If there's an active delivery, show the full-screen delivery view
+  if (activeDelivery) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col">
+        {/* Minimal header for active delivery */}
+        <header className="sticky top-0 z-50 bg-card/90 backdrop-blur-xl border-b border-border/30 px-4 py-2 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Bike className="h-5 w-5 text-primary" />
+            <span className="text-sm font-bold text-foreground">Servicio activo</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className={`h-2 w-2 rounded-full ${isTracking ? "bg-accent animate-pulse" : "bg-destructive"}`} />
+            <span className="text-[10px] text-muted-foreground">{isTracking ? "GPS" : "Sin GPS"}</span>
+          </div>
+        </header>
+
+        <div className="flex-1">
+          <ActiveDeliveryView
+            delivery={activeDelivery}
+            onPickedUp={() => updateDeliveryStatus("en_camino")}
+            onDelivered={() => updateDeliveryStatus("entregado")}
+          />
+        </div>
+      </div>
+    );
+  }
+
   const profileInitials = driverProfile
     ? (user?.user_metadata?.full_name || "M").split(" ").map((n: string) => n[0]).join("").toUpperCase()
     : "M";
@@ -200,178 +185,135 @@ const DriverApp = () => {
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {/* Header */}
-      <header className="sticky top-0 z-50 bg-card/90 backdrop-blur-xl border-b border-border/50 px-4 py-3">
+      <header className="sticky top-0 z-50 bg-card/90 backdrop-blur-xl border-b border-border/30 px-4 py-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-full bg-gradient-success flex items-center justify-center text-sm font-bold text-accent-foreground">
+            <div className="h-10 w-10 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center text-sm font-bold text-primary-foreground">
               {profileInitials}
             </div>
             <div>
-              <p className="text-sm font-semibold text-foreground">{user?.user_metadata?.full_name || "Mensajero"}</p>
+              <p className="text-sm font-bold text-foreground">{user?.user_metadata?.full_name || "Mensajero"}</p>
               <div className="flex items-center gap-1.5">
                 <span className={`h-2 w-2 rounded-full ${isTracking ? "bg-accent animate-pulse" : "bg-destructive"}`} />
-                <span className="text-xs text-muted-foreground">
-                  {isTracking ? "GPS activo" : "Sin GPS"}
+                <span className="text-[10px] text-muted-foreground">
+                  {isTracking ? "En línea" : "Desconectado"}
                 </span>
               </div>
             </div>
           </div>
-          <Button variant="ghost" size="icon" onClick={signOut}>
-            <LogOut className="h-5 w-5 text-muted-foreground" />
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={isTracking ? stopTracking : startTracking}
+              className={`h-9 w-9 rounded-full ${isTracking ? 'text-accent' : 'text-muted-foreground'}`}
+            >
+              <Radio className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="icon" onClick={signOut} className="h-9 w-9 rounded-full">
+              <LogOut className="h-4 w-4 text-muted-foreground" />
+            </Button>
+          </div>
         </div>
       </header>
 
-      {/* Stats bar */}
+      {/* Quick Stats */}
       {driverProfile && (
-        <div className="grid grid-cols-3 gap-2 p-3 bg-card/50">
-          <div className="text-center p-2 rounded-lg bg-muted/50">
-            <p className="text-lg font-bold text-foreground">{driverProfile.total_deliveries}</p>
-            <p className="text-[10px] text-muted-foreground">Entregas</p>
+        <div className="grid grid-cols-3 gap-2 p-3">
+          <div className="text-center p-2.5 rounded-2xl bg-muted/40 border border-border/30">
+            <p className="text-lg font-extrabold text-foreground">{driverProfile.total_deliveries}</p>
+            <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">Entregas</p>
           </div>
-          <div className="text-center p-2 rounded-lg bg-muted/50">
-            <p className="text-lg font-bold text-accent">{driverProfile.rating}</p>
-            <p className="text-[10px] text-muted-foreground">Rating</p>
+          <div className="text-center p-2.5 rounded-2xl bg-accent/10 border border-accent/20">
+            <p className="text-lg font-extrabold text-accent">⭐ {driverProfile.rating}</p>
+            <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">Rating</p>
           </div>
-          <div className="text-center p-2 rounded-lg bg-muted/50">
-            <p className="text-lg font-bold text-foreground">{driverProfile.acceptance_rate}%</p>
-            <p className="text-[10px] text-muted-foreground">Aceptación</p>
+          <div className="text-center p-2.5 rounded-2xl bg-muted/40 border border-border/30">
+            <p className="text-lg font-extrabold text-foreground">{driverProfile.acceptance_rate}%</p>
+            <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">Aceptación</p>
           </div>
         </div>
       )}
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-24">
-        {/* Control de GPS */}
-        <div className="mb-6">
-          <DriverGPSControl />
-        </div>
-
-        {/* Active delivery */}
-        <AnimatePresence>
-          {activeDelivery && (
-            <motion.div
-              initial={{ opacity: 0, y: -20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="glass-card p-4 space-y-3 glow-primary"
-            >
-              <div className="flex items-center justify-between">
-                <Badge className="bg-primary/20 text-primary border-0">
-                  Pedido activo
-                </Badge>
-                <span className="text-xs text-muted-foreground">{activeDelivery.order_id}</span>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex items-start gap-2">
-                  <div className="mt-1 h-2 w-2 rounded-full bg-accent shrink-0" />
-                  <div>
-                    <p className="text-xs text-muted-foreground">Recoger en</p>
-                    <p className="text-sm text-foreground">{activeDelivery.pickup_address}</p>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2">
-                  <div className="mt-1 h-2 w-2 rounded-full bg-primary shrink-0" />
-                  <div>
-                    <p className="text-xs text-muted-foreground">Entregar en</p>
-                    <p className="text-sm text-foreground">{activeDelivery.delivery_address}</p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">{activeDelivery.customer_name}</span>
-                <span className="font-semibold text-accent">{formatCurrency(Number(activeDelivery.commission))}</span>
-              </div>
-
-              {activeDelivery.customer_phone && (
-                <a href={`tel:${activeDelivery.customer_phone}`} className="flex items-center gap-2 text-sm text-primary">
-                  <Phone className="h-4 w-4" /> Llamar al cliente
-                </a>
-              )}
-
-              <div className="flex gap-2">
-                {activeDelivery.status === "aceptado" && (
-                  <Button onClick={() => updateDeliveryStatus("en_camino")} className="flex-1 bg-gradient-primary">
-                    <Navigation className="h-4 w-4 mr-2" /> Ya recogí el pedido
-                  </Button>
-                )}
-                {activeDelivery.status === "en_camino" && (
-                  <Button onClick={() => updateDeliveryStatus("entregado")} className="flex-1 bg-gradient-success">
-                    <CheckCircle className="h-4 w-4 mr-2" /> Entrega completada
-                  </Button>
-                )}
-              </div>
-            </motion.div>
+      {/* Tab navigation */}
+      <div className="flex gap-1 mx-4 p-1 bg-muted/50 rounded-2xl">
+        <button
+          onClick={() => setActiveTab("orders")}
+          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+            activeTab === "orders"
+              ? "bg-card text-foreground shadow-sm"
+              : "text-muted-foreground"
+          }`}
+        >
+          <Package className="h-4 w-4" />
+          Pedidos
+          {pendingOrders.length > 0 && (
+            <span className="h-5 min-w-[20px] px-1 rounded-full bg-warning text-warning-foreground text-[10px] font-bold flex items-center justify-center">
+              {pendingOrders.length}
+            </span>
           )}
-        </AnimatePresence>
+        </button>
+        <button
+          onClick={() => setActiveTab("history")}
+          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+            activeTab === "history"
+              ? "bg-card text-foreground shadow-sm"
+              : "text-muted-foreground"
+          }`}
+        >
+          <History className="h-4 w-4" />
+          Historial
+        </button>
+      </div>
 
-        {/* Pending orders */}
-        {!activeDelivery && (
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-8">
+        {activeTab === "orders" && (
           <>
-            <h2 className="text-lg font-semibold text-foreground">
-              Pedidos disponibles
-              {pendingOrders.length > 0 && (
-                <Badge className="ml-2 bg-warning/20 text-warning border-0">{pendingOrders.length}</Badge>
-              )}
-            </h2>
+            {/* GPS reminder if not tracking */}
+            {!isTracking && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex items-center gap-3 p-3 rounded-xl bg-warning/10 border border-warning/20"
+              >
+                <Navigation className="h-5 w-5 text-warning shrink-0" />
+                <div className="flex-1">
+                  <p className="text-xs font-semibold text-foreground">GPS desactivado</p>
+                  <p className="text-[10px] text-muted-foreground">Actívalo para recibir pedidos cercanos</p>
+                </div>
+                <Button size="sm" variant="outline" onClick={startTracking} className="text-xs h-8 rounded-lg border-warning/30 text-warning">
+                  Activar
+                </Button>
+              </motion.div>
+            )}
 
             {pendingOrders.length === 0 ? (
-              <div className="text-center py-12">
-                <Package className="h-12 w-12 text-muted-foreground mx-auto mb-3" />
-                <p className="text-muted-foreground">No hay pedidos disponibles</p>
-                <p className="text-xs text-muted-foreground mt-1">Te notificaremos cuando llegue uno</p>
+              <div className="text-center py-16">
+                <div className="h-20 w-20 rounded-full bg-muted/50 flex items-center justify-center mx-auto mb-4">
+                  <Package className="h-10 w-10 text-muted-foreground/40" />
+                </div>
+                <p className="text-base font-semibold text-muted-foreground">No hay pedidos disponibles</p>
+                <p className="text-xs text-muted-foreground/60 mt-1">Te notificaremos cuando llegue uno nuevo</p>
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-4">
                 <AnimatePresence>
                   {pendingOrders.map((order) => (
-                    <motion.div
+                    <OrderCard
                       key={order.id}
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.95 }}
-                      className="glass-card p-4 space-y-3"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-medium text-primary">{order.order_id}</span>
-                        <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                          <Clock className="h-3 w-3" />
-                          {order.estimated_time ?? "?"} min
-                        </div>
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <div className="flex items-center gap-2 text-sm">
-                          <MapPin className="h-3.5 w-3.5 text-accent shrink-0" />
-                          <span className="text-foreground truncate">{order.pickup_address}</span>
-                        </div>
-                        <div className="flex items-center gap-2 text-sm">
-                          <MapPin className="h-3.5 w-3.5 text-primary shrink-0" />
-                          <span className="text-foreground truncate">{order.delivery_address}</span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-muted-foreground">{order.customer_name}</span>
-                        <div className="flex items-center gap-1">
-                          <DollarSign className="h-3.5 w-3.5 text-accent" />
-                          <span className="text-sm font-semibold text-accent">{formatCurrency(Number(order.commission))}</span>
-                        </div>
-                      </div>
-
-                      <SwipeToAccept
-                        onAccept={() => acceptOrder(order)}
-                        onReject={() => rejectOrder(order)}
-                      />
-                    </motion.div>
+                      order={order}
+                      onAccept={() => acceptOrder(order)}
+                      onReject={() => rejectOrder(order)}
+                    />
                   ))}
                 </AnimatePresence>
               </div>
             )}
           </>
         )}
+
+        {activeTab === "history" && <DeliveryHistory />}
       </div>
     </div>
   );

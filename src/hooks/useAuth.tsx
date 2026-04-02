@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, useRef, ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { User, Session } from "@supabase/supabase-js";
 
@@ -27,46 +27,62 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [session, setSession] = useState<Session | null>(null);
   const [role, setRole] = useState<AppRole>(null);
   const [loading, setLoading] = useState(true);
+  const mounted = useRef(true);
 
-  const fetchRole = async (userId: string): Promise<AppRole> => {
-    const { data } = await supabase
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", userId)
-      .maybeSingle();
-    const fetchedRole = (data?.role as AppRole) ?? null;
-    setRole(fetchedRole);
-    return fetchedRole;
+  const fetchRole = async (userId: string) => {
+    try {
+      const { data, error } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (error) {
+        console.error("[useAuth] fetchRole error:", error.message);
+        return null;
+      }
+      return (data?.role as AppRole) ?? null;
+    } catch (e) {
+      console.error("[useAuth] fetchRole exception:", e);
+      return null;
+    }
   };
 
   useEffect(() => {
-    let isMounted = true;
+    mounted.current = true;
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        if (!isMounted) return;
-        // 🔑 Poner loading=true mientras se resuelve el rol
-        // Esto evita que ProtectedRoute vea role=null antes de que se cargue
+      async (event, newSession) => {
+        if (!mounted.current) return;
+        
+        console.log("[useAuth] event:", event, "user:", newSession?.user?.email ?? "none");
+
+        // Start loading if we have a session to verify role
         setLoading(true);
-        setSession(session);
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          await fetchRole(session.user.id);
+        setSession(newSession);
+        setUser(newSession?.user ?? null);
+
+        if (newSession?.user) {
+          const r = await fetchRole(newSession.user.id);
+          if (mounted.current) setRole(r);
         } else {
           setRole(null);
         }
-        if (isMounted) setLoading(false);
+
+        if (mounted.current) setLoading(false);
       }
     );
 
-    // Failsafe: never leave loading stuck
-    const timeout = setTimeout(() => {
-      if (isMounted) setLoading(false);
-    }, 5000);
+    // Failsafe: ensure loading doesn't get stuck forever
+    const failsafe = setTimeout(() => {
+      if (mounted.current && loading) {
+        console.warn("[useAuth] Loading failsafe triggered");
+        setLoading(false);
+      }
+    }, 8000);
 
     return () => {
-      isMounted = false;
-      clearTimeout(timeout);
+      mounted.current = false;
+      clearTimeout(failsafe);
       subscription.unsubscribe();
     };
   }, []);
