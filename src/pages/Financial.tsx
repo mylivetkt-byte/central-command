@@ -41,7 +41,7 @@ const Financial = () => {
   const driverEarnings = deliveries.reduce((acc: Record<string, any>, d: any) => {
     if (d.driver_id) {
       if (!acc[d.driver_id]) {
-        const driverName = drivers.find((dr: any) => dr.id === d.driver_id)?.user?.full_name || "Desconocido";
+        const driverName = drivers.find((dr: any) => dr.id === d.driver_id)?.profiles?.full_name || "Desconocido";
         acc[d.driver_id] = { id: d.driver_id, name: driverName, ganancia: 0, comision: 0, deliveries: 0 };
       }
       acc[d.driver_id].ganancia += Number(d.amount || 0);
