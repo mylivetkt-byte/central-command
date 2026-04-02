@@ -91,7 +91,6 @@ const Dispatch = () => {
         commission: parseFloat(formData.commission) || 0,
         estimated_time: parseInt(formData.estimated_time) || 30,
         zone: formData.zone || null,
-        notes: formData.notes || null,
         status: "pendiente",
       });
       if (error) throw error;
