@@ -5,7 +5,9 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
+import L from "leaflet";
+import { useDriverLocation } from "@/hooks/useDriverLocation";
 
 interface ActiveDeliveryProps {
   delivery: {
@@ -36,11 +38,114 @@ const ActiveDeliveryView = ({ delivery, onPickedUp, onDelivered }: ActiveDeliver
   const [expanded, setExpanded] = useState(true);
   const isPickingUp = delivery.status === "aceptado";
   const isOnTheWay = delivery.status === "en_camino";
+  const { currentLocation } = useDriverLocation();
+  
+  const mapContainerRef = useRef<HTMLDivElement>(null);
+  const mapRef = useRef<L.Map | null>(null);
+  const driverMarkerRef = useRef<L.Marker | null>(null);
 
   const currentDestination = isPickingUp ? delivery.pickup_address : delivery.delivery_address;
   const currentLabel = isPickingUp ? "Recoger pedido en" : "Entregar pedido en";
   const currentLat = isPickingUp ? delivery.pickup_lat : delivery.delivery_lat;
   const currentLng = isPickingUp ? delivery.pickup_lng : delivery.delivery_lng;
+
+  useEffect(() => {
+    if (!mapContainerRef.current || mapRef.current) return;
+
+    mapRef.current = L.map(mapContainerRef.current, {
+      zoomControl: false,
+      attributionControl: false,
+    });
+
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+    }).addTo(mapRef.current);
+
+    return () => {
+      if (mapRef.current) {
+        mapRef.current.remove();
+        mapRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!mapRef.current) return;
+    const map = mapRef.current;
+
+    map.eachLayer((layer) => {
+      if (layer instanceof L.Marker && layer !== driverMarkerRef.current) {
+        map.removeLayer(layer);
+      }
+    });
+    map.eachLayer((layer) => {
+      if (layer instanceof L.Polyline) {
+        map.removeLayer(layer);
+      }
+    });
+
+    const bounds: L.LatLngBoundsExpression = [];
+    let hasPickup = false;
+    let hasDelivery = false;
+
+    if (delivery.pickup_lat && delivery.pickup_lng) {
+      const pickupIcon = L.divIcon({
+        className: 'custom-marker',
+        html: '<div style="width:28px;height:28px;background:#22c55e;border-radius:50%;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;"><div style="width:10px;height:10px;background:white;border-radius:50%;"></div></div>',
+        iconSize: [28, 28],
+        iconAnchor: [14, 14],
+      });
+      L.marker([delivery.pickup_lat, delivery.pickup_lng], { icon: pickupIcon }).addTo(map);
+      bounds.push([delivery.pickup_lat, delivery.pickup_lng]);
+      hasPickup = true;
+    }
+
+    if (delivery.delivery_lat && delivery.delivery_lng) {
+      const deliveryIcon = L.divIcon({
+        className: 'custom-marker',
+        html: '<div style="width:28px;height:28px;background:#3b82f6;border-radius:50%;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;"><div style="width:10px;height:10px;background:white;border-radius:50%;"></div></div>',
+        iconSize: [28, 28],
+        iconAnchor: [14, 14],
+      });
+      L.marker([delivery.delivery_lat, delivery.delivery_lng], { icon: deliveryIcon }).addTo(map);
+      bounds.push([delivery.delivery_lat, delivery.delivery_lng]);
+      hasDelivery = true;
+    }
+
+    if (hasPickup && hasDelivery) {
+      L.polyline(
+        [
+          [delivery.pickup_lat!, delivery.pickup_lng!],
+          [delivery.delivery_lat!, delivery.delivery_lng!],
+        ],
+        { color: '#22c55e', weight: 4, opacity: 0.8, dashArray: '10, 10' }
+      ).addTo(map);
+    }
+
+    if (bounds.length > 0) {
+      map.fitBounds(bounds, { padding: [50, 50] });
+    }
+  }, [delivery.pickup_lat, delivery.pickup_lng, delivery.delivery_lat, delivery.delivery_lng]);
+
+  useEffect(() => {
+    if (!mapRef.current) return;
+    const map = mapRef.current;
+
+    if (driverMarkerRef.current) {
+      map.removeLayer(driverMarkerRef.current);
+      driverMarkerRef.current = null;
+    }
+
+    if (currentLocation) {
+      const driverIcon = L.divIcon({
+        className: 'custom-marker driver',
+        html: '<div style="width:24px;height:24px;background:#f59e0b;border-radius:50%;border:3px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" width="14px"><path d="M12 2L4 12l8 10 8-10L12 2zm0 3.5l4.5 7.5-4.5 5.5-4.5-5.5L12 5.5z"/></svg></div>',
+        iconSize: [24, 24],
+        iconAnchor: [12, 12],
+      });
+      driverMarkerRef.current = L.marker([currentLocation.lat, currentLocation.lng], { icon: driverIcon }).addTo(map);
+    }
+  }, [currentLocation]);
 
   const openInMaps = () => {
     if (currentLat && currentLng) {
@@ -57,53 +162,9 @@ const ActiveDeliveryView = ({ delivery, onPickedUp, onDelivered }: ActiveDeliver
       className="flex flex-col h-full"
     >
       {/* Map Area - takes most of the screen */}
-      <div className="flex-1 relative bg-gradient-to-br from-secondary via-muted to-secondary min-h-[40vh]">
-        {/* Simulated map with route visualization */}
-        <div className="absolute inset-0 overflow-hidden">
-          {/* Grid pattern to simulate map */}
-          <div className="absolute inset-0 opacity-10"
-            style={{
-              backgroundImage: `linear-gradient(hsl(var(--border)) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--border)) 1px, transparent 1px)`,
-              backgroundSize: '40px 40px'
-            }}
-          />
-          
-          {/* Route visualization */}
-          <svg className="absolute inset-0 w-full h-full" viewBox="0 0 400 400">
-            <defs>
-              <linearGradient id="routeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="hsl(var(--accent))" />
-                <stop offset="100%" stopColor="hsl(var(--primary))" />
-              </linearGradient>
-            </defs>
-            <path
-              d="M 80 80 Q 120 150 200 200 Q 280 250 320 320"
-              fill="none"
-              stroke="url(#routeGradient)"
-              strokeWidth="5"
-              strokeLinecap="round"
-              strokeDasharray={isPickingUp ? "0" : "12 6"}
-            />
-            {/* Pickup point */}
-            <circle cx="80" cy="80" r="10" fill="hsl(var(--accent))" />
-            <circle cx="80" cy="80" r="5" fill="hsl(var(--accent-foreground))" />
-            {/* Delivery point */}
-            <circle cx="320" cy="320" r="10" fill="hsl(var(--primary))" />
-            <circle cx="320" cy="320" r="5" fill="hsl(var(--primary-foreground))" />
-            {/* Moving driver dot */}
-            <motion.circle
-              cx={isPickingUp ? 80 : 200}
-              cy={isPickingUp ? 80 : 200}
-              r="8"
-              fill="hsl(var(--warning))"
-              animate={{
-                cx: isPickingUp ? [60, 80, 100, 80] : [180, 200, 220, 200],
-                cy: isPickingUp ? [60, 80, 100, 80] : [180, 200, 220, 200],
-              }}
-              transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
-            />
-          </svg>
-        </div>
+      <div className="flex-1 relative bg-muted min-h-[40vh]">
+        {/* Real map */}
+        <div ref={mapContainerRef} className="absolute inset-0" />
 
         {/* ETA Badge */}
         <div className="absolute top-4 left-4">
@@ -186,7 +247,7 @@ const ActiveDeliveryView = ({ delivery, onPickedUp, onDelivered }: ActiveDeliver
                 </div>
 
                 {/* Customer & payment info */}
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between p-3 rounded-xl bg-accent/10 border border-accent/20">
                   <div className="flex items-center gap-2">
                     <div className="h-9 w-9 rounded-full bg-muted flex items-center justify-center">
                       <User className="h-4 w-4 text-muted-foreground" />
@@ -196,9 +257,15 @@ const ActiveDeliveryView = ({ delivery, onPickedUp, onDelivered }: ActiveDeliver
                       <p className="text-[10px] text-muted-foreground">#{delivery.order_id}</p>
                     </div>
                   </div>
-                  <div className="text-right">
-                    <p className="text-lg font-extrabold text-accent">{formatCurrency(Number(delivery.commission))}</p>
-                    <p className="text-[10px] text-muted-foreground">Comisión</p>
+                  <div className="flex items-center gap-4">
+                    <div className="text-right">
+                      <p className="text-lg font-extrabold text-foreground">{formatCurrency(Number(delivery.amount))}</p>
+                      <p className="text-[10px] text-muted-foreground">Cliente paga</p>
+                    </div>
+                    <div className="text-right border-l border-accent/30 pl-4">
+                      <p className="text-lg font-extrabold text-accent">{formatCurrency(Number(delivery.commission))}</p>
+                      <p className="text-[10px] text-muted-foreground">Tu ganancia</p>
+                    </div>
                   </div>
                 </div>
 

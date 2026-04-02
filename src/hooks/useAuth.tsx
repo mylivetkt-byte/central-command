@@ -50,48 +50,39 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     mounted.current = true;
 
-    // 1. Get initial session first
-    supabase.auth.getSession().then(async ({ data: { session: initSession } }) => {
-      if (!mounted.current) return;
-      setSession(initSession);
-      setUser(initSession?.user ?? null);
-
-      if (initSession?.user) {
-        const r = await fetchRole(initSession.user.id);
-        if (mounted.current) setRole(r);
-      }
-      if (mounted.current) setLoading(false);
-    });
-
-    // 2. Listen for future auth changes (don't await inside callback)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, newSession) => {
+      async (event, newSession) => {
         if (!mounted.current) return;
+        
         console.log("[useAuth] event:", event, "user:", newSession?.user?.email ?? "none");
 
+        // Start loading if we have a session to verify role
+        setLoading(true);
         setSession(newSession);
         setUser(newSession?.user ?? null);
 
         if (newSession?.user) {
-          // Use setTimeout to avoid deadlock when called from within auth callback
-          setTimeout(async () => {
-            if (!mounted.current) return;
-            setLoading(true);
-            const r = await fetchRole(newSession.user.id);
-            if (mounted.current) {
-              setRole(r);
-              setLoading(false);
-            }
-          }, 0);
+          const r = await fetchRole(newSession.user.id);
+          if (mounted.current) setRole(r);
         } else {
           setRole(null);
-          setLoading(false);
         }
+
+        if (mounted.current) setLoading(false);
       }
     );
 
+    // Failsafe: ensure loading doesn't get stuck forever
+    const failsafe = setTimeout(() => {
+      if (mounted.current && loading) {
+        console.warn("[useAuth] Loading failsafe triggered");
+        setLoading(false);
+      }
+    }, 8000);
+
     return () => {
       mounted.current = false;
+      clearTimeout(failsafe);
       subscription.unsubscribe();
     };
   }, []);
