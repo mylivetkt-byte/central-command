@@ -41,7 +41,7 @@ const DriverLogin = () => {
     setError("");
 
     if (isSignUp) {
-      const { error: signUpError } = await supabase.auth.signUp({
+      const { data, error: signUpError } = await supabase.auth.signUp({
         email,
         password,
         options: {
@@ -51,8 +51,13 @@ const DriverLogin = () => {
       });
       if (signUpError) {
         setError(signUpError.message);
+      } else if (data.user && data.session) {
+        // Email confirm desactivado — entra directo
+        toast.success("¡Cuenta creada! Bienvenido.");
+        navigate("/driver");
       } else {
-        toast.success("¡Cuenta creada! Ya puedes iniciar sesión.");
+        // Email confirm activado — pide confirmar correo
+        toast.success("Registro exitoso. Revisa tu correo para confirmar tu cuenta antes de entrar.");
         setIsSignUp(false);
       }
     } else {
@@ -61,7 +66,13 @@ const DriverLogin = () => {
         password,
       });
       if (signInError) {
-        setError(signInError.message);
+        if (signInError.message.includes("Email not confirmed")) {
+          setError("Debes confirmar tu correo antes de entrar. Revisa tu bandeja de entrada.");
+        } else if (signInError.message.includes("Invalid login credentials")) {
+          setError("Correo o contraseña incorrectos.");
+        } else {
+          setError(signInError.message);
+        }
       } else if (data.user) {
         const { data: roleData } = await supabase
           .from("user_roles")
@@ -71,7 +82,7 @@ const DriverLogin = () => {
 
         if (roleData?.role !== "driver") {
           await supabase.auth.signOut();
-          setError("No tienes cuenta de mensajero");
+          setError("No tienes cuenta de mensajero. Si eres administrador, entra por el panel de admin.");
         } else {
           navigate("/driver");
         }
