@@ -16,8 +16,8 @@ import DeliveryHistory from "@/components/driver/DeliveryHistory";
 interface DeliveryOrder {
   id: string;
   order_id: string;
-  customer_name: string;
-  customer_phone: string | null;
+  customer_name?: string;
+  customer_phone?: string | null;
   pickup_address: string;
   delivery_address: string;
   amount: number;
@@ -25,10 +25,10 @@ interface DeliveryOrder {
   estimated_time: number | null;
   status: string;
   zone: string | null;
-  pickup_lat: number | null;
-  pickup_lng: number | null;
-  delivery_lat: number | null;
-  delivery_lng: number | null;
+  pickup_lat?: number | null;
+  pickup_lng?: number | null;
+  delivery_lat?: number | null;
+  delivery_lng?: number | null;
 }
 
 type Tab = "orders" | "history";
@@ -50,16 +50,16 @@ const DriverApp = () => {
     if (!user) return;
 
     const fetchPending = async () => {
+      // Usa la vista restringida — no expone customer_phone ni coordenadas exactas
       const { data } = await supabase
-        .from("deliveries")
+        .from("available_deliveries")
         .select("*")
-        .eq("status", "pendiente")
         .order("created_at", { ascending: false });
 
       if (data && data.length > (pendingOrders?.length ?? 0)) {
         notificationSound.current?.play().catch(() => {});
       }
-      setPendingOrders(data || []);
+      setPendingOrders((data as DeliveryOrder[]) || []);
     };
 
     const fetchActive = async () => {
@@ -94,28 +94,23 @@ const DriverApp = () => {
 
   const acceptOrder = async (delivery: DeliveryOrder) => {
     if (!user) return;
-    const { error } = await supabase
-      .from("deliveries")
-      .update({
-        driver_id: user.id,
-        status: "aceptado" as any,
-        accepted_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", delivery.id)
-      .eq("status", "pendiente");
 
-    if (error) {
-      toast.error("No se pudo aceptar el pedido");
-    } else {
-      toast.success("¡Pedido aceptado!");
-      await supabase.from("delivery_audit_log").insert({
-        delivery_id: delivery.id,
-        event: "Pedido aceptado",
-        details: `Aceptado por mensajero`,
-        performed_by: user.id,
-      });
+    // Usa la función segura del servidor — atómica y con validación de rol
+    const { data, error } = await supabase
+      .rpc("claim_delivery", { p_delivery_id: delivery.id });
+
+    if (error || !data?.ok) {
+      toast.error(data?.error || "No se pudo tomar el pedido");
+      return;
     }
+
+    toast.success("¡Pedido tomado! Ya es tuyo.");
+    await supabase.from("delivery_audit_log").insert({
+      delivery_id: delivery.id,
+      event: "Pedido aceptado",
+      details: "Aceptado por mensajero",
+      performed_by: user.id,
+    });
   };
 
   const rejectOrder = (delivery: DeliveryOrder) => {
