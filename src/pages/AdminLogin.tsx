@@ -18,14 +18,14 @@ const AdminLogin = () => {
   const [resetSent, setResetSent] = useState(false);
   const [fullName, setFullName] = useState("");
   const navigate = useNavigate();
-  const { user, role } = useAuth(); // NEW: pull global auth state
+  const { user, role, loading: authLoading } = useAuth();
 
-  // If the global state detects an admin session, push them in!
+  // Redirect as soon as useAuth confirms admin role
   useEffect(() => {
-    if (user && role === "admin") {
-      navigate("/");
+    if (!authLoading && user && role === "admin") {
+      navigate("/", { replace: true });
     }
-  }, [user, role, navigate]);
+  }, [user, role, authLoading, navigate]);
 
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -50,6 +50,7 @@ const AdminLogin = () => {
 
     try {
       if (isSignUp) {
+        // Register new admin
         const { error: signUpError } = await supabase.auth.signUp({
           email,
           password,
@@ -65,47 +66,39 @@ const AdminLogin = () => {
           setIsSignUp(false);
         }
       } else {
-        toast.info("1/3 Iniciando autenticación...");
-        const { data, error: signInError } = await supabase.auth.signInWithPassword({
+        // Sign in — useAuth will pick up the session via onAuthStateChange
+        // and handle role resolution + redirect automatically
+        const { error: signInError } = await supabase.auth.signInWithPassword({
           email,
           password,
         });
-        
-        if (signInError) {
-          toast.error("Error en login: " + signInError.message);
-          setError(signInError.message);
-        } else if (data?.user) {
-          toast.info("2/3 Autenticado. Verificando rol de administrador...");
-          const { data: roleData, error: roleError } = await supabase
-            .from("user_roles")
-            .select("role")
-            .eq("user_id", data.user.id)
-            .maybeSingle();
 
-          if (roleError) {
-            toast.error("Error de DB: " + roleError.message);
-            console.error(roleError);
-            setError("Error al verificar permisos: " + roleError.message);
-          } else if (roleData?.role !== "admin") {
-            toast.warning("Permiso denegado. Cerrando sesión...");
-            await supabase.auth.signOut();
-            setError("No tienes permisos de administrador");
-          } else {
-            toast.success("3/3 Redirigiendo al panel...");
-            setTimeout(() => navigate("/"), 500); // Pequeño retraso para ver el toast
-          }
-        } else {
-          toast.error("Respuesta vacía del servidor.");
-          setError("No se recibió respuesta válida del servidor.");
+        if (signInError) {
+          toast.error("Error al iniciar sesión: " + signInError.message);
+          setError(signInError.message);
         }
+        // ✅ No manual navigate() here — useAuth useEffect handles the redirect
+        // once role is confirmed as "admin"
       }
     } catch (err: any) {
-      console.error(err);
-      setError("Ocurrió un error inesperado al iniciar sesión: " + (err?.message || err));
+      console.error("[AdminLogin] unexpected error:", err);
+      setError("Error inesperado: " + (err?.message || String(err)));
     } finally {
       setLoading(false);
     }
   };
+
+  // Show spinner while auth is resolving after submit
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center space-y-3">
+          <div className="h-10 w-10 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-sm text-muted-foreground">Verificando sesión...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
@@ -237,7 +230,7 @@ const AdminLogin = () => {
                 )}
 
                 <Button type="submit" className="w-full bg-gradient-primary" disabled={loading}>
-                  {loading ? "Cargando..." : isSignUp ? "Crear cuenta" : "Iniciar sesión"}
+                  {loading ? "Iniciando sesión..." : isSignUp ? "Crear cuenta" : "Iniciar sesión"}
                 </Button>
               </form>
 

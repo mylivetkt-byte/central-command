@@ -29,35 +29,32 @@ const Drivers = () => {
     password: "",
     phone: "",
     zone: "",
-    vehicle_type: ""
   });
   
   const queryClient = useQueryClient();
 
   // Cargar repartidores reales desde Supabase
-  const { data: drivers = [], isLoading } = useQuery({
+  const { data: drivers = [], isLoading, error: driversError } = useQuery({
     queryKey: ["drivers"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      // Step 1: load all driver_profiles
+      const { data: dps, error: dpError } = await supabase
         .from("driver_profiles")
-        .select(`
-          id,
-          status,
-          total_deliveries,
-          rating,
-          acceptance_rate,
-          cancellation_rate,
-          current_load,
-          zone,
-          vehicle_type,
-          phone,
-          profiles (
-            full_name,
-            email
-          )
-        `) as any;
-      if (error) throw error;
-      return (data as any) || [];
+        .select("id, status, total_deliveries, rating, acceptance_rate, cancellation_rate, current_load, zone");
+      if (dpError) throw dpError;
+      if (!dps || dps.length === 0) return [];
+
+      // Step 2: load the corresponding profiles (name, email, phone)
+      const ids = dps.map((d) => d.id);
+      const { data: profs, error: profError } = await supabase
+        .from("profiles")
+        .select("id, full_name, phone")
+        .in("id", ids);
+      if (profError) throw profError;
+
+      // Step 3: merge
+      const profileMap = Object.fromEntries((profs || []).map((p) => [p.id, p]));
+      return dps.map((d) => ({ ...d, profile: profileMap[d.id] ?? null }));
     },
   });
 
@@ -96,54 +93,57 @@ const Drivers = () => {
   const saveDriver = useMutation({
     mutationFn: async (data: typeof formData) => {
       if (isEditing) {
-        // Edit existing
         const { error: profileError } = await supabase
           .from("profiles")
-          .update({
-            full_name: data.full_name,
-            phone: data.phone,
-          })
+          .update({ full_name: data.full_name, phone: data.phone })
           .eq("id", editingDriver.id);
         if (profileError) throw profileError;
 
         const { error: driverError } = await supabase
           .from("driver_profiles")
-          .update({
-            zone: data.zone,
-            vehicle_type: data.vehicle_type,
-          })
+          .update({ zone: data.zone })
           .eq("id", editingDriver.id);
         if (driverError) throw driverError;
       } else {
-        // Create new
-        // Use a temporary client that doesn't persist the session, so the admin doesn't logged out
+        // Use a secondary client so admin session is NOT overwritten
         const tempClient = createClient(
           import.meta.env.VITE_SUPABASE_URL,
           import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
           { auth: { persistSession: false, autoRefreshToken: false } }
         );
 
-        const { error: signUpError } = await tempClient.auth.signUp({
+        const { data: signUpData, error: signUpError } = await tempClient.auth.signUp({
           email: data.email,
           password: data.password,
           options: {
-            data: {
-              full_name: data.full_name,
-              phone: data.phone,
-              role: "driver"
-            }
-          }
+            data: { full_name: data.full_name, phone: data.phone, role: "driver" },
+          },
         });
-        
+
         if (signUpError) throw signUpError;
+
+        // If email confirmation is enabled, the user exists but identities may be empty.
+        // The trigger handle_new_user_role still fires and creates driver_profiles.
+        // We show a helpful message instead of silently succeeding.
+        const needsConfirmation =
+          signUpData?.user && signUpData.user.identities?.length === 0;
+        if (needsConfirmation) {
+          throw new Error(
+            "El correo ya está registrado o requiere confirmación. Revisa la bandeja de entrada del repartidor."
+          );
+        }
       }
     },
     onSuccess: () => {
-      toast.success(isEditing ? "Conductor actualizado" : "Conductor creado correctamente");
+      toast.success(
+        isEditing
+          ? "Conductor actualizado correctamente"
+          : "Conductor creado. Si Supabase pide confirmación de email, el repartidor debe confirmar antes de entrar."
+      );
       setShowForm(false);
       setIsEditing(false);
       setEditingDriver(null);
-      setFormData({ full_name: "", email: "", password: "", phone: "", zone: "", vehicle_type: "" });
+      setFormData({ full_name: "", email: "", password: "", phone: "", zone: "" });
       queryClient.invalidateQueries({ queryKey: ["drivers"] });
     },
     onError: (err: any) => toast.error(`Error: ${err.message}`),
@@ -170,8 +170,8 @@ const Drivers = () => {
   });
 
   const filtered = drivers.filter((d: any) =>
-    (d.profiles?.full_name || "").toLowerCase().includes(search.toLowerCase()) ||
-    (d.phone || "").includes(search)
+    (d.profile?.full_name || "").toLowerCase().includes(search.toLowerCase()) ||
+    (d.profile?.phone || "").includes(search)
   );
 
   const selectedDriver = drivers.find((d: any) => d.id === selected);
@@ -187,6 +187,7 @@ const Drivers = () => {
             <h1 className="text-2xl font-bold text-foreground">Gestión de Repartidores</h1>
             <p className="text-sm text-muted-foreground">
               Perfiles reales, métricas y acciones de administración ({drivers.length} registrados)
+              {driversError && <span className="text-destructive ml-2">Error al cargar: {(driversError as any).message}</span>}
             </p>
           </div>
           <div className="flex gap-2">
@@ -197,8 +198,7 @@ const Drivers = () => {
               <RefreshCw className="h-3.5 w-3.5" /> Actualizar
             </button>
             <button
-              onClick={() => {
-                setFormData({ full_name: "", email: "", password: "", phone: "", zone: "", vehicle_type: "" });
+              onClick={() => { setFormData({ full_name: "", email: "", password: "", phone: "", zone: "" });
                 setIsEditing(false);
                 setShowForm(true);
               }}
@@ -245,10 +245,6 @@ const Drivers = () => {
                   <div className="space-y-1">
                     <label className="text-xs text-muted-foreground font-medium">Zona Asignada</label>
                     <input value={formData.zone} onChange={e => setFormData(p => ({ ...p, zone: e.target.value }))} placeholder="Ej: Norte" className="w-full rounded-lg bg-muted/50 border border-border/50 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-xs text-muted-foreground font-medium">Tipo de Vehículo</label>
-                    <input value={formData.vehicle_type} onChange={e => setFormData(p => ({ ...p, vehicle_type: e.target.value }))} placeholder="Ej: Moto" className="w-full rounded-lg bg-muted/50 border border-border/50 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
                   </div>
                 </div>
                 <div className="flex justify-end gap-3 mt-6">
@@ -299,11 +295,11 @@ const Drivers = () => {
                   >
                     <div className="flex items-center gap-3">
                       <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/20 text-sm font-bold text-primary shrink-0">
-                        {getInitials(d.profiles?.full_name || "?")}
+                        {getInitials(d.profile?.full_name || "?")}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-foreground truncate">
-                          {d.profiles?.full_name || "Sin nombre"}
+                          {d.profile?.full_name || "Sin nombre"}
                         </p>
                         <p className="text-xs text-muted-foreground">
                           {d.zone || "Sin zona"} · {d.total_deliveries || 0} entregas
@@ -329,18 +325,15 @@ const Drivers = () => {
                   <div className="glass-card p-6">
                     <div className="flex items-center gap-4 mb-6">
                       <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/20 text-xl font-bold text-primary">
-                        {getInitials(selectedDriver.profiles?.full_name || "?")}
+                        {getInitials(selectedDriver.profile?.full_name || "?")}
                       </div>
                       <div className="flex-1">
                         <h2 className="text-lg font-bold text-foreground">
-                          {selectedDriver.profiles?.full_name || "Sin nombre"}
+                          {selectedDriver.profile?.full_name || "Sin nombre"}
                         </h2>
-                        <p className="text-sm text-muted-foreground mb-1">
-                          {selectedDriver.profiles?.email || "-"}
-                        </p>
-                        {selectedDriver.phone && (
-                          <a href={`tel:${selectedDriver.phone}`} className="inline-flex items-center justify-center gap-1 rounded bg-muted/50 px-2 py-0.5 text-xs text-primary">
-                            <Phone className="h-3 w-3" /> {selectedDriver.phone}
+                        {selectedDriver.profile?.phone && (
+                          <a href={`tel:${selectedDriver.profile.phone}`} className="inline-flex items-center justify-center gap-1 rounded bg-muted/50 px-2 py-0.5 text-xs text-primary">
+                            <Phone className="h-3 w-3" /> {selectedDriver.profile.phone}
                           </a>
                         )}
                         <div className="flex items-center gap-2 mt-1">
@@ -373,12 +366,11 @@ const Drivers = () => {
                         <button
                           onClick={() => {
                             setFormData({
-                              full_name: selectedDriver.profiles?.full_name || "",
-                              email: selectedDriver.profiles?.email || "",
+                              full_name: selectedDriver.profile?.full_name || "",
+                              email: "",
                               password: "",
-                              phone: selectedDriver.phone || "",
+                              phone: selectedDriver.profile?.phone || "",
                               zone: selectedDriver.zone || "",
-                              vehicle_type: selectedDriver.vehicle_type || ""
                             });
                             setEditingDriver(selectedDriver);
                             setIsEditing(true);
@@ -410,7 +402,6 @@ const Drivers = () => {
                         { label: "Cancelación", value: `${selectedDriver.cancellation_rate || 0}%` },
                         { label: "Carga Actual", value: `${selectedDriver.current_load || 0} pedidos` },
                         { label: "Zona", value: selectedDriver.zone || "Sin zona" },
-                        { label: "Vehículo", value: selectedDriver.vehicle_type || "N/A" },
                         { label: "Estado", value: selectedDriver.status || "inactivo" },
                       ].map((m) => (
                         <div key={m.label} className="rounded-lg bg-muted/30 p-3">

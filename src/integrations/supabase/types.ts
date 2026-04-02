@@ -196,6 +196,7 @@ export type Database = {
           status: Database["public"]["Enums"]["driver_status"]
           total_deliveries: number
           updated_at: string
+          vehicle_type: string | null
           zone: string | null
         }
         Insert: {
@@ -209,6 +210,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["driver_status"]
           total_deliveries?: number
           updated_at?: string
+          vehicle_type?: string | null
           zone?: string | null
         }
         Update: {
@@ -222,6 +224,7 @@ export type Database = {
           status?: Database["public"]["Enums"]["driver_status"]
           total_deliveries?: number
           updated_at?: string
+          vehicle_type?: string | null
           zone?: string | null
         }
         Relationships: []

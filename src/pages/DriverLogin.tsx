@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,6 +19,14 @@ const DriverLogin = () => {
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
   const navigate = useNavigate();
+  const { user, role, loading: authLoading } = useAuth();
+
+  // Redirect as soon as useAuth confirms driver role
+  useEffect(() => {
+    if (!authLoading && user && role === "driver") {
+      navigate("/driver", { replace: true });
+    }
+  }, [user, role, authLoading, navigate]);
 
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -40,45 +49,54 @@ const DriverLogin = () => {
     setLoading(true);
     setError("");
 
-    if (isSignUp) {
-      const { error: signUpError } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          data: { full_name: fullName, phone, role: "driver" },
-          emailRedirectTo: window.location.origin,
-        },
-      });
-      if (signUpError) {
-        setError(signUpError.message);
-      } else {
-        toast.success("¡Cuenta creada! Ya puedes iniciar sesión.");
-        setIsSignUp(false);
-      }
-    } else {
-      const { data, error: signInError } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-      if (signInError) {
-        setError(signInError.message);
-      } else if (data.user) {
-        const { data: roleData } = await supabase
-          .from("user_roles")
-          .select("role")
-          .eq("user_id", data.user.id)
-          .maybeSingle();
-
-        if (roleData?.role !== "driver") {
-          await supabase.auth.signOut();
-          setError("No tienes cuenta de mensajero");
+    try {
+      if (isSignUp) {
+        const { error: signUpError } = await supabase.auth.signUp({
+          email,
+          password,
+          options: {
+            data: { full_name: fullName, phone, role: "driver" },
+            emailRedirectTo: window.location.origin,
+          },
+        });
+        if (signUpError) {
+          setError(signUpError.message);
         } else {
-          navigate("/driver");
+          toast.success("¡Cuenta creada! Ya puedes iniciar sesión.");
+          setIsSignUp(false);
         }
+      } else {
+        // Sign in — useAuth will pick up session via onAuthStateChange
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email,
+          password,
+        });
+
+        if (signInError) {
+          toast.error("Error al iniciar sesión: " + signInError.message);
+          setError(signInError.message);
+        }
+        // ✅ No manual navigate() — useAuth useEffect handles redirect once role="driver"
       }
+    } catch (err: any) {
+      console.error("[DriverLogin] unexpected error:", err);
+      setError("Error inesperado: " + (err?.message || String(err)));
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
+
+  // Show spinner while auth is resolving
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center space-y-3">
+          <div className="h-10 w-10 border-2 border-accent border-t-transparent rounded-full animate-spin mx-auto" />
+          <p className="text-sm text-muted-foreground">Verificando sesión...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
@@ -226,7 +244,7 @@ const DriverLogin = () => {
                 )}
 
                 <Button type="submit" className="w-full bg-gradient-success" disabled={loading}>
-                  {loading ? "Cargando..." : isSignUp ? "Registrarme como mensajero" : "Iniciar sesión"}
+                  {loading ? "Iniciando sesión..." : isSignUp ? "Registrarme como mensajero" : "Iniciar sesión"}
                 </Button>
               </form>
 

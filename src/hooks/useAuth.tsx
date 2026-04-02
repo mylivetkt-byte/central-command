@@ -29,53 +29,73 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [loading, setLoading] = useState(true);
 
   const fetchRole = async (userId: string): Promise<AppRole> => {
-    const { data } = await supabase
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", userId)
-      .maybeSingle();
-    const fetchedRole = (data?.role as AppRole) ?? null;
-    setRole(fetchedRole);
-    return fetchedRole;
+    try {
+      const { data, error } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (error) {
+        console.error("[useAuth] fetchRole error:", error.message);
+        return null;
+      }
+      const r = (data?.role as AppRole) ?? null;
+      setRole(r);
+      return r;
+    } catch (e) {
+      console.error("[useAuth] fetchRole exception:", e);
+      return null;
+    }
   };
 
   useEffect(() => {
     let isMounted = true;
 
+    // onAuthStateChange fires INITIAL_SESSION immediately on mount,
+    // so we don't need a separate getSession() call.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
+      async (event, newSession) => {
         if (!isMounted) return;
-        // 🔑 Poner loading=true mientras se resuelve el rol
-        // Esto evita que ProtectedRoute vea role=null antes de que se cargue
+
+        console.log("[useAuth] event:", event, "user:", newSession?.user?.email ?? "none");
+
+        // Always block navigation until role is resolved
         setLoading(true);
-        setSession(session);
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          await fetchRole(session.user.id);
+        setSession(newSession);
+        setUser(newSession?.user ?? null);
+
+        if (newSession?.user) {
+          await fetchRole(newSession.user.id);
         } else {
           setRole(null);
         }
+
         if (isMounted) setLoading(false);
       }
     );
 
-    // Failsafe: never leave loading stuck
-    const timeout = setTimeout(() => {
-      if (isMounted) setLoading(false);
-    }, 5000);
+    // Safety net: never keep spinner forever (8 seconds max)
+    const failsafe = setTimeout(() => {
+      if (isMounted) {
+        console.warn("[useAuth] failsafe triggered — forcing loading=false");
+        setLoading(false);
+      }
+    }, 8000);
 
     return () => {
       isMounted = false;
-      clearTimeout(timeout);
+      clearTimeout(failsafe);
       subscription.unsubscribe();
     };
   }, []);
 
   const signOut = async () => {
+    setLoading(true);
     await supabase.auth.signOut();
     setUser(null);
     setSession(null);
     setRole(null);
+    setLoading(false);
   };
 
   return (
