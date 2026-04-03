@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { MapPin, Clock, Navigation, DollarSign, ChevronRight } from "lucide-react";
+import { Clock, DollarSign } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useEffect, useRef } from "react";
 import L from "leaflet";
@@ -27,7 +27,7 @@ interface OrderCardProps {
 const formatCurrency = (v: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(v);
 
-const OrderCard = ({ order, onAccept, onReject }: OrderCardProps) => {
+const OrderCardMap = ({ order }: { order: OrderCardProps["order"] }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
 
@@ -63,9 +63,7 @@ const OrderCard = ({ order, onAccept, onReject }: OrderCardProps) => {
       }
     });
 
-    const bounds: L.LatLngBoundsExpression = [];
-    let hasPickup = false;
-    let hasDelivery = false;
+    const bounds: L.LatLngExpression[] = [];
 
     if (order.pickup_lat && order.pickup_lng) {
       const pickupIcon = L.divIcon({
@@ -76,7 +74,6 @@ const OrderCard = ({ order, onAccept, onReject }: OrderCardProps) => {
       });
       L.marker([order.pickup_lat, order.pickup_lng], { icon: pickupIcon }).addTo(map);
       bounds.push([order.pickup_lat, order.pickup_lng]);
-      hasPickup = true;
     }
 
     if (order.delivery_lat && order.delivery_lng) {
@@ -88,24 +85,24 @@ const OrderCard = ({ order, onAccept, onReject }: OrderCardProps) => {
       });
       L.marker([order.delivery_lat, order.delivery_lng], { icon: deliveryIcon }).addTo(map);
       bounds.push([order.delivery_lat, order.delivery_lng]);
-      hasDelivery = true;
     }
 
-    if (hasPickup && hasDelivery) {
+    if (order.pickup_lat && order.pickup_lng && order.delivery_lat && order.delivery_lng) {
       L.polyline(
-        [
-          [order.pickup_lat!, order.pickup_lng!],
-          [order.delivery_lat!, order.delivery_lng!],
-        ],
+        [[order.pickup_lat, order.pickup_lng], [order.delivery_lat, order.delivery_lng]],
         { color: '#6b7280', weight: 2, opacity: 0.6, dashArray: '4, 4' }
       ).addTo(map);
     }
 
     if (bounds.length > 0) {
-      map.fitBounds(bounds, { padding: [20, 20] });
+      map.fitBounds(bounds as L.LatLngBoundsExpression, { padding: [20, 20] });
     }
   }, [order.pickup_lat, order.pickup_lng, order.delivery_lat, order.delivery_lng]);
 
+  return <div ref={mapContainerRef} className="absolute inset-0" />;
+};
+
+const OrderCard = ({ order, onAccept, onReject }: OrderCardProps) => {
   return (
     <motion.div
       initial={{ opacity: 0, y: 30, scale: 0.95 }}
@@ -113,10 +110,8 @@ const OrderCard = ({ order, onAccept, onReject }: OrderCardProps) => {
       exit={{ opacity: 0, y: -20, scale: 0.95 }}
       className="rounded-2xl overflow-hidden border border-border/60 bg-card shadow-xl shadow-black/20"
     >
-      {/* Map preview with real map */}
       <div className="relative h-32 bg-muted overflow-hidden rounded-t-2xl">
-        <div ref={mapContainerRef} className="absolute inset-0" />
-        {/* Overlay info */}
+        <OrderCardMap order={order} />
         <div className="absolute top-3 right-3 bg-card/90 backdrop-blur-md rounded-xl px-3 py-1.5 flex items-center gap-1.5 z-[400]">
           <Clock className="h-3.5 w-3.5 text-warning" />
           <span className="text-sm font-bold text-foreground">{order.estimated_time ?? "?"} min</span>
@@ -126,9 +121,7 @@ const OrderCard = ({ order, onAccept, onReject }: OrderCardProps) => {
         </div>
       </div>
 
-      {/* Content */}
       <div className="p-4 space-y-3">
-        {/* Price prominently */}
         <div className="flex items-center justify-between p-3 rounded-xl bg-accent/10 border border-accent/20">
           <div className="flex items-center gap-2">
             <div className="h-8 w-8 rounded-full bg-accent/20 flex items-center justify-center">
@@ -145,11 +138,8 @@ const OrderCard = ({ order, onAccept, onReject }: OrderCardProps) => {
           </div>
         </div>
 
-        {/* Route */}
         <div className="relative pl-6 space-y-3">
-          {/* Vertical line connector */}
           <div className="absolute left-[9px] top-2 bottom-2 w-[2px] bg-gradient-to-b from-accent to-primary" />
-
           <div className="relative">
             <div className="absolute -left-6 top-0.5 h-4 w-4 rounded-full bg-accent flex items-center justify-center">
               <div className="h-1.5 w-1.5 rounded-full bg-accent-foreground" />
@@ -159,7 +149,6 @@ const OrderCard = ({ order, onAccept, onReject }: OrderCardProps) => {
               <p className="text-sm text-foreground leading-tight">{order.pickup_address}</p>
             </div>
           </div>
-
           <div className="relative">
             <div className="absolute -left-6 top-0.5 h-4 w-4 rounded-full bg-primary flex items-center justify-center">
               <div className="h-1.5 w-1.5 rounded-full bg-primary-foreground" />
@@ -171,7 +160,6 @@ const OrderCard = ({ order, onAccept, onReject }: OrderCardProps) => {
           </div>
         </div>
 
-        {/* Customer */}
         <div className="flex items-center gap-2 pt-1 border-t border-border/40">
           <div className="h-6 w-6 rounded-full bg-muted flex items-center justify-center">
             <span className="text-[10px] font-bold text-muted-foreground">
@@ -182,7 +170,6 @@ const OrderCard = ({ order, onAccept, onReject }: OrderCardProps) => {
           <span className="ml-auto text-[10px] text-muted-foreground/60">#{order.order_id}</span>
         </div>
 
-        {/* Action buttons */}
         <div className="flex gap-2 pt-1">
           <Button
             variant="outline"

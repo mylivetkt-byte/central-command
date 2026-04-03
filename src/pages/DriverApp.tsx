@@ -2,7 +2,6 @@ import { useState, useEffect, useRef } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
   Bike, LogOut, Package, Navigation, Clock, History, Radio
 } from "lucide-react";
@@ -16,8 +15,8 @@ import DeliveryHistory from "@/components/driver/DeliveryHistory";
 interface DeliveryOrder {
   id: string;
   order_id: string;
-  customer_name?: string;
-  customer_phone?: string | null;
+  customer_name: string;
+  customer_phone: string | null;
   pickup_address: string;
   delivery_address: string;
   amount: number;
@@ -25,10 +24,10 @@ interface DeliveryOrder {
   estimated_time: number | null;
   status: string;
   zone: string | null;
-  pickup_lat?: number | null;
-  pickup_lng?: number | null;
-  delivery_lat?: number | null;
-  delivery_lng?: number | null;
+  pickup_lat: number | null;
+  pickup_lng: number | null;
+  delivery_lat: number | null;
+  delivery_lng: number | null;
 }
 
 type Tab = "orders" | "history";
@@ -50,26 +49,27 @@ const DriverApp = () => {
     if (!user) return;
 
     const fetchPending = async () => {
-      // Usa la vista restringida — no expone customer_phone ni coordenadas exactas
       const { data } = await supabase
-        .from("available_deliveries")
-        .select("*")
+        .from("deliveries")
+        .select("id, order_id, customer_name, customer_phone, pickup_address, delivery_address, amount, commission, estimated_time, status, zone, pickup_lat, pickup_lng, delivery_lat, delivery_lng")
+        .eq("status", "pendiente")
         .order("created_at", { ascending: false });
 
-      if (data && data.length > (pendingOrders?.length ?? 0)) {
+      const orders = (data || []) as DeliveryOrder[];
+      if (orders.length > (pendingOrders?.length ?? 0)) {
         notificationSound.current?.play().catch(() => {});
       }
-      setPendingOrders((data as DeliveryOrder[]) || []);
+      setPendingOrders(orders);
     };
 
     const fetchActive = async () => {
       const { data } = await supabase
         .from("deliveries")
-        .select("*")
+        .select("id, order_id, customer_name, customer_phone, pickup_address, delivery_address, amount, commission, estimated_time, status, zone, pickup_lat, pickup_lng, delivery_lat, delivery_lng")
         .eq("driver_id", user.id)
         .in("status", ["aceptado", "en_camino"])
         .maybeSingle();
-      setActiveDelivery(data);
+      setActiveDelivery(data as DeliveryOrder | null);
     };
 
     fetchPending();
@@ -95,12 +95,20 @@ const DriverApp = () => {
   const acceptOrder = async (delivery: DeliveryOrder) => {
     if (!user) return;
 
-    // Usa la función segura del servidor — atómica y con validación de rol
-    const { data, error } = await supabase
-      .rpc("claim_delivery", { p_delivery_id: delivery.id });
+    // Directly update the delivery to claim it
+    const { error } = await supabase
+      .from("deliveries")
+      .update({
+        driver_id: user.id,
+        status: "aceptado" as const,
+        accepted_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", delivery.id)
+      .eq("status", "pendiente");
 
-    if (error || !data?.ok) {
-      toast.error(data?.error || "No se pudo tomar el pedido");
+    if (error) {
+      toast.error("No se pudo tomar el pedido");
       return;
     }
 
@@ -150,7 +158,6 @@ const DriverApp = () => {
   if (activeDelivery) {
     return (
       <div className="min-h-screen bg-background flex flex-col">
-        {/* Minimal header for active delivery */}
         <header className="sticky top-0 z-50 bg-card/90 backdrop-blur-xl border-b border-border/30 px-4 py-2 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Bike className="h-5 w-5 text-primary" />
@@ -265,7 +272,6 @@ const DriverApp = () => {
       <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-8">
         {activeTab === "orders" && (
           <>
-            {/* GPS reminder if not tracking */}
             {!isTracking && (
               <motion.div
                 initial={{ opacity: 0, y: -10 }}
