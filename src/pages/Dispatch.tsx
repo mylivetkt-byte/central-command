@@ -9,6 +9,23 @@ import { toast } from "sonner";
 const formatCurrency = (v: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(v);
 
+
+// ─── Geocodifica una dirección usando Nominatim (OpenStreetMap, gratis) ──────
+const geocodeAddress = async (address: string): Promise<{ lat: number; lng: number } | null> => {
+  try {
+    const q = encodeURIComponent(`${address}, Bucaramanga, Colombia`);
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1`,
+      { headers: { "Accept-Language": "es" } }
+    );
+    const data = await res.json();
+    if (!data[0]) return null;
+    return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+  } catch {
+    return null;
+  }
+};
+
 const statusColors: Record<string, string> = {
   pendiente: "bg-yellow-500/10 text-yellow-500",
   aceptado: "bg-blue-500/10 text-blue-500",
@@ -81,12 +98,23 @@ const Dispatch = () => {
   const createDelivery = useMutation({
     mutationFn: async (formData: NewDeliveryForm) => {
       const orderId = `DOM-${Date.now().toString().slice(-6)}`;
+
+      // Geocodificar ambas direcciones en paralelo para tener lat/lng en el mapa
+      const [pickupCoords, deliveryCoords] = await Promise.all([
+        geocodeAddress(formData.pickup_address),
+        geocodeAddress(formData.delivery_address),
+      ]);
+
       const { error } = await supabase.from("deliveries").insert({
         order_id: orderId,
         customer_name: formData.customer_name,
         customer_phone: formData.customer_phone || null,
         pickup_address: formData.pickup_address,
         delivery_address: formData.delivery_address,
+        pickup_lat: pickupCoords?.lat ?? null,
+        pickup_lng: pickupCoords?.lng ?? null,
+        delivery_lat: deliveryCoords?.lat ?? null,
+        delivery_lng: deliveryCoords?.lng ?? null,
         amount: parseFloat(formData.amount) || 0,
         commission: parseFloat(formData.commission) || 0,
         estimated_time: parseInt(formData.estimated_time) || 30,
