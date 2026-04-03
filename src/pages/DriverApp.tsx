@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import {
-  Bike, LogOut, Package, Navigation, Clock, History, Radio
+  Bike, LogOut, Package, Navigation, Clock, History, Radio, Power
 } from "lucide-react";
 import { toast } from "sonner";
 import { AnimatePresence, motion } from "framer-motion";
