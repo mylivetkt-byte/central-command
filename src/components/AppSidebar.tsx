@@ -3,8 +3,8 @@ import {
   LayoutDashboard, BarChart3, Truck, Users, DollarSign,
   AlertTriangle, ClipboardList, Map, Zap, ChevronLeft, ChevronRight, LogOut, MapPin
 } from "lucide-react";
-import { useState } from "react";
 import { useAuth } from "@/hooks/useAuth";
+import { useSidebar } from "./SidebarContext";
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -20,7 +20,7 @@ const navItems = [
 ];
 
 export const AppSidebar = () => {
-  const [collapsed, setCollapsed] = useState(false);
+  const { collapsed, setCollapsed } = useSidebar();
   const location = useLocation();
   const { signOut, user } = useAuth();
 

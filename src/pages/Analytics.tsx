@@ -66,7 +66,7 @@ const Analytics = () => {
   const topDrivers = [...drivers].sort((a: any, b: any) => (b.total_deliveries || 0) - (a.total_deliveries || 0)).slice(0, 10);
 
   const radarData = topDrivers.slice(0, 5).map((d: any) => ({
-    driver: (d.user?.full_name || "M").split(" ")[0],
+    driver: (d.profiles?.full_name || "M").split(" ")[0],
     entregas: d.total_deliveries || 0,
     aceptacion: d.acceptance_rate || 50,
     tiempo: 100 - (30 * 2), // Mocking performance score based on estimated time vs real time, using 30 mins average for now
@@ -177,7 +177,7 @@ const Analytics = () => {
                   {topDrivers.map((d: any, i: number) => (
                     <tr key={d.id} className="border-b border-border/30 hover:bg-muted/20">
                       <td className="py-3 pr-4 font-bold text-primary">{i + 1}</td>
-                      <td className="py-3 pr-4 font-medium text-foreground">{d.user?.full_name || "Sin nombre"}</td>
+                      <td className="py-3 pr-4 font-medium text-foreground">{d.profiles?.full_name || "Sin nombre"}</td>
                       <td className="py-3 pr-4">{d.total_deliveries || 0}</td>
                       <td className="py-3 pr-4"><span className="text-accent">{d.acceptance_rate || 0}%</span></td>
                       <td className="py-3 pr-4"><span className="text-destructive">{d.cancellation_rate || 0}%</span></td>

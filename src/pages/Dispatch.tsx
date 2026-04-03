@@ -92,6 +92,7 @@ const Dispatch = () => {
         estimated_time: parseInt(formData.estimated_time) || 30,
         zone: formData.zone || null,
         status: "pendiente",
+        notes: formData.notes || null,
       });
       if (error) throw error;
       return orderId;
@@ -443,7 +444,7 @@ const Dispatch = () => {
                   <div key={d.id} className="flex items-center justify-between rounded-lg bg-muted/30 p-3">
                     <div className="flex items-center gap-3">
                       <div className="flex h-10 w-10 items-center justify-center rounded-full bg-accent/20 text-sm font-bold text-accent">
-                        {(d.user?.full_name || "?").split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2)}
+                        {(d.profiles?.full_name || "?").split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2)}
                       </div>
                       <div>
                         <p className="text-sm font-medium text-foreground">{d.profiles?.full_name || "Sin nombre"}</p>

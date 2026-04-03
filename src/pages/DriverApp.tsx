@@ -43,6 +43,7 @@ const DriverApp = () => {
   const [isAvailable, setIsAvailable] = useState(false);
   const notificationSound = useRef<HTMLAudioElement | null>(null);
   const gpsAutoStarted = useRef(false);
+  const prevPendingCount = useRef(0); // BUG FIX: ref para evitar stale closure en comparación de sonido
 
   useEffect(() => {
     notificationSound.current = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJavm66LcF93h5ammJZxX2V/k6Wlm4t0ZHaHlaOdlIBvZHOFk56cloR0aXWFlJ2bln95bnSEk5yblYJ5b3WEk5uZlIF5cHaDkpqYkoB5cXeDkpmXkX94cXeDkpmXkYB4");
@@ -108,9 +109,11 @@ const DriverApp = () => {
         .order("created_at", { ascending: false });
 
       const orders = (data || []) as DeliveryOrder[];
-      if (orders.length > (pendingOrders?.length ?? 0)) {
+      // BUG FIX: usar ref en vez de state para evitar stale closure
+      if (orders.length > prevPendingCount.current) {
         notificationSound.current?.play().catch(() => {});
       }
+      prevPendingCount.current = orders.length;
       setPendingOrders(orders);
     };
 
