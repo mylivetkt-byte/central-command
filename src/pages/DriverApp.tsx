@@ -205,60 +205,51 @@ const DriverApp = () => {
   return (
     <div className="fixed inset-0 h-full w-full bg-slate-950 flex flex-col overflow-hidden font-sans">
       
-      {/* HEADER PREMIUM (Estilo Dark Glass) */}
-      <header className="safe-top bg-slate-900/50 backdrop-blur-3xl px-6 pt-6 pb-4 border-b border-white/5 space-y-4">
+      {/* HEADER COMPACTO (Estilo App Profesional) */}
+      <header className={`safe-top bg-slate-900/40 backdrop-blur-3xl px-6 pt-6 transition-all duration-500 overflow-hidden ${viewMode === 'map' ? 'pb-2' : 'pb-4 border-b border-white/5'}`}>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
             <div className="relative">
-                <div className="h-14 w-14 rounded-2xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center font-black text-white shadow-xl shadow-indigo-500/20 text-xl">
+                <div className="h-10 w-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center font-black text-white shadow-xl shadow-indigo-500/20 text-sm">
                     {user?.user_metadata?.full_name?.[0] || "M"}
                 </div>
-                {isAvailable && <div className="absolute -bottom-1 -right-1 h-5 w-5 bg-emerald-500 rounded-full border-4 border-slate-900 animate-pulse" />}
+                {isAvailable && <div className="absolute -bottom-1 -right-1 h-3.5 w-3.5 bg-emerald-500 rounded-full border-2 border-slate-900 animate-pulse" />}
             </div>
             <div>
-              <h1 className="text-xl font-black text-white">{user?.user_metadata?.full_name?.split(" ")[0] || "Mensajero"}</h1>
-              <div className="flex items-center gap-2 mt-1">
-                 <Shield className="h-3 w-3 text-indigo-400" />
-                 <p className="text-[10px] text-white/40 uppercase tracking-[0.2em] font-black">Certificado</p>
+              <h1 className="text-sm font-black text-white tracking-tight">{user?.user_metadata?.full_name?.split(" ")[0] || "Mensajero"}</h1>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                 <p className={`text-[9px] font-black uppercase tracking-widest ${isAvailable ? 'text-emerald-400' : 'text-white/20'}`}>{isAvailable ? 'En Línea' : 'Desconectado'}</p>
               </div>
             </div>
           </div>
-          <div className="flex gap-3">
-              <button 
-                onClick={() => refreshData(false)} 
-                className={`h-12 w-12 rounded-2xl bg-white/5 flex items-center justify-center text-white/70 active:scale-95 transition-all ${isRefreshing ? 'animate-spin' : ''}`}
-              >
-                 <RotateCw className="h-5 w-5" />
-              </button>
-              <button 
-                onClick={() => signOut()}
-                className="h-12 w-12 rounded-2xl bg-white/5 flex items-center justify-center text-red-400 active:scale-95 transition-all"
-              >
-                 <LogOut className="h-5 w-5" />
+          
+          <div className="flex items-center gap-4">
+              <div className="text-right">
+                  <p className="text-[8px] font-black text-white/30 uppercase tracking-widest leading-none mb-1">Ganancia Hoy</p>
+                  <p className="text-sm font-black text-white tracking-tighter leading-none">$ {earningsToday.toLocaleString()}</p>
+              </div>
+              <button onClick={toggleAvailability} className={`h-10 w-10 rounded-xl flex items-center justify-center active:scale-95 transition-all ${isAvailable ? 'bg-emerald-500/20 text-emerald-500' : 'bg-white/5 text-white/30'}`}>
+                <Power className="h-5 w-5" />
               </button>
           </div>
         </div>
 
-        {/* STATUS BAR CARDS */}
-        <div className="grid grid-cols-2 gap-3">
-            <div className="bg-white/5 rounded-3xl p-4 border border-white/5">
-                <div className="flex items-center gap-2 mb-2">
-                    <Wallet className="h-4 w-4 text-emerald-400" />
-                    <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">Hoy</span>
-                </div>
-                <p className="text-xl font-black text-white">$ {earningsToday.toLocaleString()}</p>
-            </div>
-            <div className={`rounded-3xl p-4 border transition-all cursor-pointer select-none active:scale-95 ${isAvailable ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-white/5 border-white/5'}`} onClick={toggleAvailability}>
-                <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                        <Power className={`h-4 w-4 ${isAvailable ? 'text-emerald-400' : 'text-white/40'}`} />
-                        <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">{isAvailable ? 'Online' : 'Offline'}</span>
-                    </div>
-                </div>
-                <p className={`text-xl font-black ${isAvailable ? 'text-emerald-400' : 'text-white/20'}`}>
-                    {isAvailable ? 'DISPONIBLE' : 'ACTIVAR'}
-                </p>
-            </div>
+        {/* FEED / MAP SWITCHER (Floating-style) */}
+        <div className="mt-4 pb-2 px-0">
+          <div className="bg-white/5 p-1 rounded-2xl flex gap-1 border border-white/5 shadow-inner">
+              <button 
+                onClick={() => setViewMode("feed")}
+                className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === 'feed' ? 'bg-indigo-600 text-white shadow-lg' : 'text-white/30 hover:text-white/50'}`}
+              >
+                  Feed de Pedidos
+              </button>
+              <button 
+                onClick={() => setViewMode("map")}
+                className={`flex-1 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === 'map' ? 'bg-indigo-600 text-white shadow-lg' : 'text-white/30 hover:text-white/50'}`}
+              >
+                  Explorar Mapa
+              </button>
+          </div>
         </div>
       </header>
 
@@ -280,7 +271,7 @@ const DriverApp = () => {
           </div>
       </div>
 
-      <main className="flex-1 overflow-y-auto p-4 pb-32 space-y-4">
+      <main className={`flex-1 overflow-y-auto px-4 pb-32 space-y-4 transition-all duration-500 ${viewMode === 'map' ? 'pt-0' : 'pt-4'}`}>
          <AnimatePresence mode="wait">
             {activeTab === 'orders' ? (
                 <motion.div 
@@ -291,25 +282,31 @@ const DriverApp = () => {
                     className="h-full w-full space-y-4"
                 >
                     {viewMode === "feed" ? (
-                        pendingOrders.length === 0 ? (
-                            <div className="text-center py-24 px-10 flex flex-col items-center">
-                                <div className="h-20 w-20 bg-white/5 rounded-[40%] flex items-center justify-center mb-6 animate-pulse">
-                                    <Package className="h-10 w-10 text-white/10" />
-                                </div>
-                                <p className="text-sm font-black text-white/40 uppercase tracking-widest">Buscando rutas...</p>
+                        <div className="space-y-4">
+                            <div className="flex items-center justify-between mb-2 px-2">
+                                <h2 className="text-xs font-black text-white/30 uppercase tracking-[0.3em]">Servicios Cercanos</h2>
+                                <span className="bg-indigo-600/20 text-indigo-400 font-black text-[10px] px-3 py-1 rounded-full">{pendingOrders.length} DISPONIBLES</span>
                             </div>
-                        ) : (
-                            pendingOrders.map(order => (
-                                <OrderCard 
-                                    key={order.id} 
-                                    order={order} 
-                                    onAccept={() => acceptOrder(order)}
-                                    onReject={() => refreshData(true)}   
-                                />
-                            ))
-                        )
+                            {pendingOrders.length === 0 ? (
+                                <div className="text-center py-24 px-10 flex flex-col items-center">
+                                    <div className="h-24 w-24 bg-white/10 rounded-[40px] flex items-center justify-center mb-6 animate-pulse">
+                                        <Package className="h-12 w-12 text-white/20" />
+                                    </div>
+                                    <p className="text-sm font-black text-white/40 uppercase tracking-widest">Buscando rutas...</p>
+                                </div>
+                            ) : (
+                                pendingOrders.map(order => (
+                                    <OrderCard 
+                                        key={order.id} 
+                                        order={order} 
+                                        onAccept={() => acceptOrder(order)}
+                                        onReject={() => refreshData(true)}   
+                                    />
+                                ))
+                            )}
+                        </div>
                     ) : (
-                        <div className="h-[calc(100vh-420px)] min-h-[400px] w-full">
+                        <div className="fixed inset-x-0 bottom-24 bg-slate-900 z-10" style={{ top: '160px' }}>
                             <NearbyOrdersMap 
                                 orders={pendingOrders} 
                                 currentLocation={currentLocation} 
