@@ -58,6 +58,7 @@ export type Database = {
           estimated_time: number | null
           id: string
           is_delayed: boolean
+          notes: string | null
           order_id: string
           picked_up_at: string | null
           pickup_address: string
@@ -83,6 +84,7 @@ export type Database = {
           estimated_time?: number | null
           id?: string
           is_delayed?: boolean
+          notes?: string | null
           order_id: string
           picked_up_at?: string | null
           pickup_address: string
@@ -108,6 +110,7 @@ export type Database = {
           estimated_time?: number | null
           id?: string
           is_delayed?: boolean
+          notes?: string | null
           order_id?: string
           picked_up_at?: string | null
           pickup_address?: string
