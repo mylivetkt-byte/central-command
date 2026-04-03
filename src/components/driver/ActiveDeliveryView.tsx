@@ -108,17 +108,28 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({
                     type: 'geojson',
                     data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates } }
                 });
+                // Borde de la ruta (Casing)
+                map.addLayer({
+                    id: 'route-line-casing',
+                    type: 'line',
+                    source: routeSource,
+                    layout: { 'line-join': 'round', 'line-cap': 'round' },
+                    paint: { 
+                        'line-color': '#ffffff',
+                        'line-width': 14,
+                        'line-opacity': 1
+                    }
+                });
+                // Línea principal
                 map.addLayer({
                     id: 'route-line',
                     type: 'line',
                     source: routeSource,
                     layout: { 'line-join': 'round', 'line-cap': 'round' },
                     paint: { 
-                        'line-color': '#6e39f5', // Púrpura navegación
+                        'line-color': '#6e39f5',
                         'line-width': 10,
-                        'line-opacity': 0.9,
-                        'line-border-width': 2,
-                        'line-border-color': '#ffffff'
+                        'line-opacity': 1
                     }
                 });
             }
