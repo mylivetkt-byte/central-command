@@ -32,18 +32,27 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   // evita race condition cuando INITIAL_SESSION dispara antes del listener.
   const sessionHandled = useRef(false);
 
-  const fetchRole = async (userId: string) => {
+  const fetchRole = async (_userId: string): Promise<AppRole> => {
     try {
-      const { data, error } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", userId)
-        .maybeSingle();
+      // Usamos RPC con SECURITY DEFINER en lugar de query directa a user_roles.
+      // La query directa está sujeta a RLS y puede colgarse si el token JWT
+      // todavía se está refrescando al recargar la página, causando el spinner
+      // infinito. La función RPC bypasea RLS y responde de inmediato.
+      const rpcPromise = supabase.rpc("get_my_role");
+
+      // Timeout de 4s: si la red falla o Supabase no responde,
+      // no dependemos del failsafe de 5s — fallamos rápido y limpio.
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("fetchRole timeout")), 4000)
+      );
+
+      const { data, error } = await Promise.race([rpcPromise, timeoutPromise]);
+
       if (error) {
         console.error("[useAuth] fetchRole error:", error.message);
         return null;
       }
-      return (data?.role as AppRole) ?? null;
+      return (data as AppRole) ?? null;
     } catch (e) {
       console.error("[useAuth] fetchRole exception:", e);
       return null;
