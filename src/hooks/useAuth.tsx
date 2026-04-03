@@ -28,6 +28,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [role, setRole] = useState<AppRole>(null);
   const [loading, setLoading] = useState(true);
   const mounted = useRef(true);
+  // BUG FIX #1: usar ref para saber si ya se procesó la sesión inicial,
+  // evita race condition cuando INITIAL_SESSION dispara antes del listener.
+  const sessionHandled = useRef(false);
 
   const fetchRole = async (userId: string) => {
     try {
@@ -47,38 +50,66 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  // Función compartida para procesar una sesión (evita duplicar lógica)
+  const applySession = async (newSession: Session | null) => {
+    if (!mounted.current) return;
+    setSession(newSession);
+    setUser(newSession?.user ?? null);
+
+    if (newSession?.user) {
+      const r = await fetchRole(newSession.user.id);
+      if (mounted.current) setRole(r);
+    } else {
+      setRole(null);
+    }
+
+    if (mounted.current) setLoading(false);
+    sessionHandled.current = true;
+  };
+
   useEffect(() => {
     mounted.current = true;
+    sessionHandled.current = false;
 
+    // BUG FIX #2: NO poner setLoading(true) dentro de onAuthStateChange
+    // para eventos como TOKEN_REFRESHED — evita que el spinner aparezca
+    // intermitentemente cuando solo se renueva el token.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, newSession) => {
         if (!mounted.current) return;
-        
+
         console.log("[useAuth] event:", event, "user:", newSession?.user?.email ?? "none");
 
-        // Start loading if we have a session to verify role
-        setLoading(true);
-        setSession(newSession);
-        setUser(newSession?.user ?? null);
-
-        if (newSession?.user) {
-          const r = await fetchRole(newSession.user.id);
-          if (mounted.current) setRole(r);
-        } else {
-          setRole(null);
+        // Solo mostrar loading en eventos que realmente cambian la sesión
+        const sessionChangeEvents = ["SIGNED_IN", "SIGNED_OUT", "USER_UPDATED", "INITIAL_SESSION"];
+        if (sessionChangeEvents.includes(event)) {
+          setLoading(true);
+          await applySession(newSession);
         }
-
-        if (mounted.current) setLoading(false);
       }
     );
 
-    // Failsafe: ensure loading doesn't get stuck forever
+    // BUG FIX #1 (principal): llamar getSession() después de suscribirse.
+    // En React StrictMode y ciertos race conditions, el evento INITIAL_SESSION
+    // puede disparar ANTES de que el listener esté listo, dejando loading = true
+    // para siempre (hasta que el failsafe de 8s lo corrige, causando el bug
+    // de "a veces inicia sesión y a veces no").
+    supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
+      if (!sessionHandled.current && mounted.current) {
+        console.log("[useAuth] getSession fallback triggered");
+        applySession(currentSession);
+      }
+    });
+
+    // BUG FIX #3: el failsafe original usaba la variable `loading` en un
+    // closure estático (siempre era `true`), haciendo la condición inútil.
+    // Ahora simplemente fuerza loading=false sin condición de estado.
     const failsafe = setTimeout(() => {
-      if (mounted.current && loading) {
-        console.warn("[useAuth] Loading failsafe triggered");
+      if (mounted.current) {
+        console.warn("[useAuth] Loading failsafe triggered — reducido a 5s");
         setLoading(false);
       }
-    }, 8000);
+    }, 5000);
 
     return () => {
       mounted.current = false;
