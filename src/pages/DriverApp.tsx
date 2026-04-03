@@ -330,18 +330,18 @@ const DriverApp = () => {
       <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-8">
         {activeTab === "orders" && (
           <>
-            {!isTracking && (
+            {!isAvailable && (
               <motion.div
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
                 className="flex items-center gap-3 p-3 rounded-xl bg-warning/10 border border-warning/20"
               >
-                <Navigation className="h-5 w-5 text-warning shrink-0" />
+                <Power className="h-5 w-5 text-warning shrink-0" />
                 <div className="flex-1">
-                  <p className="text-xs font-semibold text-foreground">GPS desactivado</p>
-                  <p className="text-[10px] text-muted-foreground">Actívalo para recibir pedidos cercanos</p>
+                  <p className="text-xs font-semibold text-foreground">Estás desconectado</p>
+                  <p className="text-[10px] text-muted-foreground">Actívate para recibir pedidos</p>
                 </div>
-                <Button size="sm" variant="outline" onClick={startTracking} className="text-xs h-8 rounded-lg border-warning/30 text-warning">
+                <Button size="sm" variant="outline" onClick={toggleAvailability} className="text-xs h-8 rounded-lg border-warning/30 text-warning">
                   Activar
                 </Button>
               </motion.div>
