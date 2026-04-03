@@ -39,7 +39,9 @@ const DriverApp = () => {
   const [driverProfile, setDriverProfile] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<Tab>("orders");
   const { isTracking, startTracking, stopTracking } = useDriverLocation();
+  const [isAvailable, setIsAvailable] = useState(false);
   const notificationSound = useRef<HTMLAudioElement | null>(null);
+  const gpsAutoStarted = useRef(false);
 
   useEffect(() => {
     notificationSound.current = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJavm66LcF93h5ammJZxX2V/k6Wlm4t0ZHaHlaOdlIBvZHOFk56cloR0aXWFlJ2bln95bnSEk5yblYJ5b3WEk5uZlIF5cHaDkpqYkoB5cXeDkpmXkX94cXeDkpmXkYB4");
