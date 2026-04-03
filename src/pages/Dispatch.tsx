@@ -3,37 +3,12 @@ import AddressAutocomplete from "@/components/ui/AddressAutocomplete";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
-import { useState } from "react";
-import { Zap, MapPin, Package, Plus, X, Send, UserCheck, Clock, CheckCircle, XCircle, RefreshCw } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Zap, MapPin, Package, Plus, X, Send, UserCheck, Clock, CheckCircle, XCircle, RefreshCw, BellRing, Navigation } from "lucide-react";
 import { toast } from "sonner";
 
 const formatCurrency = (v: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(v);
-
-
-// ─── Geocodifica una dirección usando Nominatim (OpenStreetMap, gratis) ──────
-const geocodeAddress = async (address: string): Promise<{ lat: number; lng: number } | null> => {
-  try {
-    const q = encodeURIComponent(`${address}, Bucaramanga, Colombia`);
-    const res = await fetch(
-      `https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1`,
-      { headers: { "Accept-Language": "es" } }
-    );
-    const data = await res.json();
-    if (!data[0]) return null;
-    return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
-  } catch {
-    return null;
-  }
-};
-
-const statusColors: Record<string, string> = {
-  pendiente: "bg-yellow-500/10 text-yellow-500",
-  aceptado: "bg-blue-500/10 text-blue-500",
-  en_camino: "bg-primary/10 text-primary",
-  entregado: "bg-accent/10 text-accent",
-  cancelado: "bg-destructive/10 text-destructive",
-};
 
 interface NewDeliveryForm {
   customer_name: string;
@@ -69,7 +44,7 @@ const Dispatch = () => {
   const [selectedOrder, setSelectedOrder] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
-  // Pedidos pendientes reales
+  // Pedidos activos
   const { data: pending = [], isLoading: loadingPending } = useQuery({
     queryKey: ["dispatch-pending"],
     queryFn: async () => {
@@ -83,7 +58,7 @@ const Dispatch = () => {
     refetchInterval: 10000,
   });
 
-  // Repartidores disponibles reales
+  // Repartidores
   const { data: availableDrivers = [], isLoading: loadingDrivers } = useQuery({
     queryKey: ["dispatch-drivers"],
     queryFn: async () => {
@@ -98,27 +73,36 @@ const Dispatch = () => {
     refetchInterval: 10000,
   });
 
-  // Crear nuevo servicio/pedido
+  // BROADCAST PARA LOS MENSAJEROS
+  const broadcastNewOrder = async () => {
+    const channel = supabase.channel("dispatch-notifications");
+    await channel.subscribe(async (status) => {
+      if (status === "SUBSCRIBED") {
+        await channel.send({
+          type: "broadcast",
+          event: "new-order",
+          payload: { message: "Nuevo pedido publicado" }
+        });
+        console.log("Broadcast sent!");
+        supabase.removeChannel(channel);
+      }
+    });
+  };
+
   const createDelivery = useMutation({
     mutationFn: async (formData: NewDeliveryForm) => {
       const orderId = `DOM-${Date.now().toString().slice(-6)}`;
-
-      // Usamos coordenadas del formulario si existen, sino geocodificamos como backup
-      const pLat = formData.pickup_lat || (await geocodeAddress(formData.pickup_address))?.lat;
-      const pLng = formData.pickup_lng || (await geocodeAddress(formData.pickup_address))?.lng;
-      const dLat = formData.delivery_lat || (await geocodeAddress(formData.delivery_address))?.lat;
-      const dLng = formData.delivery_lng || (await geocodeAddress(formData.delivery_address))?.lng;
-
+      
       const { error } = await (supabase.from("deliveries") as any).insert({
         order_id: orderId,
         customer_name: formData.customer_name,
         customer_phone: formData.customer_phone || null,
         pickup_address: formData.pickup_address,
         delivery_address: formData.delivery_address,
-        pickup_lat: pLat ?? null,
-        pickup_lng: pLng ?? null,
-        delivery_lat: dLat ?? null,
-        delivery_lng: dLng ?? null,
+        pickup_lat: formData.pickup_lat || null,
+        pickup_lng: formData.pickup_lng || null,
+        delivery_lat: formData.delivery_lat || null,
+        delivery_lng: formData.delivery_lng || null,
         amount: parseFloat(formData.amount) || 0,
         commission: parseFloat(formData.commission) || 0,
         estimated_time: parseInt(formData.estimated_time) || 30,
@@ -127,389 +111,214 @@ const Dispatch = () => {
         notes: formData.notes || null,
       });
       if (error) throw error;
+      
+      // Enviar señal a los mensajeros
+      await broadcastNewOrder();
+      
       return orderId;
     },
     onSuccess: (orderId) => {
-      toast.success(`✅ Servicio ${orderId} publicado`, {
-        description: "Los mensajeros disponibles recibirán la notificación.",
+      toast.success(`✅ ¡PEDIDO PUBLICADO!`, {
+        description: `El servicio ${orderId} ya está disponible para los mensajeros.`,
       });
       setForm(emptyForm);
       setShowNewForm(false);
       queryClient.invalidateQueries({ queryKey: ["dispatch-pending"] });
     },
-    onError: (err: any) => toast.error(`Error al crear servicio: ${err.message}`),
+    onError: (err: any) => toast.error(`Error: ${err.message}`),
   });
 
-  // Asignar pedido manualmente a un repartidor
   const assignDriver = useMutation({
     mutationFn: async ({ deliveryId, driverId }: { deliveryId: string; driverId: string }) => {
       const { error } = await (supabase.from("deliveries") as any)
-        .update({
-          driver_id: driverId,
-          status: "aceptado",
-          accepted_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
+        .update({ driver_id: driverId, status: "aceptado", accepted_at: new Date().toISOString() })
         .eq("id", deliveryId);
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success("Pedido asignado al repartidor");
+      toast.success("Mensajero asignado con éxito");
       setSelectedOrder(null);
       queryClient.invalidateQueries({ queryKey: ["dispatch-pending"] });
-      queryClient.invalidateQueries({ queryKey: ["dispatch-drivers"] });
     },
-    onError: () => toast.error("Error al asignar pedido"),
-  });
-
-  // Cancelar pedido
-  const cancelDelivery = useMutation({
-    mutationFn: async (deliveryId: string) => {
-      const { error } = await (supabase.from("deliveries") as any)
-        .update({ status: "cancelado", updated_at: new Date().toISOString() })
-        .eq("id", deliveryId);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      toast.success("Pedido cancelado");
-      queryClient.invalidateQueries({ queryKey: ["dispatch-pending"] });
-    },
-    onError: () => toast.error("Error al cancelar pedido"),
   });
 
   const handleFormChange = (field: keyof NewDeliveryForm, value: any) => {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!form.customer_name || !form.pickup_address || !form.delivery_address) {
-      toast.error("Completa los campos obligatorios");
-      return;
-    }
-    createDelivery.mutate(form);
-  };
-
-  const selectedDelivery = pending.find((d: any) => d.id === selectedOrder);
-
   return (
     <DashboardLayout>
-      <div className="space-y-6">
-        {/* Header */}
-        <div className="flex items-center justify-between">
+      <div className="max-w-[1200px] mx-auto space-y-8 animate-in fade-in duration-700">
+        
+        {/* Cabecera Admin Premium */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 p-8 bg-card border border-white/5 rounded-[32px] shadow-2xl">
           <div>
-            <h1 className="text-2xl font-bold text-foreground">Despacho de Envíos</h1>
-            <p className="text-sm text-muted-foreground">
-              Crea y asigna envíos a los mensajeros en tiempo real
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <button
-              onClick={() => queryClient.invalidateQueries()}
-              className="flex items-center gap-2 rounded-lg bg-muted/50 px-3 py-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
-            >
-              <RefreshCw className="h-3.5 w-3.5" />
-            </button>
-            <button
-              onClick={() => setShowNewForm(true)}
-              className="flex items-center gap-2 rounded-lg bg-gradient-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:opacity-90 transition-opacity"
-            >
-              <Plus className="h-4 w-4" /> Publicar Nuevo Envío
-            </button>
-          </div>
-        </div>
-
-        {/* Stats rápidas */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {[
-            { label: "Pendientes", value: pending.filter((d: any) => d.status === "pendiente").length, color: "text-yellow-500" },
-            { label: "Aceptados", value: pending.filter((d: any) => d.status === "aceptado").length, color: "text-blue-500" },
-            { label: "En Camino", value: pending.filter((d: any) => d.status === "en_camino").length, color: "text-primary" },
-            { label: "Mensajeros disponibles", value: availableDrivers.length, color: "text-accent" },
-          ].map((s) => (
-            <div key={s.label} className="glass-card p-4 text-center">
-              <p className={`text-2xl font-bold ${s.color}`}>{s.value}</p>
-              <p className="text-xs text-muted-foreground mt-1">{s.label}</p>
+            <div className="flex items-center gap-3 mb-2">
+                <div className="p-2 bg-indigo-500/20 rounded-xl">
+                    <Navigation className="h-6 w-6 text-indigo-500" />
+                </div>
+                <h1 className="text-3xl font-black tracking-tight text-white">Central de Despacho</h1>
             </div>
-          ))}
+            <p className="text-sm text-white/40 font-medium">Gestiona la logística de tu flota en tiempo real.</p>
+          </div>
+          
+          <button
+            onClick={() => setShowNewForm(true)}
+            className="group relative flex items-center gap-3 rounded-2xl bg-indigo-600 px-8 py-4 text-sm font-black text-white hover:bg-indigo-500 transition-all shadow-xl shadow-indigo-600/20 active:scale-95"
+          >
+            <Plus className="h-5 w-5" /> PUBLICAR NUEVO ENVÍO
+            <div className="absolute -top-1 -right-1 h-4 w-4 bg-emerald-500 rounded-full animate-ping pointer-events-none" />
+          </button>
         </div>
 
-        {/* Formulario nuevo servicio */}
-        <AnimatePresence>
-          {showNewForm && (
-            <motion.div
-              initial={{ opacity: 0, y: -20 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -20 }}
-              className="glass-card p-6"
-            >
-              <div className="flex items-center justify-between mb-5">
-                <h3 className="font-bold text-foreground flex items-center gap-2">
-                  <Send className="h-4 w-4 text-primary" />
-                  Nuevo Envío de Domicilio
-                </h3>
-                <button onClick={() => setShowNewForm(false)} className="text-muted-foreground hover:text-foreground">
-                  <X className="h-5 w-5" />
-                </button>
-              </div>
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            
+            {/* Listado de Servicios (60%) */}
+            <div className="lg:col-span-8 space-y-6">
+                
+                <AnimatePresence>
+                    {showNewForm && (
+                        <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                            <div className="bg-white rounded-[32px] p-8 shadow-2xl space-y-6 border border-slate-100">
+                                <div className="flex items-center justify-between border-b border-slate-50 pb-5">
+                                    <h2 className="text-xl font-black text-slate-800">Detalles del Servicio</h2>
+                                    <button onClick={() => setShowNewForm(false)} className="h-10 w-10 rounded-full bg-slate-50 flex items-center justify-center text-slate-400 hover:bg-slate-100"><X /></button>
+                                </div>
+                                
+                                <form onSubmit={(e) => { e.preventDefault(); createDelivery.mutate(form); }} className="space-y-6">
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Cliente Receptor</label>
+                                            <input value={form.customer_name} onChange={(e) => handleFormChange("customer_name", e.target.value)} placeholder="Nombre completo" required className="w-full h-14 rounded-2xl bg-slate-50 border-transparent focus:bg-white focus:ring-4 focus:ring-indigo-100 transition-all px-6 text-sm font-bold text-slate-800" />
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Teléfono Contacto</label>
+                                            <input value={form.customer_phone} onChange={(e) => handleFormChange("customer_phone", e.target.value)} placeholder="+57 3..." className="w-full h-14 rounded-2xl bg-slate-50 border-transparent focus:bg-white focus:ring-4 focus:ring-indigo-100 transition-all px-6 text-sm font-bold text-slate-800" />
+                                        </div>
+                                    </div>
 
-              <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground font-medium">Cliente *</label>
-                  <input
-                    value={form.customer_name}
-                    onChange={(e) => handleFormChange("customer_name", e.target.value)}
-                    placeholder="Nombre del cliente"
-                    required
-                    className="w-full rounded-lg bg-muted/50 border border-border/50 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                  />
-                </div>
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">📍 Punto de Recogida (Sugerencias Inteligentes)</label>
+                                        <AddressAutocomplete value={form.pickup_address} onChange={(a, c) => { handleFormChange("pickup_address", a); if(c){ handleFormChange("pickup_lat", c.lat); handleFormChange("pickup_lng", c.lng); } }} placeholder="Escribe la dirección y selecciona de la lista..." className="dispatch-autocomplete" />
+                                    </div>
 
-                <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground font-medium">Teléfono del cliente</label>
-                  <input
-                    value={form.customer_phone}
-                    onChange={(e) => handleFormChange("customer_phone", e.target.value)}
-                    placeholder="+57 300 000 0000"
-                    className="w-full rounded-lg bg-muted/50 border border-border/50 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                  />
-                </div>
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">🏁 Destino de Entrega (Sugerencias Inteligentes)</label>
+                                        <AddressAutocomplete value={form.delivery_address} onChange={(a, c) => { handleFormChange("delivery_address", a); if(c){ handleFormChange("delivery_lat", c.lat); handleFormChange("delivery_lng", c.lng); } }} placeholder="Busca la dirección exacta del cliente..." className="dispatch-autocomplete" />
+                                    </div>
 
-                <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground font-medium">Dirección de Recogida *</label>
-                  <AddressAutocomplete
-                    value={form.pickup_address}
-                    onChange={(addr, coords) => {
-                      handleFormChange("pickup_address", addr);
-                      if (coords) {
-                        handleFormChange("pickup_lat", coords.lat);
-                        handleFormChange("pickup_lng", coords.lng);
-                      }
-                    }}
-                    placeholder="Ej: Cra 27 #45-10, Bucaramanga"
-                  />
-                </div>
+                                    <div className="grid grid-cols-3 gap-4 pb-4">
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Cobro Cliente</label>
+                                            <div className="relative">
+                                                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 font-bold">$</span>
+                                                <input type="number" value={form.amount} onChange={(e) => handleFormChange("amount", e.target.value)} className="w-full h-14 rounded-2xl bg-slate-50 pl-8 pr-4 text-sm font-black text-slate-800" placeholder="0" />
+                                            </div>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Pago Mensajero</label>
+                                            <div className="relative">
+                                                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-300 font-bold">$</span>
+                                                <input type="number" value={form.commission} onChange={(e) => handleFormChange("commission", e.target.value)} className="w-full h-14 rounded-2xl bg-slate-50 pl-8 pr-4 text-sm font-black text-emerald-600" placeholder="0" />
+                                            </div>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Minutos Est.</label>
+                                            <input type="number" value={form.estimated_time} onChange={(e) => handleFormChange("estimated_time", e.target.value)} className="w-full h-14 rounded-2xl bg-slate-50 px-6 text-sm font-black text-slate-800" />
+                                        </div>
+                                    </div>
 
-                <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground font-medium">Dirección de Entrega *</label>
-                  <AddressAutocomplete
-                    value={form.delivery_address}
-                    onChange={(addr, coords) => {
-                      handleFormChange("delivery_address", addr);
-                      if (coords) {
-                        handleFormChange("delivery_lat", coords.lat);
-                        handleFormChange("delivery_lng", coords.lng);
-                      }
-                    }}
-                    placeholder="Ej: Cll 48 #29-15, Bucaramanga"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground font-medium">Valor del pedido (COP)</label>
-                  <input
-                    type="number"
-                    value={form.amount}
-                    onChange={(e) => handleFormChange("amount", e.target.value)}
-                    placeholder="0"
-                    className="w-full rounded-lg bg-muted/50 border border-border/50 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground font-medium">Comisión mensajero (COP)</label>
-                  <input
-                    type="number"
-                    value={form.commission}
-                    onChange={(e) => handleFormChange("commission", e.target.value)}
-                    placeholder="0"
-                    className="w-full rounded-lg bg-muted/50 border border-border/50 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground font-medium">Tiempo estimado (min)</label>
-                  <input
-                    type="number"
-                    value={form.estimated_time}
-                    onChange={(e) => handleFormChange("estimated_time", e.target.value)}
-                    className="w-full rounded-lg bg-muted/50 border border-border/50 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                  />
-                </div>
-
-                <div className="space-y-1">
-                  <label className="text-xs text-muted-foreground font-medium">Zona</label>
-                  <input
-                    value={form.zone}
-                    onChange={(e) => handleFormChange("zone", e.target.value)}
-                    placeholder="Ej: Norte, Centro, Sur"
-                    className="w-full rounded-lg bg-muted/50 border border-border/50 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                  />
-                </div>
-
-                <div className="space-y-1 sm:col-span-2">
-                  <label className="text-xs text-muted-foreground font-medium">Notas adicionales</label>
-                  <textarea
-                    value={form.notes}
-                    onChange={(e) => handleFormChange("notes", e.target.value)}
-                    placeholder="Instrucciones especiales para el mensajero..."
-                    rows={2}
-                    className="w-full rounded-lg bg-muted/50 border border-border/50 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
-                  />
-                </div>
-
-                <div className="sm:col-span-2 flex gap-3 justify-end">
-                  <button
-                    type="button"
-                    onClick={() => { setShowNewForm(false); setForm(emptyForm); }}
-                    className="rounded-lg px-4 py-2 text-sm text-muted-foreground hover:text-foreground border border-border/50 transition-colors"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={createDelivery.isPending}
-                    className="flex items-center gap-2 rounded-lg bg-gradient-primary px-6 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
-                  >
-                    <Send className="h-4 w-4" />
-                    {createDelivery.isPending ? "Publicando..." : "Publicar a Mensajeros"}
-                  </button>
-                </div>
-              </form>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Panel principal */}
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          {/* Pedidos activos */}
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="glass-card p-5">
-            <h3 className="mb-4 text-sm font-semibold text-foreground flex items-center gap-2">
-              <Package className="h-4 w-4" /> Servicios Activos ({pending.length})
-            </h3>
-            {loadingPending ? (
-              <div className="flex h-32 items-center justify-center">
-                <div className="h-6 w-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-              </div>
-            ) : pending.length === 0 ? (
-              <div className="text-center py-10">
-                <CheckCircle className="h-10 w-10 text-accent mx-auto mb-2" />
-                <p className="text-sm text-muted-foreground">Sin servicios activos</p>
-                <button
-                  onClick={() => setShowNewForm(true)}
-                  className="mt-3 text-xs text-primary hover:underline"
-                >
-                  + Publicar nuevo servicio
-                </button>
-              </div>
-            ) : (
-              <div className="space-y-2 max-h-[500px] overflow-y-auto">
-                {pending.map((d: any) => (
-                  <div
-                    key={d.id}
-                    onClick={() => setSelectedOrder(selectedOrder === d.id ? null : d.id)}
-                    className={`cursor-pointer rounded-lg p-3 transition-colors ${
-                      selectedOrder === d.id
-                        ? "bg-primary/10 border border-primary/30"
-                        : "bg-muted/30 hover:bg-muted/50"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <p className="text-sm font-semibold text-foreground">#{d.order_id}</p>
-                      <div className="flex items-center gap-2">
-                        <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${statusColors[d.status] || "bg-muted text-muted-foreground"}`}>
-                          {d.status}
-                        </span>
-                        {d.status === "pendiente" && (
-                          <button
-                            onClick={(e) => { e.stopPropagation(); cancelDelivery.mutate(d.id); }}
-                            className="text-destructive/50 hover:text-destructive transition-colors"
-                          >
-                            <XCircle className="h-4 w-4" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                    <p className="text-xs text-muted-foreground mb-0.5">{d.customer_name}</p>
-                    <p className="text-xs text-muted-foreground flex items-center gap-1">
-                      <MapPin className="h-3 w-3 text-accent" /> {d.pickup_address}
-                    </p>
-                    <p className="text-xs text-muted-foreground flex items-center gap-1">
-                      <MapPin className="h-3 w-3 text-primary" /> {d.delivery_address}
-                    </p>
-                    <div className="flex items-center justify-between mt-2">
-                      <span className="text-xs text-muted-foreground flex items-center gap-1">
-                        <Clock className="h-3 w-3" /> {d.estimated_time || "?"} min
-                      </span>
-                      <span className="text-xs font-semibold text-accent">
-                        {formatCurrency(Number(d.commission || 0))}
-                      </span>
-                    </div>
-                    {selectedOrder === d.id && d.status === "pendiente" && (
-                      <p className="text-xs text-primary mt-2 font-medium">
-                        → Selecciona un mensajero para asignar manualmente
-                      </p>
+                                    <button type="submit" disabled={createDelivery.isPending} className="w-full h-16 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-black transition-all shadow-xl shadow-indigo-100 flex items-center justify-center gap-3">
+                                        <Send /> {createDelivery.isPending ? "PROCESANDO..." : "PUBLICAR SERVICIO AHORA"}
+                                    </button>
+                                </form>
+                            </div>
+                        </motion.div>
                     )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </motion.div>
+                </AnimatePresence>
 
-          {/* Mensajeros disponibles */}
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="glass-card p-5">
-            <h3 className="mb-4 text-sm font-semibold text-foreground flex items-center gap-2">
-              <UserCheck className="h-4 w-4" />
-              {selectedOrder && selectedDelivery?.status === "pendiente"
-                ? `Asignar #${selectedDelivery?.order_id} a...`
-                : `Mensajeros Disponibles (${availableDrivers.length})`}
-            </h3>
-            {loadingDrivers ? (
-              <div className="flex h-32 items-center justify-center">
-                <div className="h-6 w-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-              </div>
-            ) : availableDrivers.length === 0 ? (
-              <div className="text-center py-10">
-                <Zap className="h-10 w-10 text-muted-foreground mx-auto mb-2" />
-                <p className="text-sm text-muted-foreground">Sin mensajeros activos</p>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Los mensajeros deben activar su estado en la app
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-2 max-h-[500px] overflow-y-auto">
-                {availableDrivers.map((d: any) => (
-                  <div key={d.id} className="flex items-center justify-between rounded-lg bg-muted/30 p-3">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-accent/20 text-sm font-bold text-accent">
-                        {(d.profiles?.full_name || "?").split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2)}
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium text-foreground">{d.profiles?.full_name || "Sin nombre"}</p>
-                        <p className="text-xs text-muted-foreground flex items-center gap-1">
-                          <Package className="h-3 w-3" /> {d.current_load || 0} pedidos · {d.zone || "Sin zona"}
-                        </p>
-                      </div>
+                <div className="bg-card border border-white/5 rounded-[32px] p-6 space-y-4 shadow-xl">
+                    <div className="flex items-center justify-between px-4 pb-2">
+                        <h3 className="text-sm font-black text-white/30 uppercase tracking-widest">Envíos en Curso</h3>
+                        <div className="flex items-center gap-2">
+                            <RefreshCw className={`h-3.5 w-3.5 text-white/20 ${loadingPending ? 'animate-spin' : ''}`} />
+                            <span className="text-xs font-black text-white/20">{pending.length}</span>
+                        </div>
                     </div>
-                    {selectedOrder && selectedDelivery?.status === "pendiente" ? (
-                      <button
-                        onClick={() => assignDriver.mutate({ deliveryId: selectedOrder, driverId: d.id })}
-                        disabled={assignDriver.isPending}
-                        className="rounded-lg bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/20 transition-colors disabled:opacity-50"
-                      >
-                        Asignar
-                      </button>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">
-                        ⭐ {d.rating || "N/A"}
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </motion.div>
+                    
+                    <div className="space-y-3 max-h-[600px] overflow-y-auto custom-scrollbar pr-2">
+                        {pending.map((d: any) => (
+                            <motion.div key={d.id} className={`p-5 rounded-3xl border transition-all cursor-pointer ${selectedOrder === d.id ? 'bg-indigo-500/10 border-indigo-500 shadow-xl' : 'bg-white/5 border-transparent hover:bg-white/10'}`} onClick={() => setSelectedOrder(selectedOrder === d.id ? null : d.id)}>
+                                <div className="flex items-center justify-between mb-4">
+                                    <div className="flex items-center gap-3">
+                                        <div className="h-10 w-10 rounded-xl bg-slate-800 flex items-center justify-center font-black text-white text-xs">#{d.order_id.slice(-4)}</div>
+                                        <div>
+                                            <p className="text-sm font-black text-white">{d.customer_name}</p>
+                                            <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest">{d.status}</p>
+                                        </div>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="text-sm font-black text-emerald-400">{formatCurrency(d.commission)}</p>
+                                        <p className="text-[10px] text-white/20 font-bold">GANANCIA</p>
+                                    </div>
+                                </div>
+                                <div className="space-y-2 border-t border-white/5 pt-4">
+                                    <div className="flex items-start gap-3">
+                                        <div className="h-2 w-2 rounded-full bg-emerald-500 mt-1" />
+                                        <p className="text-xs text-white/60 font-medium truncate">{d.pickup_address}</p>
+                                    </div>
+                                    <div className="flex items-start gap-3">
+                                        <div className="h-2 w-2 rounded-full bg-indigo-500 mt-1" />
+                                        <p className="text-xs text-white/60 font-medium truncate">{d.delivery_address}</p>
+                                    </div>
+                                </div>
+                            </motion.div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+
+            {/* Sidebar de Repartidores (40%) */}
+            <div className="lg:col-span-4 space-y-6">
+                <div className="bg-card border border-white/5 rounded-[32px] p-6 shadow-xl h-full">
+                    <h3 className="text-sm font-black text-white/30 uppercase tracking-widest mb-6 flex items-center gap-2">
+                        <UserCheck className="h-4 w-4" /> Mensajeros Online
+                    </h3>
+                    
+                    <div className="space-y-4">
+                        {availableDrivers.map((d: any) => (
+                            <div key={d.id} className="p-4 rounded-2xl bg-white/5 border border-transparent hover:border-white/10 flex items-center justify-between transition-all group">
+                                <div className="flex items-center gap-4">
+                                    <div className="relative">
+                                        <div className="h-12 w-12 rounded-2xl bg-indigo-500/20 flex items-center justify-center font-black text-indigo-400 capitalize">
+                                            {d.profiles?.full_name?.[0] || 'M'}
+                                        </div>
+                                        <div className="absolute -bottom-1 -right-1 h-4 w-4 bg-emerald-500 rounded-full border-4 border-slate-900" />
+                                    </div>
+                                    <div>
+                                        <p className="text-sm font-black text-white">{d.profiles?.full_name}</p>
+                                        <p className="text-[10px] text-white/30 font-bold uppercase">{d.rating || 5.0} ⭐ · {d.current_load} pedidos</p>
+                                    </div>
+                                </div>
+                                
+                                {selectedOrder && pending.find((p: any) => p.id === selectedOrder)?.status === 'pendiente' && (
+                                    <button onClick={() => assignDriver.mutate({ deliveryId: selectedOrder, driverId: d.id })} className="h-10 px-4 rounded-xl bg-emerald-500 text-white text-[10px] font-black hover:bg-emerald-400 active:scale-95 transition-all">
+                                        ASIGNAR
+                                    </button>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
         </div>
+
+        <style dangerouslySetInnerHTML={{ __html: `
+            .dispatch-autocomplete input { height: 3.5rem !important; border-radius: 1rem !important; padding-left: 3.5rem !important; }
+            .dispatch-autocomplete .absolute.left-3 { left: 1.5rem !important; }
+            .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+            .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.05); border-radius: 10px; }
+        `}} />
       </div>
     </DashboardLayout>
   );

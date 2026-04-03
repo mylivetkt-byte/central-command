@@ -5,7 +5,8 @@ import { Switch } from "@/components/ui/switch";
 import {
   Package, History, Power, LogOut, Star,
   CheckCircle, Clock, DollarSign, ChevronRight,
-  MapPin, Bike, Navigation, LayoutGrid, RotateCw
+  MapPin, Bike, Navigation, LayoutGrid, RotateCw,
+  Search, Bell, Shield, Wallet
 } from "lucide-react";
 import { toast } from "sonner";
 import { AnimatePresence, motion } from "framer-motion";
@@ -36,7 +37,6 @@ interface DeliveryOrder {
 
 type Tab = "orders" | "history" | "stats";
 
-// Helper for distance calc
 const calculateKm = (lat1: number, lon1: number, lat2: number, lon2: number) => {
     const R = 6371;
     const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -54,17 +54,16 @@ const DriverApp = () => {
   const [activeDelivery, setActiveDelivery] = useState<DeliveryOrder | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("orders");
   const [isAvailable, setIsAvailable] = useState(false);
-  const [togglingAvailability, setTogglingAvailability] = useState(false);
-  const { isTracking, currentLocation, startTracking, stopTracking } = useDriverLocation();
+  const [earningsToday, setEarningsToday] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  
+  const { isTracking, currentLocation, startTracking, stopTracking } = useDriverLocation();
   const notificationSound = useRef<HTMLAudioElement | null>(null);
   const prevPendingCount = useRef(0);
 
-  // Bloquear scroll del body
+  // Layout Mobile Lock
   useEffect(() => {
     document.body.style.overflow = "hidden";
-    document.body.style.overscrollBehavior = "none";
+    document.body.style.backgroundColor = "#020617";
     return () => { document.body.style.overflow = "auto"; };
   }, []);
 
@@ -72,25 +71,28 @@ const DriverApp = () => {
     notificationSound.current = new Audio("https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3");
   }, []);
 
-  // Fetch profiles
-  useEffect(() => {
-    if (!user) return;
-    supabase.from("driver_profiles").select("*").eq("id", user.id).maybeSingle()
-      .then(({ data }) => {
-        if (data) setIsAvailable((data as any).status === "activo" || (data as any).status === "en_ruta");
-      });
-  }, [user]);
-
-  // FETCH ORDERS (CON ORDENAMIENTO POR PROXIMIDAD)
   const refreshData = useCallback(async (silent = true) => {
     if (!user) return;
     if (!silent) setIsRefreshing(true);
 
-    // Fetch Activo
+    const { data: profile } = await supabase.from("driver_profiles").select("status").eq("id", user.id).maybeSingle();
+    if (profile) setIsAvailable((profile as any).status === "activo" || (profile as any).status === "en_ruta");
+
+    // Activo
     const { data: active } = await supabase.from("deliveries").select("*").eq("driver_id", user.id).in("status", ["aceptado", "en_camino"]).maybeSingle();
     setActiveDelivery(active as any);
 
-    // Fetch Pendientes
+    // Ganancias de hoy
+    const today = new Date().toISOString().split('T')[0];
+    const { data: earnings } = await supabase.from("deliveries")
+      .select("commission")
+      .eq("driver_id", user.id)
+      .eq("status", "entregado")
+      .gte("updated_at", today);
+    const total = (earnings as any[])?.reduce((acc, curr) => acc + (Number(curr.commission) || 0), 0) || 0;
+    setEarningsToday(total);
+
+    // Pendientes (Con Broadcast & Realtime)
     if (isAvailable) {
       const { data: pending, error } = await supabase.from("pending_delivery_offers").select("*");
       if (!error && pending) {
@@ -98,16 +100,17 @@ const DriverApp = () => {
             ...d,
             amount: Number(d.amount || 0),
             commission: Number(d.commission || 0),
-            customer_name: "Cliente VIP",
             distanceToMe: (currentLocation && d.pickup_lat) ? calculateKm(currentLocation.lat, currentLocation.lng, d.pickup_lat, d.pickup_lng) : undefined
         }));
 
-        // SORT BY PROXIMITY
         orders.sort((a, b) => (a.distanceToMe || 999) - (b.distanceToMe || 999));
 
         if (orders.length > prevPendingCount.current) {
           notificationSound.current?.play().catch(() => {});
-          toast("🔔 ¡Nuevo pedido cercano disponible!");
+          toast("🔔 ¡NUEVO PEDIDO DISPONIBLE!", { 
+            description: "Hay servicios disponibles cerca de tu posición.",
+            icon: <Bell className="h-4 w-4 text-primary" />
+          });
         }
         prevPendingCount.current = orders.length;
         setPendingOrders(orders);
@@ -117,42 +120,46 @@ const DriverApp = () => {
     }
     
     if (!silent) {
-        setTimeout(() => setIsRefreshing(false), 500);
-        toast.success("Lista actualizada");
+        setTimeout(() => setIsRefreshing(false), 600);
     }
   }, [user, isAvailable, currentLocation]);
 
-  // Realtime + Polling Fallback (10s)
+  // Realtime con BROADCAST (Mucho más eficiente que polling)
   useEffect(() => {
     if (!user) return;
     
     refreshData();
 
-    // Suscripción Realtime (Escuchamos todo en deliveries ya que las vistas no soportan realtime)
-    const channel = supabase.channel("driver-global-v6")
-      .on("postgres_changes", { event: "*", schema: "public", table: "deliveries" }, () => {
-         console.log("Realtime event - refreshing...");
+    // 1. Escuchar cambios directos en tabla (Postgres)
+    const tableChannel = supabase.channel("table-db-changes")
+      .on("postgres_changes", { event: "*", schema: "public", table: "deliveries" }, () => refreshData(true))
+      .subscribe();
+
+    // 2. Escuchar BROADCAST de la central (Instantáneo)
+    const broadcastChannel = supabase.channel("dispatch-notifications")
+      .on("broadcast", { event: "new-order" }, () => {
+         console.log("Broadcast received: New order published!");
          refreshData(true);
       })
       .subscribe();
 
-    // Fallback Polling (Cada 15 segundos para asegurar)
-    const interval = setInterval(() => refreshData(true), 15000);
+    // 3. Fallback Polling (Menor intervalo para más velocidad)
+    const interval = setInterval(() => refreshData(true), 10000);
 
     return () => {
-      supabase.removeChannel(channel);
+      supabase.removeChannel(tableChannel);
+      supabase.removeChannel(broadcastChannel);
       clearInterval(interval);
     };
   }, [user, isAvailable, refreshData]);
 
   const toggleAvailability = async () => {
-    if (!user || togglingAvailability) return;
-    setTogglingAvailability(true);
+    if (!user) return;
     const newStatus = isAvailable ? "inactivo" : "activo";
     await (supabase.from("driver_profiles") as any).update({ status: newStatus }).eq("id", user.id);
     setIsAvailable(!isAvailable);
     if (!isAvailable) startTracking();
-    setTogglingAvailability(false);
+    else { refreshData(false); startTracking(); }
   };
 
   const acceptOrder = async (order: DeliveryOrder) => {
@@ -161,20 +168,28 @@ const DriverApp = () => {
       .update({ driver_id: user.id, status: "aceptado", accepted_at: new Date().toISOString() })
       .eq("id", order.id).eq("status", "pendiente").is("driver_id", null).select();
 
-    if (error || !data?.length) { toast.error("Alguien tomó este pedido antes"); return; }
+    if (error || !data?.length) { 
+        toast.error("Oops! Otro mensajero fue más rápido."); 
+        refreshData(true);
+        return; 
+    }
     setActiveDelivery(data[0] as any);
+    toast.success("¡Pedido Aceptado!", { description: "Navega hacia el punto de recogida." });
   };
 
   const updateStatus = async (s: string) => {
     if (!activeDelivery) return;
     await (supabase.from("deliveries") as any).update({ status: s, updated_at: new Date().toISOString() }).eq("id", activeDelivery.id);
-    if (s === "entregado") setActiveDelivery(null);
-    else refreshData();
+    if (s === "entregado") {
+        setActiveDelivery(null);
+        refreshData(false);
+        toast.success("¡Entrega finalizada!", { description: "Buen trabajo." });
+    } else refreshData();
   };
 
   if (activeDelivery) {
     return (
-      <div className="fixed inset-0 h-screen w-screen bg-background flex flex-col overflow-hidden">
+      <div className="fixed inset-0 h-full w-full bg-slate-950 flex flex-col overflow-hidden z-[1000]">
         <ActiveDeliveryView 
             delivery={activeDelivery as any} 
             currentLocation={currentLocation} 
@@ -186,49 +201,83 @@ const DriverApp = () => {
   }
 
   return (
-    <div className="fixed inset-0 h-screen w-screen bg-background flex flex-col overflow-hidden select-none">
-      <header className="safe-top bg-card border-b border-border/30 px-6 pt-6 pb-4 space-y-4">
+    <div className="fixed inset-0 h-full w-full bg-slate-950 flex flex-col overflow-hidden font-sans">
+      
+      {/* HEADER PREMIUM (Estilo Dark Glass) */}
+      <header className="safe-top bg-slate-900/50 backdrop-blur-3xl px-6 pt-6 pb-4 border-b border-white/5 space-y-4">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <div className="h-12 w-12 rounded-2xl bg-primary flex items-center justify-center font-black text-white shadow-lg">
-                {user?.user_metadata?.full_name?.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2) || "M"}
+            <div className="relative">
+                <div className="h-14 w-14 rounded-2xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center font-black text-white shadow-xl shadow-indigo-500/20 text-xl">
+                    {user?.user_metadata?.full_name?.[0] || "M"}
+                </div>
+                {isAvailable && <div className="absolute -bottom-1 -right-1 h-5 w-5 bg-emerald-500 rounded-full border-4 border-slate-900 animate-pulse" />}
             </div>
             <div>
-              <h1 className="text-lg font-black">{user?.user_metadata?.full_name || "Mensajero"}</h1>
-              <p className="text-[10px] text-muted-foreground uppercase tracking-widest font-bold">Driver ID: {user?.id.slice(0, 6)}</p>
+              <h1 className="text-xl font-black text-white">{user?.user_metadata?.full_name?.split(" ")[0] || "Mensajero"}</h1>
+              <div className="flex items-center gap-2 mt-1">
+                 <Shield className="h-3 w-3 text-indigo-400" />
+                 <p className="text-[10px] text-white/40 uppercase tracking-[0.2em] font-black">Certificado</p>
+              </div>
             </div>
           </div>
-          <button onClick={() => refreshData(false)} className={`h-11 w-11 rounded-xl bg-muted/50 flex items-center justify-center transition-all ${isRefreshing ? 'animate-spin' : ''}`}>
-             <RotateCw className="h-5 w-5" />
-          </button>
+          <div className="flex gap-3">
+              <button 
+                onClick={() => refreshData(false)} 
+                className={`h-12 w-12 rounded-2xl bg-white/5 flex items-center justify-center text-white/70 active:scale-95 transition-all ${isRefreshing ? 'animate-spin' : ''}`}
+              >
+                 <RotateCw className="h-5 w-5" />
+              </button>
+              <button 
+                onClick={() => signOut()}
+                className="h-12 w-12 rounded-2xl bg-white/5 flex items-center justify-center text-red-400 active:scale-95 transition-all"
+              >
+                 <LogOut className="h-5 w-5" />
+              </button>
+          </div>
         </div>
 
-        <div className={`p-3 rounded-2xl border transition-all ${isAvailable ? 'bg-green-500/10 border-green-500/20' : 'bg-muted/50 border-transparent'}`}>
-           <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className={`h-2.5 w-2.5 rounded-full ${isAvailable ? 'bg-green-500 animate-pulse' : 'bg-muted-foreground/30'}`} />
-                <span className={`text-xs font-black tracking-widest uppercase ${isAvailable ? 'text-green-500' : 'text-muted-foreground'}`}>
-                    {isAvailable ? 'Recibiendo Pedidos' : 'Modo Desconectado'}
-                </span>
-              </div>
-              <Switch checked={isAvailable} onCheckedChange={toggleAvailability} disabled={togglingAvailability} />
-           </div>
+        {/* STATUS BAR CARDS */}
+        <div className="grid grid-cols-2 gap-3">
+            <div className="bg-white/5 rounded-3xl p-4 border border-white/5">
+                <div className="flex items-center gap-2 mb-2">
+                    <Wallet className="h-4 w-4 text-emerald-400" />
+                    <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">Hoy</span>
+                </div>
+                <p className="text-xl font-black text-white">$ {earningsToday.toLocaleString()}</p>
+            </div>
+            <div className={`rounded-3xl p-4 border transition-all cursor-pointer select-none active:scale-95 ${isAvailable ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-white/5 border-white/5'}`} onClick={toggleAvailability}>
+                <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                        <Power className={`h-4 w-4 ${isAvailable ? 'text-emerald-400' : 'text-white/40'}`} />
+                        <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">{isAvailable ? 'Online' : 'Offline'}</span>
+                    </div>
+                </div>
+                <p className={`text-xl font-black ${isAvailable ? 'text-emerald-400' : 'text-white/20'}`}>
+                    {isAvailable ? 'DISPONIBLE' : 'ACTIVAR'}
+                </p>
+            </div>
         </div>
       </header>
 
-      <main className="flex-1 overflow-y-auto p-4 pb-32 space-y-4 bg-slate-50/50">
-         <div className="flex items-center p-1 bg-muted/40 rounded-2xl">
-            <button onClick={() => setActiveTab('orders')} className={`flex-1 py-3 rounded-xl text-sm font-black transition-all ${activeTab === 'orders' ? 'bg-white shadow-md' : 'text-muted-foreground'}`}>PEDIDOS ({pendingOrders.length})</button>
-            <button onClick={() => setActiveTab('history')} className={`flex-1 py-3 rounded-xl text-sm font-black transition-all ${activeTab === 'history' ? 'bg-white shadow-md' : 'text-muted-foreground'}`}>HISTORIAL</button>
+      {/* FEED DE PEDIDOS */}
+      <main className="flex-1 overflow-y-auto p-4 pb-32 space-y-4">
+         <div className="flex items-center justify-between mb-2 px-2">
+            <h2 className="text-sm font-black text-white/30 uppercase tracking-[0.3em]">Pedidos Disponibles</h2>
+            <div className="h-1 flex-1 mx-4 bg-white/5 rounded-full" />
+            <span className="text-indigo-400 font-black text-xs">{pendingOrders.length}</span>
          </div>
 
-         <AnimatePresence mode="wait">
+         <AnimatePresence mode="popLayout">
             {activeTab === 'orders' ? (
-                <motion.div key="list" initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
                     {pendingOrders.length === 0 ? (
-                        <div className="text-center py-20 px-10 grayscale opacity-40">
-                            <Package className="h-14 w-14 mx-auto mb-4 text-muted-foreground" />
-                            <p className="text-sm font-black uppercase tracking-widest italic">Buscando rutas cercanas...</p>
+                        <div className="text-center py-24 px-10 flex flex-col items-center">
+                            <div className="h-20 w-20 bg-white/5 rounded-[40%] flex items-center justify-center mb-6 animate-pulse">
+                                <Package className="h-10 w-10 text-white/10" />
+                            </div>
+                            <p className="text-sm font-black text-white/40 uppercase tracking-widest">Buscando rutas...</p>
+                            <p className="text-[11px] text-white/20 mt-2">Mantente en zonas con alta demanda</p>
                         </div>
                     ) : (
                         pendingOrders.map(order => (
@@ -241,16 +290,34 @@ const DriverApp = () => {
                         ))
                     )}
                 </motion.div>
-            ) : <DeliveryHistory key="history" />}
+            ) : <DeliveryHistory />}
          </AnimatePresence>
       </main>
 
-      <nav className="fixed bottom-0 left-0 right-0 bg-card/90 backdrop-blur-3xl border-t border-border/10 px-8 py-3 flex items-center justify-between z-50 safe-bottom h-[90px]">
-          <button onClick={() => toast.info("Coming Soon")} className="flex flex-col items-center gap-1 opacity-40"><Star className="h-6 w-6" /><span className="text-[10px] font-black uppercase">Premios</span></button>
-          <div onClick={() => setActiveTab('orders')} className="bg-primary p-4 rounded-3xl -mt-16 border-8 border-background shadow-2xl active:scale-90 transition-transform cursor-pointer">
-              <Bike className="h-8 w-8 text-white" />
+      {/* BOTTOM NAVIGATION GLASS */}
+      <nav className="fixed bottom-0 inset-x-0 h-24 bg-slate-900/80 backdrop-blur-3xl border-t border-white/5 px-10 flex items-center justify-between z-[100] safe-bottom">
+          <button 
+            onClick={() => setActiveTab('orders')}
+            className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'orders' ? 'text-indigo-500 scale-110' : 'text-white/30'}`}
+          >
+              <LayoutGrid className="h-6 w-6" />
+              <span className="text-[8px] font-black uppercase tracking-widest">Panel</span>
+          </button>
+          
+          <div 
+            onClick={toggleAvailability}
+            className={`h-20 w-20 -mt-16 rounded-[40%] flex items-center justify-center shadow-2xl transition-all active:scale-90 cursor-pointer ${isAvailable ? 'bg-indigo-600 shadow-indigo-600/30' : 'bg-slate-800'}`}
+          >
+              <Bike className="h-9 w-9 text-white" />
           </div>
-          <button onClick={() => setActiveTab('history')} className="flex flex-col items-center gap-1 opacity-40"><DollarSign className="h-6 w-6" /><span className="text-[10px] font-black uppercase">Ganancias</span></button>
+
+          <button 
+            onClick={() => setActiveTab('history')}
+            className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'history' ? 'text-indigo-500 scale-110' : 'text-white/30'}`}
+          >
+              <History className="h-6 w-6" />
+              <span className="text-[8px] font-black uppercase tracking-widest">Viajes</span>
+          </button>
       </nav>
     </div>
   );
