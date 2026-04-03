@@ -47,10 +47,59 @@ const DriverApp = () => {
     notificationSound.current = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJavm66LcF93h5ammJZxX2V/k6Wlm4t0ZHaHlaOdlIBvZHOFk56cloR0aXWFlJ2bln95bnSEk5yblYJ5b3WEk5uZlIF5cHaDkpqYkoB5cXeDkpmXkX94cXeDkpmXkYB4");
   }, []);
 
+  // Auto-start GPS when app loads
+  useEffect(() => {
+    if (user && !gpsAutoStarted.current && !isTracking) {
+      gpsAutoStarted.current = true;
+      startTracking();
+    }
+  }, [user, isTracking, startTracking]);
+
+  // Load driver profile and set availability
+  useEffect(() => {
+    if (!user) return;
+    supabase.from("driver_profiles").select("*").eq("id", user.id).maybeSingle()
+      .then(({ data }) => {
+        setDriverProfile(data);
+        if (data) {
+          setIsAvailable(data.status === "activo" || data.status === "en_ruta");
+        }
+      });
+  }, [user]);
+
+  // Toggle available/unavailable
+  const toggleAvailability = async () => {
+    if (!user) return;
+    const newStatus = isAvailable ? "inactivo" : "activo";
+    const { error } = await supabase
+      .from("driver_profiles")
+      .update({ status: newStatus as any, updated_at: new Date().toISOString() })
+      .eq("id", user.id);
+
+    if (error) {
+      toast.error("Error al cambiar disponibilidad");
+      return;
+    }
+    setIsAvailable(!isAvailable);
+    setDriverProfile((prev: any) => prev ? { ...prev, status: newStatus } : prev);
+    toast.success(isAvailable ? "Ahora estás desconectado" : "¡Estás disponible para recibir pedidos!");
+
+    if (isAvailable && isTracking) {
+      stopTracking();
+    } else if (!isAvailable && !isTracking) {
+      startTracking();
+    }
+  };
+
+  // Fetch pending & active deliveries with realtime
   useEffect(() => {
     if (!user) return;
 
     const fetchPending = async () => {
+      if (!isAvailable) {
+        setPendingOrders([]);
+        return;
+      }
       const { data } = await supabase
         .from("deliveries")
         .select("id, order_id, customer_name, customer_phone, pickup_address, delivery_address, amount, commission, estimated_time, status, zone, pickup_lat, pickup_lng, delivery_lat, delivery_lng")
@@ -86,13 +135,7 @@ const DriverApp = () => {
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [user]);
-
-  useEffect(() => {
-    if (!user) return;
-    supabase.from("driver_profiles").select("*").eq("id", user.id).maybeSingle()
-      .then(({ data }) => setDriverProfile(data));
-  }, [user]);
+  }, [user, isAvailable]);
 
   const acceptOrder = async (delivery: DeliveryOrder) => {
     if (!user) return;
