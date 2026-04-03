@@ -41,7 +41,7 @@ function readRoleCache(userId: string): AppRole {
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     // Solo usamos el cache si corresponde al mismo usuario
-    if (parsed.userId === userId) return parsed.role as AppRole;
+    if (parsed && typeof parsed === 'object' && parsed.userId === userId) return parsed.role as AppRole;
     return null;
   } catch { return null; }
 }
@@ -84,8 +84,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           .select("role")
           .eq("user_id", me.id)
           .maybeSingle();
-        if (rowErr) return null;
-        return (row?.role as AppRole) ?? null;
+        if (rowErr || !row) return null;
+        return ((row as any).role as AppRole) ?? null;
       } catch {
         return null;
       }
@@ -175,7 +175,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     );
 
     // Fuente de verdad para la carga inicial
-    supabase.auth.getSession().then(({ data: { session: s }, error }) => {
+    supabase.auth.getSession().then(({ data, error }) => {
+      const s = data?.session;
       if (!mounted.current) return;
       if (error) { console.error("[useAuth] getSession:", error.message); setLoading(false); return; }
       if (!initDone.current) {

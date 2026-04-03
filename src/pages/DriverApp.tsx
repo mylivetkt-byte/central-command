@@ -5,7 +5,7 @@ import { Switch } from "@/components/ui/switch";
 import {
   Package, History, Power, LogOut, Star,
   CheckCircle, Clock, DollarSign, ChevronRight,
-  MapPin, Bike, Navigation
+  MapPin, Bike, Navigation, LayoutGrid
 } from "lucide-react";
 import { toast } from "sonner";
 import { AnimatePresence, motion } from "framer-motion";
@@ -30,15 +30,10 @@ interface DeliveryOrder {
   pickup_lng: number | null;
   delivery_lat: number | null;
   delivery_lng: number | null;
+  created_at: string;
 }
 
-type Tab = "orders" | "history";
-
-// ─── Formato moneda ───────────────────────────────────────────────────────────
-const fmt = (v: number) =>
-  new Intl.NumberFormat("es-CO", {
-    style: "currency", currency: "COP", minimumFractionDigits: 0,
-  }).format(v);
+type Tab = "orders" | "history" | "stats";
 
 const DriverApp = () => {
   const { user, signOut } = useAuth();
@@ -48,19 +43,62 @@ const DriverApp = () => {
   const [activeTab, setActiveTab] = useState<Tab>("orders");
   const [isAvailable, setIsAvailable] = useState(false);
   const [togglingAvailability, setTogglingAvailability] = useState(false);
-  const { isTracking, startTracking, stopTracking } = useDriverLocation();
+  const { isTracking, currentLocation, startTracking, stopTracking } = useDriverLocation();
+  
   const notificationSound = useRef<HTMLAudioElement | null>(null);
+  const arrivalSound = useRef<HTMLAudioElement | null>(null);
   const gpsAutoStarted = useRef(false);
   const prevPendingCount = useRef(0);
+  const hasAnnouncedArrival = useRef(false);
 
-  // Sonido de notificación
+  // Bloquear scroll del body para sentirlo como App
   useEffect(() => {
-    notificationSound.current = new Audio(
-      "data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJavm66LcF93h5ammJZxX2V/k6Wlm4t0ZHaHlaOdlIBvZHOFk56cloR0aXWFlJ2bln95bnSEk5yblYJ5b3WEk5uZlIF5cHaDkpqYkoB5cXeDkpmXkX94cXeDkpmXkYB4"
-    );
+    document.body.style.overflow = "hidden";
+    document.body.style.overscrollBehavior = "none";
+    document.body.style.userSelect = "none";
+    return () => {
+      document.body.style.overflow = "auto";
+      document.body.style.overscrollBehavior = "auto";
+    };
   }, []);
 
-  // GPS auto-start al entrar
+  // Sonidos
+  useEffect(() => {
+    notificationSound.current = new Audio("https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3");
+    arrivalSound.current = new Audio("https://assets.mixkit.co/active_storage/sfx/1435/1435-preview.mp3");
+  }, []);
+
+  // Tracking de distancia
+  useEffect(() => {
+    if (!activeDelivery || !currentLocation) {
+        hasAnnouncedArrival.current = false;
+        return;
+    }
+    const targetPoint = activeDelivery.status === 'aceptado' 
+        ? { lat: activeDelivery.pickup_lat, lng: activeDelivery.pickup_lng }
+        : { lat: activeDelivery.delivery_lat, lng: activeDelivery.delivery_lng };
+
+    if (!targetPoint.lat || !targetPoint.lng) return;
+
+    const R = 6371;
+    const dLat = (targetPoint.lat - currentLocation.lat) * Math.PI / 180;
+    const dLng = (targetPoint.lng - currentLocation.lng) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+              Math.cos(currentLocation.lat * Math.PI / 180) * Math.cos(targetPoint.lat * Math.PI / 180) *
+              Math.sin(dLng / 2) * Math.sin(dLng / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const distanceKm = R * c;
+
+    if (distanceKm < 0.1 && !hasAnnouncedArrival.current) {
+        arrivalSound.current?.play().catch(() => {});
+        toast.info("📍 ¡Estás llegando al destino!", { position: "top-center" });
+        hasAnnouncedArrival.current = true;
+    } else if (distanceKm > 0.15) {
+        hasAnnouncedArrival.current = false;
+    }
+  }, [currentLocation, activeDelivery]);
+
+  // GPS auto-start
   useEffect(() => {
     if (user && !gpsAutoStarted.current && !isTracking) {
       gpsAutoStarted.current = true;
@@ -68,7 +106,7 @@ const DriverApp = () => {
     }
   }, [user, isTracking, startTracking]);
 
-  // Cargar perfil del driver
+  // Cargar perfil
   useEffect(() => {
     if (!user) return;
     supabase
@@ -77,10 +115,9 @@ const DriverApp = () => {
       .eq("id", user.id)
       .maybeSingle()
       .then(({ data }) => {
-        setDriverProfile(data);
-        if (data) {
-          setIsAvailable(data.status === "activo" || data.status === "en_ruta");
-        }
+        const d = data as any;
+        setDriverProfile(d);
+        if (d) setIsAvailable(d.status === "activo" || d.status === "en_ruta");
       });
   }, [user]);
 
@@ -89,16 +126,11 @@ const DriverApp = () => {
     if (!user || togglingAvailability) return;
     setTogglingAvailability(true);
     const newStatus = isAvailable ? "inactivo" : "activo";
-    const { error } = await supabase
-      .from("driver_profiles")
-      .update({ status: newStatus as any, updated_at: new Date().toISOString() })
+    const { error } = await (supabase.from("driver_profiles") as any)
+      .update({ status: newStatus, updated_at: new Date().toISOString() })
       .eq("id", user.id);
 
-    if (error) {
-      toast.error("Error al cambiar disponibilidad");
-      setTogglingAvailability(false);
-      return;
-    }
+    if (error) { toast.error("Error al cambiar disponibilidad"); setTogglingAvailability(false); return; }
     setIsAvailable(!isAvailable);
     setDriverProfile((prev: any) => prev ? { ...prev, status: newStatus } : prev);
     toast.success(isAvailable ? "Estás desconectado" : "¡Estás en línea!");
@@ -108,109 +140,68 @@ const DriverApp = () => {
     setTogglingAvailability(false);
   };
 
-  // ── Fetch pedidos pendientes y activo ──────────────────────────────────────
+  // Fetch pedidos
   useEffect(() => {
     if (!user) return;
-
     const fetchPending = async () => {
       if (!isAvailable) { setPendingOrders([]); return; }
+      const { data, error } = await supabase.from("pending_delivery_offers").select("*").order("created_at", { ascending: false });
+      if (error) return;
 
-      // BUG FIX: usar available_deliveries (vista segura) en lugar de deliveries
-      // La política RLS ya no permite leer pendientes de la tabla directa
-      const { data, error } = await supabase
-        .from("available_deliveries" as any)
-        .select("id, order_id, pickup_address, delivery_address, amount, commission, estimated_time, zone, status")
-        .order("created_at", { ascending: false });
-
-      if (error) {
-        console.error("[DriverApp] fetchPending error:", error.message);
-        return;
-      }
-
-      // La vista no expone datos sensibles — los completamos con valores por defecto
       const orders: DeliveryOrder[] = (data || []).map((d: any) => ({
-        id: d.id,
-        order_id: d.order_id,
-        customer_name: "Cliente",          // revelado tras aceptar
-        customer_phone: null,
-        pickup_address: d.pickup_address,
-        delivery_address: d.delivery_address,
+        ...d,
         amount: Number(d.amount || 0),
         commission: Number(d.commission || 0),
-        estimated_time: d.estimated_time,
-        status: d.status,
-        zone: d.zone,
-        pickup_lat: null,
-        pickup_lng: null,
-        delivery_lat: null,
-        delivery_lng: null,
+        customer_name: "Cliente VIP",
       }));
 
       if (orders.length > prevPendingCount.current) {
-        notificationSound.current?.play().catch(() => {});
+        notificationSound.current?.play().catch(() => { });
+        toast("🔔 ¡Nuevo pedido disponible!", { position: "top-center" });
       }
       prevPendingCount.current = orders.length;
       setPendingOrders(orders);
     };
 
     const fetchActive = async () => {
-      const { data } = await supabase
-        .from("deliveries")
-        .select("id, order_id, customer_name, customer_phone, pickup_address, delivery_address, amount, commission, estimated_time, status, zone, pickup_lat, pickup_lng, delivery_lat, delivery_lng")
-        .eq("driver_id", user.id)
-        .in("status", ["aceptado", "en_camino"])
-        .maybeSingle();
-      setActiveDelivery(data as DeliveryOrder | null);
+      const { data } = await supabase.from("deliveries").select("*").eq("driver_id", user.id).in("status", ["aceptado", "en_camino"]).maybeSingle();
+      setActiveDelivery(data as any);
     };
 
     fetchPending();
     fetchActive();
-
-    const channel = supabase
-      .channel("driver-deliveries-v2")
-      .on("postgres_changes", { event: "*", schema: "public", table: "deliveries" }, () => {
-        fetchPending();
-        fetchActive();
-      })
+    const channel = supabase.channel("driver-v5")
+      .on("postgres_changes", { event: "*", schema: "public", table: "deliveries" }, () => fetchActive())
+      .on("postgres_changes", { event: "*", schema: "public", table: "pending_delivery_offers" }, () => fetchPending())
       .subscribe();
-
     return () => { supabase.removeChannel(channel); };
   }, [user, isAvailable]);
 
-  // Aceptar pedido
-  const acceptOrder = async (delivery: DeliveryOrder) => {
+  // ACEPTAR PEDIDO (CONCURRENCIA CONTROLADA)
+  const acceptOrder = async (order: DeliveryOrder) => {
     if (!user) return;
+    
+    // Solo permitimos aceptar si sigue "pendiente" y no tiene driver
+    const { data, error } = await (supabase.from("deliveries") as any)
+      .update({ 
+        driver_id: user.id, 
+        status: "aceptado",
+        accepted_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .eq("id", order.id)
+      .eq("status", "pendiente")
+      .is("driver_id", null)
+      .select();
 
-    // Si no está activo, activarlo primero
-    if (!isAvailable) {
-      toast.error("Actívate primero para recibir pedidos");
+    if (error) { toast.error("Error al aceptar pedido"); return; }
+    if (!data || data.length === 0) {
+      toast.error("¡Demasiado tarde! Otro mensajero ya tomó este pedido.");
       return;
     }
 
-    const { data, error } = await supabase.rpc("claim_delivery", {
-      p_delivery_id: delivery.id,
-    });
-
-    if (error || !data?.ok) {
-      toast.error(data?.error || error?.message || "No se pudo tomar el pedido");
-      return;
-    }
-
-    toast.success("¡Pedido tomado!");
-
-    // Insertar log de auditoría (con política corregida)
-    await supabase.from("delivery_audit_log").insert({
-      delivery_id: delivery.id,
-      event: "Pedido aceptado",
-      details: "Aceptado por mensajero",
-      performed_by: user.id,
-    }).then(({ error: e }) => {
-      if (e) console.warn("[DriverApp] audit log error:", e.message);
-    });
-  };
-
-  const rejectOrder = (delivery: DeliveryOrder) => {
-    setPendingOrders((prev) => prev.filter((o) => o.id !== delivery.id));
+    toast.success("¡Pedido aceptado! Iniciando navegación.");
+    setActiveDelivery(data[0] as any);
   };
 
   const updateDeliveryStatus = async (newStatus: string) => {
@@ -219,40 +210,37 @@ const DriverApp = () => {
     if (newStatus === "en_camino") updates.picked_up_at = new Date().toISOString();
     if (newStatus === "entregado") updates.delivered_at = new Date().toISOString();
 
-    const { error } = await supabase.from("deliveries").update(updates).eq("id", activeDelivery.id);
-    if (error) { toast.error("Error actualizando estado"); return; }
+    const { error } = await (supabase.from("deliveries") as any).update(updates).eq("id", activeDelivery.id);
+    if (error) return;
 
     toast.success(newStatus === "entregado" ? "¡Entrega completada! 🎉" : "Estado actualizado");
-    await supabase.from("delivery_audit_log").insert({
-      delivery_id: activeDelivery.id,
-      event: newStatus === "en_camino" ? "En camino" : "Entregado",
-      details: `Estado cambiado a ${newStatus}`,
-      performed_by: user.id,
-    });
+    if (newStatus === "entregado") setActiveDelivery(null);
   };
 
-  const name = user?.user_metadata?.full_name || "Mensajero";
-  const initials = name.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2);
-  const todayEarnings = driverProfile ? Number(driverProfile.total_deliveries || 0) * Number(driverProfile.rating || 0) : 0;
-
-  // ── Si hay entrega activa → pantalla de navegación full ──────────────────
   if (activeDelivery) {
     return (
-      <div className="min-h-screen bg-background flex flex-col">
-        {/* Header compacto encima del mapa */}
-        <header className="sticky top-0 z-50 bg-card/95 backdrop-blur-xl border-b border-border/30 px-4 py-2 flex items-center justify-between">
+      <div className="fixed inset-0 h-screen w-screen bg-background flex flex-col overflow-hidden">
+        <header className="safe-top bg-card/95 backdrop-blur-xl border-b border-border/30 px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Bike className="h-5 w-5 text-primary" />
-            <span className="text-sm font-bold">Servicio activo</span>
+            <div className="bg-primary/20 p-1.5 rounded-lg">
+                <Bike className="h-5 w-5 text-primary" />
+            </div>
+            <span className="text-base font-black tracking-tight">EN RUTA</span>
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className={`h-2 w-2 rounded-full ${isTracking ? "bg-green-500 animate-pulse" : "bg-red-500"}`} />
-            <span className="text-[10px] text-muted-foreground">{isTracking ? "GPS" : "Sin GPS"}</span>
+          <div className="flex items-center gap-3">
+             <div className="flex flex-col items-end">
+                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Estado GPS</span>
+                <span className={`text-[10px] font-bold ${isTracking ? 'text-green-500' : 'text-destructive'}`}>
+                    {isTracking ? 'CONECTADO' : 'ERROR GPS'}
+                </span>
+             </div>
+             <div className={`h-2.5 w-2.5 rounded-full ${isTracking ? "bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]" : "bg-red-500"}`} />
           </div>
         </header>
-        <div className="flex-1">
+        <div className="flex-1 overflow-hidden relative">
           <ActiveDeliveryView
-            delivery={activeDelivery}
+            delivery={activeDelivery as any}
+            currentLocation={currentLocation}
             onPickedUp={() => updateDeliveryStatus("en_camino")}
             onDelivered={() => updateDeliveryStatus("entregado")}
           />
@@ -261,200 +249,129 @@ const DriverApp = () => {
     );
   }
 
-  // ── Pantalla principal ────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-
-      {/* ── HEADER ── */}
-      <header className="bg-card border-b border-border/30 px-4 pt-4 pb-3 space-y-3">
-        {/* Fila superior: avatar + nombre + logout */}
+    <div className="fixed inset-0 h-screen w-screen bg-background flex flex-col overflow-hidden select-none">
+      <header className="safe-top bg-card border-b border-border/30 px-6 pt-6 pb-4 space-y-4 shadow-sm">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="h-11 w-11 rounded-full bg-gradient-to-br from-primary to-accent flex items-center justify-center text-sm font-bold text-white shadow-md">
-              {initials}
+          <div className="flex items-center gap-4">
+            <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-primary to-primary/60 p-[2px] shadow-lg">
+                <div className="h-full w-full rounded-[14px] bg-card flex items-center justify-center font-black text-primary text-lg">
+                    {user?.user_metadata?.full_name?.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2) || "M"}
+                </div>
             </div>
             <div>
-              <p className="text-base font-bold text-foreground leading-tight">{name}</p>
-              <div className="flex items-center gap-1">
-                <span className={`h-2 w-2 rounded-full ${isAvailable ? "bg-green-500 animate-pulse" : "bg-zinc-400"}`} />
-                <span className="text-xs text-muted-foreground">
-                  {isAvailable ? "En línea" : "Desconectado"}
-                </span>
-              </div>
-            </div>
-          </div>
-          <button
-            onClick={signOut}
-            className="p-2 rounded-full hover:bg-muted transition-colors"
-          >
-            <LogOut className="h-4 w-4 text-muted-foreground" />
-          </button>
-        </div>
-
-        {/* Toggle de disponibilidad estilo DiDi */}
-        <div
-          onClick={toggleAvailability}
-          className={`flex items-center justify-between p-3 rounded-2xl border transition-all cursor-pointer ${
-            isAvailable
-              ? "bg-green-500/10 border-green-500/30"
-              : "bg-muted/40 border-border/40"
-          }`}
-        >
-          <div className="flex items-center gap-3">
-            <div className={`h-10 w-10 rounded-full flex items-center justify-center ${
-              isAvailable ? "bg-green-500/20" : "bg-muted"
-            }`}>
-              <Power className={`h-5 w-5 ${isAvailable ? "text-green-500" : "text-muted-foreground"}`} />
-            </div>
-            <div>
-              <p className={`text-sm font-bold ${isAvailable ? "text-green-600 dark:text-green-400" : "text-foreground"}`}>
-                {isAvailable ? "Estás en línea" : "Estás desconectado"}
-              </p>
-              <p className="text-[11px] text-muted-foreground">
-                {isAvailable ? "Recibiendo pedidos · GPS activo" : "Toca para conectarte"}
+              <h1 className="text-lg font-black leading-none">{user?.user_metadata?.full_name || "Mensajero"}</h1>
+              <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1 font-medium">
+                <LayoutGrid className="h-3 w-3" /> ID: {user?.id.slice(0, 8)}
               </p>
             </div>
           </div>
-          <Switch
-            checked={isAvailable}
-            disabled={togglingAvailability}
-            className="data-[state=checked]:bg-green-500 pointer-events-none"
-          />
+          <Button variant="ghost" size="icon" onClick={() => signOut()} className="rounded-xl h-11 w-11 bg-muted/50">
+            <LogOut className="h-5 w-5 text-destructive" />
+          </Button>
         </div>
 
-        {/* Stats rápidas */}
-        {driverProfile && (
-          <div className="grid grid-cols-3 gap-2">
-            <div className="text-center p-2 rounded-xl bg-muted/40">
-              <p className="text-lg font-extrabold text-foreground">{driverProfile.total_deliveries ?? 0}</p>
-              <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Entregas</p>
-            </div>
-            <div className="text-center p-2 rounded-xl bg-amber-500/10 border border-amber-500/20">
-              <p className="text-lg font-extrabold text-amber-500">⭐ {driverProfile.rating ?? "—"}</p>
-              <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Rating</p>
-            </div>
-            <div className="text-center p-2 rounded-xl bg-muted/40">
-              <p className="text-lg font-extrabold text-foreground">{driverProfile.acceptance_rate ?? 0}%</p>
-              <p className="text-[10px] text-muted-foreground uppercase tracking-wide">Aceptación</p>
-            </div>
-          </div>
-        )}
+        <div className={`flex items-center justify-between p-3 rounded-2xl transition-all duration-500 ${isAvailable ? 'bg-green-500/10 border border-green-500/20 shadow-[0_0_20px_rgba(34,197,94,0.05)]' : 'bg-muted/50 border border-transparent'}`}>
+           <div className="flex items-center gap-3">
+              <div className={`h-2.5 w-2.5 rounded-full shadow-lg ${isAvailable ? 'bg-green-500 animate-pulse' : 'bg-muted-foreground/30'}`} />
+              <span className={`text-sm font-bold ${isAvailable ? 'text-green-500' : 'text-muted-foreground'}`}>
+                {isAvailable ? 'MODO: RECIBIENDO PEDIDOS' : 'MODO: DESCONECTADO'}
+              </span>
+           </div>
+           <Switch
+             checked={isAvailable}
+             onCheckedChange={toggleAvailability}
+             disabled={togglingAvailability}
+             className="data-[state=checked]:bg-green-500"
+           />
+        </div>
       </header>
 
-      {/* ── CONTENIDO ── */}
-      <div className="flex-1 overflow-y-auto pb-24">
-        <AnimatePresence mode="wait">
-          {activeTab === "orders" && (
-            <motion.div
-              key="orders"
-              initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 10 }}
-              className="p-4 space-y-4"
+      <main className="flex-1 overflow-y-auto p-4 pb-32 space-y-4 bg-slate-50/30">
+         <div className="flex items-center p-1 bg-muted/50 rounded-2xl">
+            <button 
+                onClick={() => setActiveTab('orders')}
+                className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-[14px] text-sm font-bold transition-all ${activeTab === 'orders' ? 'bg-card text-foreground shadow-lg' : 'text-muted-foreground'}`}
             >
-              {/* Banner desconectado */}
-              {!isAvailable && (
-                <motion.div
-                  initial={{ opacity: 0, y: -8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="flex items-center gap-3 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20"
-                >
-                  <Power className="h-5 w-5 text-amber-500 shrink-0" />
-                  <div className="flex-1">
-                    <p className="text-sm font-semibold">Estás desconectado</p>
-                    <p className="text-xs text-muted-foreground">Actívate para recibir pedidos</p>
-                  </div>
-                  <button
-                    onClick={toggleAvailability}
-                    className="text-xs font-bold text-amber-500 border border-amber-500/40 rounded-lg px-3 py-1.5"
-                  >
-                    Activar
-                  </button>
+                <Package className={`h-4 w-4 ${activeTab === 'orders' ? 'text-primary' : ''}`} /> Disponibles 
+                <span className={`ml-1 text-[10px] px-1.5 py-0.5 rounded-full ${activeTab === 'orders' ? 'bg-primary text-white' : 'bg-muted text-muted-foreground'}`}>
+                    {pendingOrders.length}
+                </span>
+            </button>
+            <button 
+                onClick={() => setActiveTab('history')}
+                className={`flex-1 flex items-center justify-center gap-2 py-3 rounded-[14px] text-sm font-bold transition-all ${activeTab === 'history' ? 'bg-card text-foreground shadow-lg' : 'text-muted-foreground'}`}
+            >
+                <History className={`h-4 w-4 ${activeTab === 'history' ? 'text-primary' : ''}`} /> Historial
+            </button>
+         </div>
+
+         <AnimatePresence mode="wait">
+            {activeTab === 'orders' ? (
+                <motion.div initial={{ opacity: 0, y: 15 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -15 }} className="space-y-4">
+                    {pendingOrders.length === 0 ? (
+                        <div className="text-center py-24 px-10">
+                            <div className="w-20 h-20 bg-muted/30 rounded-full flex items-center justify-center mx-auto mb-6">
+                                <Package className="h-10 w-10 text-muted-foreground/30" />
+                            </div>
+                            <p className="text-base font-bold text-muted-foreground/60">Buscando envíos cerca de ti...</p>
+                            <p className="text-xs text-muted-foreground/40 mt-2">Los pedidos aparecerán aquí apenas sean publicados por la central</p>
+                        </div>
+                    ) : (
+                        pendingOrders.map(order => (
+                            <OrderCard 
+                                key={order.id} 
+                                order={order} 
+                                onAccept={() => acceptOrder(order)}
+                                onReject={() => toast.info("Pedido ocultado localmente.")}   
+                            />
+                        ))
+                    )}
                 </motion.div>
-              )}
-
-              {/* Sin pedidos */}
-              {isAvailable && pendingOrders.length === 0 && (
-                <div className="flex flex-col items-center justify-center py-20 space-y-3">
-                  <div className="h-20 w-20 rounded-full bg-muted/50 flex items-center justify-center">
-                    <Package className="h-10 w-10 text-muted-foreground/40" />
-                  </div>
-                  <p className="text-base font-semibold text-muted-foreground">Sin pedidos disponibles</p>
-                  <p className="text-xs text-muted-foreground/60">Te notificaremos cuando llegue uno nuevo</p>
-                </div>
-              )}
-
-              {/* Lista de pedidos */}
-              <AnimatePresence>
-                {pendingOrders.map((order) => (
-                  <OrderCard
-                    key={order.id}
-                    order={order}
-                    onAccept={() => acceptOrder(order)}
-                    onReject={() => rejectOrder(order)}
-                  />
-                ))}
-              </AnimatePresence>
-            </motion.div>
-          )}
-
-          {activeTab === "history" && (
-            <motion.div
-              key="history"
-              initial={{ opacity: 0, x: 10 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -10 }}
-              className="p-4"
-            >
-              <DeliveryHistory />
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-
-      {/* ── BOTTOM NAV estilo DiDi ── */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 bg-card border-t border-border/40 shadow-2xl shadow-black/30">
-        <div className="flex">
-          <button
-            onClick={() => setActiveTab("orders")}
-            className={`flex-1 flex flex-col items-center gap-1 py-3 transition-colors relative ${
-              activeTab === "orders" ? "text-primary" : "text-muted-foreground"
-            }`}
-          >
-            {activeTab === "orders" && (
-              <motion.div
-                layoutId="tab-indicator"
-                className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-primary rounded-full"
-              />
+            ) : (
+                <DeliveryHistory key="history" />
             )}
-            <Package className="h-5 w-5" />
-            <span className="text-[11px] font-semibold">Pedidos</span>
-            {pendingOrders.length > 0 && (
-              <span className="absolute top-2 right-[calc(50%-20px)] h-4 min-w-[16px] px-1 rounded-full bg-primary text-[9px] font-bold text-primary-foreground flex items-center justify-center">
-                {pendingOrders.length}
-              </span>
-            )}
+         </AnimatePresence>
+      </main>
+
+      {/* Tab Bar Estilo App */}
+      <nav className="fixed bottom-0 left-0 right-0 bg-card/80 backdrop-blur-2xl border-t border-border/10 px-8 py-3 flex items-center justify-between z-50 transition-transform safe-bottom h-[85px]">
+          <button className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'stats' ? 'text-primary' : 'text-muted-foreground opacity-50'}`}>
+              <Star className="h-6 w-6" />
+              <span className="text-[10px] font-black uppercase tracking-tighter">Premios</span>
           </button>
-
-          <button
-            onClick={() => setActiveTab("history")}
-            className={`flex-1 flex flex-col items-center gap-1 py-3 transition-colors relative ${
-              activeTab === "history" ? "text-primary" : "text-muted-foreground"
-            }`}
-          >
-            {activeTab === "history" && (
-              <motion.div
-                layoutId="tab-indicator"
-                className="absolute top-0 left-1/2 -translate-x-1/2 w-8 h-0.5 bg-primary rounded-full"
-              />
-            )}
-            <History className="h-5 w-5" />
-            <span className="text-[11px] font-semibold">Historial</span>
+          <div className="bg-primary p-4 rounded-3xl -mt-14 border-8 border-background shadow-[0_20px_40px_rgba(59,130,246,0.4)] relative active:scale-95 transition-transform">
+              <Bike className="h-7 w-7 text-white" />
+              {isAvailable && <div className="absolute -top-1.5 -right-1.5 h-4 w-4 bg-green-500 rounded-full border-[3px] border-background animate-pulse" />}
+          </div>
+          <button className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'history' ? 'text-primary' : 'text-muted-foreground opacity-50'}`}>
+              <DollarSign className="h-6 w-6" />
+              <span className="text-[10px] font-black uppercase tracking-tighter">Ganancias</span>
           </button>
-        </div>
       </nav>
     </div>
   );
+};
+
+const Button = ({ children, variant, size, onClick, className, disabled }: any) => {
+    const variants: any = {
+        default: 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-xl',
+        ghost: 'hover:bg-accent/10 hover:text-accent-foreground',
+        outline: 'border border-input bg-background hover:bg-accent hover:text-accent-foreground',
+    };
+    const sizes: any = {
+        sm: 'h-9 px-4 text-xs font-bold rounded-xl',
+        icon: 'h-11 w-11 rounded-2xl',
+    };
+    return (
+        <button 
+            disabled={disabled}
+            onClick={onClick} 
+            className={`inline-flex items-center justify-center transition-all focus:outline-none disabled:opacity-50 active:scale-95 ${variants[variant || 'default']} ${sizes[size] || 'h-12 px-6 py-2 rounded-2xl'} ${className}`}
+        >
+            {children}
+        </button>
+    );
 };
 
 export default DriverApp;

@@ -194,15 +194,37 @@ CREATE POLICY "Admins can read all locations" ON public.driver_locations
   FOR SELECT TO authenticated
   USING (public.has_role(auth.uid(), 'admin'));
 
--- deliveries: drivers see assigned, admins see all
-CREATE POLICY "Drivers can read assigned deliveries" ON public.deliveries
+-- deliveries: drivers see pending and assigned, admins see all
+-- Drivers can read pending deliveries (only if they have driver role)
+CREATE POLICY "Drivers can read pending deliveries" ON public.deliveries
   FOR SELECT TO authenticated
-  USING (driver_id = auth.uid() OR status = 'pendiente');
+  USING (
+    status = 'pendiente' AND public.has_role(auth.uid(), 'driver')
+  );
 
-CREATE POLICY "Drivers can update assigned deliveries" ON public.deliveries
+-- Drivers can read their assigned deliveries
+CREATE POLICY "Drivers can read own deliveries" ON public.deliveries
+  FOR SELECT TO authenticated
+  USING (driver_id = auth.uid());
+
+-- Drivers can accept pending deliveries
+CREATE POLICY "Drivers can accept deliveries" ON public.deliveries
+  FOR UPDATE TO authenticated
+  USING (
+    status = 'pendiente' AND public.has_role(auth.uid(), 'driver')
+  );
+
+-- Drivers can update their own deliveries
+CREATE POLICY "Drivers can update own deliveries" ON public.deliveries
   FOR UPDATE TO authenticated
   USING (driver_id = auth.uid());
 
+-- Admins can read all deliveries
+CREATE POLICY "Admins can read all deliveries" ON public.deliveries
+  FOR SELECT TO authenticated
+  USING (public.has_role(auth.uid(), 'admin'));
+
+-- Admins can insert/update/delete all deliveries
 CREATE POLICY "Admins can manage all deliveries" ON public.deliveries
   FOR ALL TO authenticated
   USING (public.has_role(auth.uid(), 'admin'));

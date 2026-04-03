@@ -7,11 +7,6 @@ export type Json =
   | Json[]
 
 export type Database = {
-  // Allows to automatically instantiate createClient with right options
-  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
-  __InternalSupabase: {
-    PostgrestVersion: "14.4"
-  }
   public: {
     Tables: {
       alerts: {
@@ -306,7 +301,24 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      pending_delivery_offers: {
+        Row: {
+          id: string
+          order_id: string
+          pickup_address: string
+          pickup_lat: number | null
+          pickup_lng: number | null
+          delivery_address: string
+          delivery_lat: number | null
+          delivery_lng: number | null
+          amount: number
+          commission: number
+          estimated_time: number | null
+          zone: string | null
+          status: Database["public"]["Enums"]["delivery_status"]
+          created_at: string
+        }
+      }
     }
     Functions: {
       has_role: {
@@ -319,12 +331,7 @@ export type Database = {
     }
     Enums: {
       app_role: "admin" | "driver"
-      delivery_status:
-        | "pendiente"
-        | "aceptado"
-        | "en_camino"
-        | "entregado"
-        | "cancelado"
+      delivery_status: "pendiente" | "aceptado" | "en_camino" | "entregado" | "cancelado"
       driver_status: "activo" | "inactivo" | "suspendido" | "en_ruta"
     }
     CompositeTypes: {
@@ -431,23 +438,6 @@ export type Enums<
   ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
   : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
     ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
-    : never
-
-export type CompositeTypes<
-  PublicCompositeTypeNameOrOptions extends
-    | keyof DefaultSchema["CompositeTypes"]
-    | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
-    schema: keyof DatabaseWithoutInternals
-  }
-    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never = never,
-> = PublicCompositeTypeNameOrOptions extends {
-  schema: keyof DatabaseWithoutInternals
-}
-  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
-  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
-    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
     : never
 
 export const Constants = {

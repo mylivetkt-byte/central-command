@@ -1,4 +1,5 @@
 import { DashboardLayout } from "@/components/DashboardLayout";
+import AddressAutocomplete from "@/components/ui/AddressAutocomplete";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
@@ -44,6 +45,10 @@ interface NewDeliveryForm {
   estimated_time: string;
   zone: string;
   notes: string;
+  pickup_lat?: number;
+  pickup_lng?: number;
+  delivery_lat?: number;
+  delivery_lng?: number;
 }
 
 const emptyForm: NewDeliveryForm = {
@@ -68,13 +73,12 @@ const Dispatch = () => {
   const { data: pending = [], isLoading: loadingPending } = useQuery({
     queryKey: ["dispatch-pending"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("deliveries")
+      const { data, error } = await (supabase.from("deliveries") as any)
         .select("*")
         .in("status", ["pendiente", "aceptado", "en_camino"])
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return data || [];
+      return (data as any[]) || [];
     },
     refetchInterval: 10000,
   });
@@ -99,22 +103,22 @@ const Dispatch = () => {
     mutationFn: async (formData: NewDeliveryForm) => {
       const orderId = `DOM-${Date.now().toString().slice(-6)}`;
 
-      // Geocodificar ambas direcciones en paralelo para tener lat/lng en el mapa
-      const [pickupCoords, deliveryCoords] = await Promise.all([
-        geocodeAddress(formData.pickup_address),
-        geocodeAddress(formData.delivery_address),
-      ]);
+      // Usamos coordenadas del formulario si existen, sino geocodificamos como backup
+      const pLat = formData.pickup_lat || (await geocodeAddress(formData.pickup_address))?.lat;
+      const pLng = formData.pickup_lng || (await geocodeAddress(formData.pickup_address))?.lng;
+      const dLat = formData.delivery_lat || (await geocodeAddress(formData.delivery_address))?.lat;
+      const dLng = formData.delivery_lng || (await geocodeAddress(formData.delivery_address))?.lng;
 
-      const { error } = await supabase.from("deliveries").insert({
+      const { error } = await (supabase.from("deliveries") as any).insert({
         order_id: orderId,
         customer_name: formData.customer_name,
         customer_phone: formData.customer_phone || null,
         pickup_address: formData.pickup_address,
         delivery_address: formData.delivery_address,
-        pickup_lat: pickupCoords?.lat ?? null,
-        pickup_lng: pickupCoords?.lng ?? null,
-        delivery_lat: deliveryCoords?.lat ?? null,
-        delivery_lng: deliveryCoords?.lng ?? null,
+        pickup_lat: pLat ?? null,
+        pickup_lng: pLng ?? null,
+        delivery_lat: dLat ?? null,
+        delivery_lng: dLng ?? null,
         amount: parseFloat(formData.amount) || 0,
         commission: parseFloat(formData.commission) || 0,
         estimated_time: parseInt(formData.estimated_time) || 30,
@@ -139,8 +143,7 @@ const Dispatch = () => {
   // Asignar pedido manualmente a un repartidor
   const assignDriver = useMutation({
     mutationFn: async ({ deliveryId, driverId }: { deliveryId: string; driverId: string }) => {
-      const { error } = await supabase
-        .from("deliveries")
+      const { error } = await (supabase.from("deliveries") as any)
         .update({
           driver_id: driverId,
           status: "aceptado",
@@ -162,8 +165,7 @@ const Dispatch = () => {
   // Cancelar pedido
   const cancelDelivery = useMutation({
     mutationFn: async (deliveryId: string) => {
-      const { error } = await supabase
-        .from("deliveries")
+      const { error } = await (supabase.from("deliveries") as any)
         .update({ status: "cancelado", updated_at: new Date().toISOString() })
         .eq("id", deliveryId);
       if (error) throw error;
@@ -175,7 +177,7 @@ const Dispatch = () => {
     onError: () => toast.error("Error al cancelar pedido"),
   });
 
-  const handleFormChange = (field: keyof NewDeliveryForm, value: string) => {
+  const handleFormChange = (field: keyof NewDeliveryForm, value: any) => {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
@@ -275,23 +277,31 @@ const Dispatch = () => {
 
                 <div className="space-y-1">
                   <label className="text-xs text-muted-foreground font-medium">Dirección de Recogida *</label>
-                  <input
+                  <AddressAutocomplete
                     value={form.pickup_address}
-                    onChange={(e) => handleFormChange("pickup_address", e.target.value)}
+                    onChange={(addr, coords) => {
+                      handleFormChange("pickup_address", addr);
+                      if (coords) {
+                        handleFormChange("pickup_lat", coords.lat);
+                        handleFormChange("pickup_lng", coords.lng);
+                      }
+                    }}
                     placeholder="Ej: Cra 27 #45-10, Bucaramanga"
-                    required
-                    className="w-full rounded-lg bg-muted/50 border border-border/50 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
                   />
                 </div>
 
                 <div className="space-y-1">
                   <label className="text-xs text-muted-foreground font-medium">Dirección de Entrega *</label>
-                  <input
+                  <AddressAutocomplete
                     value={form.delivery_address}
-                    onChange={(e) => handleFormChange("delivery_address", e.target.value)}
+                    onChange={(addr, coords) => {
+                      handleFormChange("delivery_address", addr);
+                      if (coords) {
+                        handleFormChange("delivery_lat", coords.lat);
+                        handleFormChange("delivery_lng", coords.lng);
+                      }
+                    }}
                     placeholder="Ej: Cll 48 #29-15, Bucaramanga"
-                    required
-                    className="w-full rounded-lg bg-muted/50 border border-border/50 px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
                   />
                 </div>
 

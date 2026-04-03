@@ -38,23 +38,21 @@ const Drivers = () => {
     queryKey: ["drivers"],
     queryFn: async () => {
       // Step 1: load all driver_profiles
-      const { data: dps, error: dpError } = await supabase
-        .from("driver_profiles")
+      const { data: dps, error: dpError } = await (supabase.from("driver_profiles") as any)
         .select("id, status, total_deliveries, rating, acceptance_rate, cancellation_rate, current_load, zone");
       if (dpError) throw dpError;
       if (!dps || dps.length === 0) return [];
 
       // Step 2: load the corresponding profiles (name, email, phone)
-      const ids = dps.map((d) => d.id);
-      const { data: profs, error: profError } = await supabase
-        .from("profiles")
+      const ids = (dps as any[]).map((d) => d.id);
+      const { data: profs, error: profError } = await (supabase.from("profiles") as any)
         .select("id, full_name, phone")
         .in("id", ids);
       if (profError) throw profError;
 
       // Step 3: merge
-      const profileMap = Object.fromEntries((profs || []).map((p) => [p.id, p]));
-      return dps.map((d) => ({ ...d, profile: profileMap[d.id] ?? null }));
+      const profileMap = Object.fromEntries(((profs as any[]) || []).map((p) => [p.id, p]));
+      return (dps as any[]).map((d) => ({ ...d, profile: profileMap[d.id] ?? null }));
     },
   });
 
@@ -63,8 +61,7 @@ const Drivers = () => {
     queryKey: ["driver-deliveries", selected],
     enabled: !!selected,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("deliveries")
+      const { data, error } = await (supabase.from("deliveries") as any)
         .select("*")
         .eq("driver_id", selected!)
         .order("created_at", { ascending: false })
@@ -77,8 +74,7 @@ const Drivers = () => {
   // Cambiar estado del repartidor
   const updateStatus = useMutation({
     mutationFn: async ({ driverId, status }: { driverId: string; status: any }) => {
-      const { error } = await supabase
-        .from("driver_profiles")
+      const { error } = await (supabase.from("driver_profiles") as any)
         .update({ status })
         .eq("id", driverId);
       if (error) throw error;
@@ -93,14 +89,12 @@ const Drivers = () => {
   const saveDriver = useMutation({
     mutationFn: async (data: typeof formData) => {
       if (isEditing) {
-        const { error: profileError } = await supabase
-          .from("profiles")
+        const { error: profileError } = await (supabase.from("profiles") as any)
           .update({ full_name: data.full_name, phone: data.phone })
           .eq("id", editingDriver.id);
         if (profileError) throw profileError;
 
-        const { error: driverError } = await supabase
-          .from("driver_profiles")
+        const { error: driverError } = await (supabase.from("driver_profiles") as any)
           .update({ zone: data.zone })
           .eq("id", editingDriver.id);
         if (driverError) throw driverError;
@@ -152,13 +146,13 @@ const Drivers = () => {
   const deleteDriver = useMutation({
     mutationFn: async (driverId: string) => {
       // Soft-delete mechanism: remove from driver_profiles, which cascades or removes their access
-      const { error: rolesError } = await supabase.from("user_roles").delete().eq("user_id", driverId);
+      const { error: rolesError } = await (supabase.from("user_roles") as any).delete().eq("user_id", driverId);
       if (rolesError) throw rolesError;
       
-      const { error: driverError } = await supabase.from("driver_profiles").delete().eq("id", driverId);
+      const { error: driverError } = await (supabase.from("driver_profiles") as any).delete().eq("id", driverId);
       if (driverError) throw driverError;
       
-      const { error: profileError } = await supabase.from("profiles").delete().eq("id", driverId);
+      const { error: profileError } = await (supabase.from("profiles") as any).delete().eq("id", driverId);
       if (profileError) throw profileError;
     },
     onSuccess: () => {
