@@ -22,61 +22,122 @@ const AuthContext = createContext<AuthContextType>({
 
 export const useAuth = () => useContext(AuthContext);
 
+// ─── sessionStorage helpers ───────────────────────────────────────────────────
+// Guardamos el rol del usuario en sessionStorage para que al refrescar la página
+// el rol esté disponible instantáneamente sin esperar a Supabase.
+// sessionStorage se borra al cerrar el tab/navegador — es seguro como caché.
+const ROLE_KEY = "app_role_cache";
+
+function saveRoleCache(userId: string, role: AppRole) {
+  try {
+    if (role) sessionStorage.setItem(ROLE_KEY, JSON.stringify({ userId, role }));
+    else sessionStorage.removeItem(ROLE_KEY);
+  } catch {}
+}
+
+function readRoleCache(userId: string): AppRole {
+  try {
+    const raw = sessionStorage.getItem(ROLE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    // Solo usamos el cache si corresponde al mismo usuario
+    if (parsed.userId === userId) return parsed.role as AppRole;
+    return null;
+  } catch { return null; }
+}
+
+function clearRoleCache() {
+  try { sessionStorage.removeItem(ROLE_KEY); } catch {}
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser]       = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [role, setRole]       = useState<AppRole>(null);
   const [loading, setLoading] = useState(true);
 
-  const mounted      = useRef(true);
-  const initDone     = useRef(false);
-  const fetchingRole = useRef(false);
+  const mounted        = useRef(true);
+  const initDone       = useRef(false);
+  const fetchingRole   = useRef(false);
 
-  /**
-   * Obtiene el rol del usuario autenticado.
-   * Intenta primero con RPC (SECURITY DEFINER, ignora RLS).
-   * Si la función no existe en Supabase aún, cae en query directa.
-   */
+  // ── fetchRole ───────────────────────────────────────────────────────────────
+  // Tiene timeout de 5s. Intenta RPC primero, luego query directa.
   const fetchRole = useCallback(async (): Promise<AppRole> => {
     if (fetchingRole.current) return null;
     fetchingRole.current = true;
-    try {
-      // Intento 1: RPC get_my_role
-      const { data: rpcData, error: rpcError } = await supabase.rpc("get_my_role");
-      if (!rpcError) {
-        return (rpcData as AppRole) ?? null;
+
+    // Promesa de timeout — si Supabase no responde en 5s, resolvemos con null
+    const timeout = new Promise<null>(resolve => setTimeout(() => resolve(null), 5000));
+
+    const queryPromise = (async (): Promise<AppRole> => {
+      try {
+        // Intento 1: RPC get_my_role (SECURITY DEFINER, no depende de RLS)
+        const { data, error } = await supabase.rpc("get_my_role");
+        if (!error) return (data as AppRole) ?? null;
+
+        // Intento 2: query directa (fallback si el RPC no existe aún)
+        const { data: { user: me } } = await supabase.auth.getUser();
+        if (!me) return null;
+        const { data: row, error: rowErr } = await supabase
+          .from("user_roles")
+          .select("role")
+          .eq("user_id", me.id)
+          .maybeSingle();
+        if (rowErr) return null;
+        return (row?.role as AppRole) ?? null;
+      } catch {
+        return null;
       }
-      // Intento 2: query directa (fallback si RPC no está creado)
-      const { data: { user: me } } = await supabase.auth.getUser();
-      if (!me) return null;
-      const { data, error } = await supabase
-        .from("user_roles")
-        .select("role")
-        .eq("user_id", me.id)
-        .maybeSingle();
-      if (error) { console.error("[useAuth] fetchRole fallback:", error.message); return null; }
-      return (data?.role as AppRole) ?? null;
-    } catch (e) {
-      console.error("[useAuth] fetchRole exception:", e);
-      return null;
-    } finally {
-      fetchingRole.current = false;
-    }
+    })();
+
+    const result = await Promise.race([queryPromise, timeout]);
+    fetchingRole.current = false;
+    return result;
   }, []);
 
-  const applySession = useCallback(async (s: Session | null) => {
+  // ── applySession ────────────────────────────────────────────────────────────
+  const applySession = useCallback(async (s: Session | null, fromCache = false) => {
     if (!mounted.current) return;
+
     setSession(s);
     setUser(s?.user ?? null);
+
     if (s?.user) {
-      const r = await fetchRole();
-      if (mounted.current) setRole(r);
+      // ── CLAVE: leemos el cache ANTES de llamar a Supabase ───────────────────
+      // Esto hace que en un refresh la UI cargue inmediatamente.
+      const cached = readRoleCache(s.user.id);
+      if (cached) {
+        setRole(cached);
+        setLoading(false); // ← la app aparece ya, sin esperar la red
+      }
+
+      // Luego verificamos el rol real en background (o esperamos si no hay cache)
+      const fetchedRole = await fetchRole();
+
+      if (!mounted.current) return;
+
+      if (fetchedRole !== null) {
+        // Rol confirmado — actualizamos cache y estado
+        setRole(fetchedRole);
+        saveRoleCache(s.user.id, fetchedRole);
+      } else if (!cached) {
+        // No había cache Y el fetch falló — no podemos saber el rol
+        // Dejamos role=null para que ProtectedRoute decida
+        setRole(null);
+      }
+      // Si había cache y el fetch falló, mantenemos el cached (ya seteado arriba)
+
     } else {
+      // Sin sesión → limpiar todo
+      clearRoleCache();
       setRole(null);
     }
+
     if (mounted.current) setLoading(false);
   }, [fetchRole]);
 
+  // ── efecto principal ────────────────────────────────────────────────────────
   useEffect(() => {
     mounted.current  = true;
     initDone.current = false;
@@ -86,19 +147,22 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         if (!mounted.current) return;
         console.log("[useAuth]", event, newSession?.user?.email ?? "—");
 
-        if (event === "INITIAL_SESSION") return; // getSession() lo maneja
-
+        if (event === "INITIAL_SESSION") {
+          // Ignorado — getSession() es la fuente de verdad en la carga inicial
+          return;
+        }
         if (event === "SIGNED_IN") {
           setLoading(true);
           await applySession(newSession);
           return;
         }
         if (event === "SIGNED_OUT") {
+          clearRoleCache();
           setUser(null); setSession(null); setRole(null); setLoading(false);
           return;
         }
         if (event === "TOKEN_REFRESHED") {
-          // Solo refrescamos sesión — NO el rol, para evitar race conditions
+          // Solo actualizamos la sesión — el rol no cambia por un refresh de token
           if (mounted.current) { setSession(newSession); setUser(newSession?.user ?? null); }
           return;
         }
@@ -114,16 +178,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     supabase.auth.getSession().then(({ data: { session: s }, error }) => {
       if (!mounted.current) return;
       if (error) { console.error("[useAuth] getSession:", error.message); setLoading(false); return; }
-      if (!initDone.current) { initDone.current = true; applySession(s); }
+      if (!initDone.current) {
+        initDone.current = true;
+        applySession(s);
+      }
     });
 
-    // Último recurso: si en 4s nada resolvió, reintenta
-    const failsafe = setTimeout(async () => {
-      if (!mounted.current) return;
-      console.warn("[useAuth] failsafe");
-      const { data: { session: s } } = await supabase.auth.getSession();
-      if (mounted.current) await applySession(s);
-    }, 4000);
+    // Failsafe de último recurso — fuerza loading=false a los 6s
+    const failsafe = setTimeout(() => {
+      if (mounted.current) {
+        console.warn("[useAuth] failsafe — forzando loading=false");
+        setLoading(false);
+      }
+    }, 6000);
 
     return () => {
       mounted.current = false;
@@ -134,6 +201,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const signOut = async () => {
+    clearRoleCache();
     setLoading(true);
     await supabase.auth.signOut();
   };
