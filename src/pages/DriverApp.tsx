@@ -242,26 +242,38 @@ const DriverApp = () => {
             <div>
               <p className="text-sm font-bold text-foreground">{user?.user_metadata?.full_name || "Mensajero"}</p>
               <div className="flex items-center gap-1.5">
-                <span className={`h-2 w-2 rounded-full ${isTracking ? "bg-accent animate-pulse" : "bg-destructive"}`} />
+                <span className={`h-2 w-2 rounded-full ${isAvailable ? "bg-accent animate-pulse" : "bg-destructive"}`} />
                 <span className="text-[10px] text-muted-foreground">
-                  {isTracking ? "En línea" : "Desconectado"}
+                  {isAvailable ? "Disponible" : "No disponible"}
                 </span>
               </div>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={isTracking ? stopTracking : startTracking}
-              className={`h-9 w-9 rounded-full ${isTracking ? 'text-accent' : 'text-muted-foreground'}`}
-            >
-              <Radio className="h-4 w-4" />
-            </Button>
             <Button variant="ghost" size="icon" onClick={signOut} className="h-9 w-9 rounded-full">
               <LogOut className="h-4 w-4 text-muted-foreground" />
             </Button>
           </div>
+        </div>
+
+        {/* Availability Toggle */}
+        <div className="mt-3 flex items-center justify-between p-3 rounded-xl bg-muted/40 border border-border/30">
+          <div className="flex items-center gap-2.5">
+            <Power className={`h-5 w-5 ${isAvailable ? "text-accent" : "text-muted-foreground"}`} />
+            <div>
+              <p className="text-sm font-semibold text-foreground">
+                {isAvailable ? "Estás en línea" : "Estás desconectado"}
+              </p>
+              <p className="text-[10px] text-muted-foreground">
+                {isAvailable ? "Recibiendo pedidos • GPS activo" : "No recibirás pedidos"}
+              </p>
+            </div>
+          </div>
+          <Switch
+            checked={isAvailable}
+            onCheckedChange={toggleAvailability}
+            className="data-[state=checked]:bg-accent"
+          />
         </div>
       </header>
 
