@@ -170,9 +170,18 @@ const DriverApp = () => {
 
     fetchPending();
     fetchActive();
-    const channel = supabase.channel("driver-v5")
-      .on("postgres_changes", { event: "*", schema: "public", table: "deliveries" }, () => fetchActive())
-      .on("postgres_changes", { event: "*", schema: "public", table: "pending_delivery_offers" }, () => fetchPending())
+    const channel = supabase.channel("driver-realtime-global")
+      .on("postgres_changes", { 
+        event: "*", 
+        schema: "public", 
+        table: "deliveries" 
+      }, (payload) => {
+        console.log("Realtime update received:", payload);
+        fetchActive();
+        // Cuando cambia el estado de un pedido (ej: se publica uno nuevo o alguien lo toma),
+        // refrescamos la lista de pendientes.
+        fetchPending();
+      })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [user, isAvailable]);
@@ -336,17 +345,26 @@ const DriverApp = () => {
 
       {/* Tab Bar Estilo App */}
       <nav className="fixed bottom-0 left-0 right-0 bg-card/80 backdrop-blur-2xl border-t border-border/10 px-8 py-3 flex items-center justify-between z-50 transition-transform safe-bottom h-[85px]">
-          <button className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'stats' ? 'text-primary' : 'text-muted-foreground opacity-50'}`}>
+          <button 
+            onClick={() => toast.info("Sistema de Premios próximamente")}
+            className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'stats' ? 'text-primary' : 'text-muted-foreground opacity-50'}`}
+          >
               <Star className="h-6 w-6" />
               <span className="text-[10px] font-black uppercase tracking-tighter">Premios</span>
           </button>
-          <div className="bg-primary p-4 rounded-3xl -mt-14 border-8 border-background shadow-[0_20px_40px_rgba(59,130,246,0.4)] relative active:scale-95 transition-transform">
+          <div 
+            onClick={() => setActiveTab('orders')}
+            className="bg-primary p-4 rounded-3xl -mt-14 border-8 border-background shadow-[0_20px_40px_rgba(59,130,246,0.4)] relative active:scale-95 transition-transform cursor-pointer"
+          >
               <Bike className="h-7 w-7 text-white" />
               {isAvailable && <div className="absolute -top-1.5 -right-1.5 h-4 w-4 bg-green-500 rounded-full border-[3px] border-background animate-pulse" />}
           </div>
-          <button className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'history' ? 'text-primary' : 'text-muted-foreground opacity-50'}`}>
+          <button 
+            onClick={() => setActiveTab('history')}
+            className={`flex flex-col items-center gap-1 transition-all ${activeTab === 'history' ? 'text-primary' : 'text-muted-foreground opacity-50'}`}
+          >
               <DollarSign className="h-6 w-6" />
-              <span className="text-[10px] font-black uppercase tracking-tighter">Ganancias</span>
+              <span className="text-[10px] font-black uppercase tracking-tighter">Mis Ganancias</span>
           </button>
       </nav>
     </div>
