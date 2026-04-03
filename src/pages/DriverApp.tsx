@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
 import {
-  Bike, LogOut, Package, Navigation, Clock, History, Radio
+  Bike, LogOut, Package, Navigation, Clock, History, Radio, Power
 } from "lucide-react";
 import { toast } from "sonner";
 import { AnimatePresence, motion } from "framer-motion";
@@ -39,16 +40,67 @@ const DriverApp = () => {
   const [driverProfile, setDriverProfile] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<Tab>("orders");
   const { isTracking, startTracking, stopTracking } = useDriverLocation();
+  const [isAvailable, setIsAvailable] = useState(false);
   const notificationSound = useRef<HTMLAudioElement | null>(null);
+  const gpsAutoStarted = useRef(false);
 
   useEffect(() => {
     notificationSound.current = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJavm66LcF93h5ammJZxX2V/k6Wlm4t0ZHaHlaOdlIBvZHOFk56cloR0aXWFlJ2bln95bnSEk5yblYJ5b3WEk5uZlIF5cHaDkpqYkoB5cXeDkpmXkX94cXeDkpmXkYB4");
   }, []);
 
+  // Auto-start GPS when app loads
+  useEffect(() => {
+    if (user && !gpsAutoStarted.current && !isTracking) {
+      gpsAutoStarted.current = true;
+      startTracking();
+    }
+  }, [user, isTracking, startTracking]);
+
+  // Load driver profile and set availability
+  useEffect(() => {
+    if (!user) return;
+    supabase.from("driver_profiles").select("*").eq("id", user.id).maybeSingle()
+      .then(({ data }) => {
+        setDriverProfile(data);
+        if (data) {
+          setIsAvailable(data.status === "activo" || data.status === "en_ruta");
+        }
+      });
+  }, [user]);
+
+  // Toggle available/unavailable
+  const toggleAvailability = async () => {
+    if (!user) return;
+    const newStatus = isAvailable ? "inactivo" : "activo";
+    const { error } = await supabase
+      .from("driver_profiles")
+      .update({ status: newStatus as any, updated_at: new Date().toISOString() })
+      .eq("id", user.id);
+
+    if (error) {
+      toast.error("Error al cambiar disponibilidad");
+      return;
+    }
+    setIsAvailable(!isAvailable);
+    setDriverProfile((prev: any) => prev ? { ...prev, status: newStatus } : prev);
+    toast.success(isAvailable ? "Ahora estás desconectado" : "¡Estás disponible para recibir pedidos!");
+
+    if (isAvailable && isTracking) {
+      stopTracking();
+    } else if (!isAvailable && !isTracking) {
+      startTracking();
+    }
+  };
+
+  // Fetch pending & active deliveries with realtime
   useEffect(() => {
     if (!user) return;
 
     const fetchPending = async () => {
+      if (!isAvailable) {
+        setPendingOrders([]);
+        return;
+      }
       const { data } = await supabase
         .from("deliveries")
         .select("id, order_id, customer_name, customer_phone, pickup_address, delivery_address, amount, commission, estimated_time, status, zone, pickup_lat, pickup_lng, delivery_lat, delivery_lng")
@@ -84,13 +136,7 @@ const DriverApp = () => {
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [user]);
-
-  useEffect(() => {
-    if (!user) return;
-    supabase.from("driver_profiles").select("*").eq("id", user.id).maybeSingle()
-      .then(({ data }) => setDriverProfile(data));
-  }, [user]);
+  }, [user, isAvailable]);
 
   const acceptOrder = async (delivery: DeliveryOrder) => {
     if (!user) return;
@@ -196,26 +242,38 @@ const DriverApp = () => {
             <div>
               <p className="text-sm font-bold text-foreground">{user?.user_metadata?.full_name || "Mensajero"}</p>
               <div className="flex items-center gap-1.5">
-                <span className={`h-2 w-2 rounded-full ${isTracking ? "bg-accent animate-pulse" : "bg-destructive"}`} />
+                <span className={`h-2 w-2 rounded-full ${isAvailable ? "bg-accent animate-pulse" : "bg-destructive"}`} />
                 <span className="text-[10px] text-muted-foreground">
-                  {isTracking ? "En línea" : "Desconectado"}
+                  {isAvailable ? "Disponible" : "No disponible"}
                 </span>
               </div>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={isTracking ? stopTracking : startTracking}
-              className={`h-9 w-9 rounded-full ${isTracking ? 'text-accent' : 'text-muted-foreground'}`}
-            >
-              <Radio className="h-4 w-4" />
-            </Button>
             <Button variant="ghost" size="icon" onClick={signOut} className="h-9 w-9 rounded-full">
               <LogOut className="h-4 w-4 text-muted-foreground" />
             </Button>
           </div>
+        </div>
+
+        {/* Availability Toggle */}
+        <div className="mt-3 flex items-center justify-between p-3 rounded-xl bg-muted/40 border border-border/30">
+          <div className="flex items-center gap-2.5">
+            <Power className={`h-5 w-5 ${isAvailable ? "text-accent" : "text-muted-foreground"}`} />
+            <div>
+              <p className="text-sm font-semibold text-foreground">
+                {isAvailable ? "Estás en línea" : "Estás desconectado"}
+              </p>
+              <p className="text-[10px] text-muted-foreground">
+                {isAvailable ? "Recibiendo pedidos • GPS activo" : "No recibirás pedidos"}
+              </p>
+            </div>
+          </div>
+          <Switch
+            checked={isAvailable}
+            onCheckedChange={toggleAvailability}
+            className="data-[state=checked]:bg-accent"
+          />
         </div>
       </header>
 
@@ -272,18 +330,18 @@ const DriverApp = () => {
       <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-8">
         {activeTab === "orders" && (
           <>
-            {!isTracking && (
+            {!isAvailable && (
               <motion.div
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
                 className="flex items-center gap-3 p-3 rounded-xl bg-warning/10 border border-warning/20"
               >
-                <Navigation className="h-5 w-5 text-warning shrink-0" />
+                <Power className="h-5 w-5 text-warning shrink-0" />
                 <div className="flex-1">
-                  <p className="text-xs font-semibold text-foreground">GPS desactivado</p>
-                  <p className="text-[10px] text-muted-foreground">Actívalo para recibir pedidos cercanos</p>
+                  <p className="text-xs font-semibold text-foreground">Estás desconectado</p>
+                  <p className="text-[10px] text-muted-foreground">Actívate para recibir pedidos</p>
                 </div>
-                <Button size="sm" variant="outline" onClick={startTracking} className="text-xs h-8 rounded-lg border-warning/30 text-warning">
+                <Button size="sm" variant="outline" onClick={toggleAvailability} className="text-xs h-8 rounded-lg border-warning/30 text-warning">
                   Activar
                 </Button>
               </motion.div>
