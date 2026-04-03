@@ -3,9 +3,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
-import {
-  Bike, LogOut, Package, Navigation, Clock, History, Radio, Power
-} from "lucide-react";
+import { Bike, LogOut, Package, History, Power } from "lucide-react";
 import { toast } from "sonner";
 import { AnimatePresence, motion } from "framer-motion";
 import { useDriverLocation } from "@/hooks/useDriverLocation";
@@ -29,27 +27,33 @@ interface DeliveryOrder {
   pickup_lng: number | null;
   delivery_lat: number | null;
   delivery_lng: number | null;
+  notes: string | null;
 }
 
 type Tab = "orders" | "history";
 
+const SELECT_FIELDS =
+  "id,order_id,customer_name,customer_phone,pickup_address,delivery_address,amount,commission,estimated_time,status,zone,pickup_lat,pickup_lng,delivery_lat,delivery_lng,notes";
+
 const DriverApp = () => {
-  const { user, signOut } = useAuth();
-  const [pendingOrders, setPendingOrders] = useState<DeliveryOrder[]>([]);
+  const { user, signOut }          = useAuth();
+  const [pendingOrders, setPendingOrders]   = useState<DeliveryOrder[]>([]);
   const [activeDelivery, setActiveDelivery] = useState<DeliveryOrder | null>(null);
-  const [driverProfile, setDriverProfile] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<Tab>("orders");
+  const [driverProfile, setDriverProfile]   = useState<any>(null);
+  const [activeTab, setActiveTab]           = useState<Tab>("orders");
+  const [isAvailable, setIsAvailable]       = useState(false);
   const { isTracking, startTracking, stopTracking } = useDriverLocation();
-  const [isAvailable, setIsAvailable] = useState(false);
-  const notificationSound = useRef<HTMLAudioElement | null>(null);
-  const gpsAutoStarted = useRef(false);
-  const prevPendingCount = useRef(0); // BUG FIX: ref para evitar stale closure en comparación de sonido
+  const notificationSound   = useRef<HTMLAudioElement | null>(null);
+  const gpsAutoStarted      = useRef(false);
+  const prevPendingCount    = useRef(0);
 
   useEffect(() => {
-    notificationSound.current = new Audio("data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJavm66LcF93h5ammJZxX2V/k6Wlm4t0ZHaHlaOdlIBvZHOFk56cloR0aXWFlJ2bln95bnSEk5yblYJ5b3WEk5uZlIF5cHaDkpqYkoB5cXeDkpmXkX94cXeDkpmXkYB4");
+    notificationSound.current = new Audio(
+      "data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJavm66LcF93h5ammJZxX2V/k6Wlm4t0ZHaHlaOdlIBvZHOFk56cloR0aXWFlJ2bln95bnSEk5yblYJ5b3WEk5uZlIF5cHaDkpqYkoB5cXeDkpmXkX94cXeDkpmXkYB4"
+    );
   }, []);
 
-  // Auto-start GPS when app loads
+  // Auto-start GPS cuando el app carga
   useEffect(() => {
     if (user && !gpsAutoStarted.current && !isTracking) {
       gpsAutoStarted.current = true;
@@ -57,111 +61,84 @@ const DriverApp = () => {
     }
   }, [user, isTracking, startTracking]);
 
-  // Load driver profile and set availability
+  // Cargar perfil del driver
   useEffect(() => {
     if (!user) return;
     supabase.from("driver_profiles").select("*").eq("id", user.id).maybeSingle()
       .then(({ data }) => {
         setDriverProfile(data);
-        if (data) {
-          setIsAvailable(data.status === "activo" || data.status === "en_ruta");
-        }
+        if (data) setIsAvailable(data.status === "activo" || data.status === "en_ruta");
       });
   }, [user]);
 
-  // Toggle available/unavailable
   const toggleAvailability = async () => {
     if (!user) return;
     const newStatus = isAvailable ? "inactivo" : "activo";
     const { error } = await supabase
       .from("driver_profiles")
-      .update({ status: newStatus as any, updated_at: new Date().toISOString() })
+      .update({ status: newStatus as any })
       .eq("id", user.id);
-
-    if (error) {
-      toast.error("Error al cambiar disponibilidad");
-      return;
-    }
+    if (error) { toast.error("Error al cambiar disponibilidad"); return; }
     setIsAvailable(!isAvailable);
-    setDriverProfile((prev: any) => prev ? { ...prev, status: newStatus } : prev);
+    setDriverProfile((p: any) => p ? { ...p, status: newStatus } : p);
     toast.success(isAvailable ? "Ahora estás desconectado" : "¡Estás disponible para recibir pedidos!");
-
-    if (isAvailable && isTracking) {
-      stopTracking();
-    } else if (!isAvailable && !isTracking) {
-      startTracking();
-    }
+    if (isAvailable && isTracking) stopTracking();
+    else if (!isAvailable && !isTracking) startTracking();
   };
 
-  // Fetch pending & active deliveries with realtime
+  const fetchPending = useCallback(async () => {
+    if (!isAvailable) { setPendingOrders([]); return; }
+    const { data } = await supabase
+      .from("deliveries")
+      .select(SELECT_FIELDS)
+      .eq("status", "pendiente")
+      .is("driver_id", null)
+      .order("created_at", { ascending: false });
+    const orders = (data || []) as DeliveryOrder[];
+    if (orders.length > prevPendingCount.current) {
+      notificationSound.current?.play().catch(() => {});
+    }
+    prevPendingCount.current = orders.length;
+    setPendingOrders(orders);
+  }, [isAvailable]);
+
+  const fetchActive = useCallback(async () => {
+    if (!user) return;
+    const { data } = await supabase
+      .from("deliveries")
+      .select(SELECT_FIELDS)
+      .eq("driver_id", user.id)
+      .in("status", ["aceptado", "en_camino"])
+      .maybeSingle();
+    setActiveDelivery(data as DeliveryOrder | null);
+  }, [user]);
+
   useEffect(() => {
     if (!user) return;
-
-    const fetchPending = async () => {
-      if (!isAvailable) {
-        setPendingOrders([]);
-        return;
-      }
-      const { data } = await supabase
-        .from("deliveries")
-        .select("id, order_id, customer_name, customer_phone, pickup_address, delivery_address, amount, commission, estimated_time, status, zone, pickup_lat, pickup_lng, delivery_lat, delivery_lng")
-        .eq("status", "pendiente")
-        .order("created_at", { ascending: false });
-
-      const orders = (data || []) as DeliveryOrder[];
-      // BUG FIX: usar ref en vez de state para evitar stale closure
-      if (orders.length > prevPendingCount.current) {
-        notificationSound.current?.play().catch(() => {});
-      }
-      prevPendingCount.current = orders.length;
-      setPendingOrders(orders);
-    };
-
-    const fetchActive = async () => {
-      const { data } = await supabase
-        .from("deliveries")
-        .select("id, order_id, customer_name, customer_phone, pickup_address, delivery_address, amount, commission, estimated_time, status, zone, pickup_lat, pickup_lng, delivery_lat, delivery_lng")
-        .eq("driver_id", user.id)
-        .in("status", ["aceptado", "en_camino"])
-        .maybeSingle();
-      setActiveDelivery(data as DeliveryOrder | null);
-    };
-
     fetchPending();
     fetchActive();
-
     const channel = supabase
-      .channel("driver-deliveries")
+      .channel("driver-deliveries-v2")
       .on("postgres_changes", { event: "*", schema: "public", table: "deliveries" }, () => {
         fetchPending();
         fetchActive();
       })
       .subscribe();
-
     return () => { supabase.removeChannel(channel); };
-  }, [user, isAvailable]);
+  }, [user, isAvailable, fetchPending, fetchActive]);
 
   const acceptOrder = async (delivery: DeliveryOrder) => {
     if (!user) return;
-
-    // Directly update the delivery to claim it
-    const { error } = await supabase
-      .from("deliveries")
-      .update({
-        driver_id: user.id,
-        status: "aceptado" as const,
-        accepted_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", delivery.id)
-      .eq("status", "pendiente");
-
-    if (error) {
-      toast.error("No se pudo tomar el pedido");
+    // Usamos claim_delivery RPC que tiene SECURITY DEFINER y FOR UPDATE SKIP LOCKED
+    // para evitar que dos mensajeros tomen el mismo pedido simultáneamente
+    const { data, error } = await supabase.rpc("claim_delivery", {
+      p_delivery_id: delivery.id,
+    });
+    if (error || !data?.ok) {
+      toast.error(data?.error || "No se pudo tomar el pedido");
       return;
     }
-
-    toast.success("¡Pedido tomado! Ya es tuyo.");
+    toast.success("¡Pedido tomado!");
     await supabase.from("delivery_audit_log").insert({
       delivery_id: delivery.id,
       event: "Pedido aceptado",
@@ -172,38 +149,26 @@ const DriverApp = () => {
 
   const rejectOrder = (delivery: DeliveryOrder) => {
     toast.info(`Pedido ${delivery.order_id} rechazado`);
-    setPendingOrders((prev) => prev.filter((o) => o.id !== delivery.id));
+    setPendingOrders(prev => prev.filter(o => o.id !== delivery.id));
   };
 
   const updateDeliveryStatus = async (newStatus: string) => {
     if (!activeDelivery || !user) return;
-
-    const updates: any = {
-      status: newStatus,
-      updated_at: new Date().toISOString(),
-    };
-    if (newStatus === "en_camino") updates.picked_up_at = new Date().toISOString();
-    if (newStatus === "entregado") updates.delivered_at = new Date().toISOString();
-
-    const { error } = await supabase
-      .from("deliveries")
-      .update(updates)
-      .eq("id", activeDelivery.id);
-
-    if (error) {
-      toast.error("Error actualizando estado");
-    } else {
-      toast.success(newStatus === "entregado" ? "¡Entrega completada!" : "Estado actualizado");
-      await supabase.from("delivery_audit_log").insert({
-        delivery_id: activeDelivery.id,
-        event: newStatus === "en_camino" ? "En camino" : "Entregado",
-        details: `Estado cambiado a ${newStatus}`,
-        performed_by: user.id,
-      });
-    }
+    const updates: any = { status: newStatus };
+    if (newStatus === "en_camino")  updates.picked_up_at  = new Date().toISOString();
+    if (newStatus === "entregado")  updates.delivered_at  = new Date().toISOString();
+    const { error } = await supabase.from("deliveries").update(updates).eq("id", activeDelivery.id);
+    if (error) { toast.error("Error actualizando estado"); return; }
+    toast.success(newStatus === "entregado" ? "¡Entrega completada!" : "Estado actualizado");
+    await supabase.from("delivery_audit_log").insert({
+      delivery_id: activeDelivery.id,
+      event: newStatus === "en_camino" ? "En camino" : "Entregado",
+      details: `Estado cambiado a ${newStatus}`,
+      performed_by: user.id,
+    });
   };
 
-  // If there's an active delivery, show the full-screen delivery view
+  // Vista de entrega activa
   if (activeDelivery) {
     return (
       <div className="min-h-screen bg-background flex flex-col">
@@ -217,7 +182,6 @@ const DriverApp = () => {
             <span className="text-[10px] text-muted-foreground">{isTracking ? "GPS" : "Sin GPS"}</span>
           </div>
         </header>
-
         <div className="flex-1">
           <ActiveDeliveryView
             delivery={activeDelivery}
@@ -229,9 +193,8 @@ const DriverApp = () => {
     );
   }
 
-  const profileInitials = driverProfile
-    ? (user?.user_metadata?.full_name || "M").split(" ").map((n: string) => n[0]).join("").toUpperCase()
-    : "M";
+  const profileInitials = (user?.user_metadata?.full_name || "M")
+    .split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2);
 
   return (
     <div className="min-h-screen bg-background flex flex-col">
@@ -246,20 +209,16 @@ const DriverApp = () => {
               <p className="text-sm font-bold text-foreground">{user?.user_metadata?.full_name || "Mensajero"}</p>
               <div className="flex items-center gap-1.5">
                 <span className={`h-2 w-2 rounded-full ${isAvailable ? "bg-accent animate-pulse" : "bg-destructive"}`} />
-                <span className="text-[10px] text-muted-foreground">
-                  {isAvailable ? "Disponible" : "No disponible"}
-                </span>
+                <span className="text-[10px] text-muted-foreground">{isAvailable ? "Disponible" : "No disponible"}</span>
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" onClick={signOut} className="h-9 w-9 rounded-full">
-              <LogOut className="h-4 w-4 text-muted-foreground" />
-            </Button>
-          </div>
+          <Button variant="ghost" size="icon" onClick={signOut} className="h-9 w-9 rounded-full">
+            <LogOut className="h-4 w-4 text-muted-foreground" />
+          </Button>
         </div>
 
-        {/* Availability Toggle */}
+        {/* Toggle disponibilidad */}
         <div className="mt-3 flex items-center justify-between p-3 rounded-xl bg-muted/40 border border-border/30">
           <div className="flex items-center gap-2.5">
             <Power className={`h-5 w-5 ${isAvailable ? "text-accent" : "text-muted-foreground"}`} />
@@ -272,84 +231,65 @@ const DriverApp = () => {
               </p>
             </div>
           </div>
-          <Switch
-            checked={isAvailable}
-            onCheckedChange={toggleAvailability}
-            className="data-[state=checked]:bg-accent"
-          />
+          <Switch checked={isAvailable} onCheckedChange={toggleAvailability}
+            className="data-[state=checked]:bg-accent" />
         </div>
       </header>
 
-      {/* Quick Stats */}
+      {/* Stats rápidas */}
       {driverProfile && (
         <div className="grid grid-cols-3 gap-2 p-3">
           <div className="text-center p-2.5 rounded-2xl bg-muted/40 border border-border/30">
-            <p className="text-lg font-extrabold text-foreground">{driverProfile.total_deliveries}</p>
+            <p className="text-lg font-extrabold text-foreground">{driverProfile.total_deliveries ?? 0}</p>
             <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">Entregas</p>
           </div>
           <div className="text-center p-2.5 rounded-2xl bg-accent/10 border border-accent/20">
-            <p className="text-lg font-extrabold text-accent">⭐ {driverProfile.rating}</p>
+            <p className="text-lg font-extrabold text-accent">⭐ {driverProfile.rating ?? "0.0"}</p>
             <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">Rating</p>
           </div>
           <div className="text-center p-2.5 rounded-2xl bg-muted/40 border border-border/30">
-            <p className="text-lg font-extrabold text-foreground">{driverProfile.acceptance_rate}%</p>
+            <p className="text-lg font-extrabold text-foreground">{driverProfile.acceptance_rate ?? 100}%</p>
             <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">Aceptación</p>
           </div>
         </div>
       )}
 
-      {/* Tab navigation */}
+      {/* Tabs */}
       <div className="flex gap-1 mx-4 p-1 bg-muted/50 rounded-2xl">
-        <button
-          onClick={() => setActiveTab("orders")}
-          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-            activeTab === "orders"
-              ? "bg-card text-foreground shadow-sm"
-              : "text-muted-foreground"
-          }`}
-        >
-          <Package className="h-4 w-4" />
-          Pedidos
-          {pendingOrders.length > 0 && (
-            <span className="h-5 min-w-[20px] px-1 rounded-full bg-warning text-warning-foreground text-[10px] font-bold flex items-center justify-center">
-              {pendingOrders.length}
-            </span>
-          )}
-        </button>
-        <button
-          onClick={() => setActiveTab("history")}
-          className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all ${
-            activeTab === "history"
-              ? "bg-card text-foreground shadow-sm"
-              : "text-muted-foreground"
-          }`}
-        >
-          <History className="h-4 w-4" />
-          Historial
-        </button>
+        {(["orders", "history"] as Tab[]).map(tab => (
+          <button key={tab} onClick={() => setActiveTab(tab)}
+            className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+              activeTab === tab ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"
+            }`}>
+            {tab === "orders" ? <Package className="h-4 w-4" /> : <History className="h-4 w-4" />}
+            {tab === "orders" ? "Pedidos" : "Historial"}
+            {tab === "orders" && pendingOrders.length > 0 && (
+              <span className="h-5 min-w-[20px] px-1 rounded-full bg-warning text-warning-foreground text-[10px] font-bold flex items-center justify-center">
+                {pendingOrders.length}
+              </span>
+            )}
+          </button>
+        ))}
       </div>
 
-      {/* Content */}
+      {/* Contenido */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-8">
         {activeTab === "orders" && (
           <>
             {!isAvailable && (
-              <motion.div
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="flex items-center gap-3 p-3 rounded-xl bg-warning/10 border border-warning/20"
-              >
+              <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}
+                className="flex items-center gap-3 p-3 rounded-xl bg-warning/10 border border-warning/20">
                 <Power className="h-5 w-5 text-warning shrink-0" />
                 <div className="flex-1">
                   <p className="text-xs font-semibold text-foreground">Estás desconectado</p>
                   <p className="text-[10px] text-muted-foreground">Actívate para recibir pedidos</p>
                 </div>
-                <Button size="sm" variant="outline" onClick={toggleAvailability} className="text-xs h-8 rounded-lg border-warning/30 text-warning">
+                <Button size="sm" variant="outline" onClick={toggleAvailability}
+                  className="text-xs h-8 rounded-lg border-warning/30 text-warning">
                   Activar
                 </Button>
               </motion.div>
             )}
-
             {pendingOrders.length === 0 ? (
               <div className="text-center py-16">
                 <div className="h-20 w-20 rounded-full bg-muted/50 flex items-center justify-center mx-auto mb-4">
@@ -361,20 +301,16 @@ const DriverApp = () => {
             ) : (
               <div className="space-y-4">
                 <AnimatePresence>
-                  {pendingOrders.map((order) => (
-                    <OrderCard
-                      key={order.id}
-                      order={order}
+                  {pendingOrders.map(order => (
+                    <OrderCard key={order.id} order={order}
                       onAccept={() => acceptOrder(order)}
-                      onReject={() => rejectOrder(order)}
-                    />
+                      onReject={() => rejectOrder(order)} />
                   ))}
                 </AnimatePresence>
               </div>
             )}
           </>
         )}
-
         {activeTab === "history" && <DeliveryHistory />}
       </div>
     </div>

@@ -9,18 +9,19 @@ import { Truck, Mail, Lock, AlertCircle, ArrowLeft, CheckCircle } from "lucide-r
 import { toast } from "sonner";
 
 const AdminLogin = () => {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [isSignUp, setIsSignUp] = useState(false);
+  const [email, setEmail]                   = useState("");
+  const [password, setPassword]             = useState("");
+  const [submitting, setSubmitting]         = useState(false);
+  const [error, setError]                   = useState("");
+  const [isSignUp, setIsSignUp]             = useState(false);
   const [isForgotPassword, setIsForgotPassword] = useState(false);
-  const [resetSent, setResetSent] = useState(false);
-  const [fullName, setFullName] = useState("");
-  const navigate = useNavigate();
+  const [resetSent, setResetSent]           = useState(false);
+  const [fullName, setFullName]             = useState("");
+
+  const navigate   = useNavigate();
   const { user, role, loading: authLoading } = useAuth();
 
-  // Redirect as soon as useAuth confirms admin role
+  // Redirige automáticamente si la sesión ya está activa
   useEffect(() => {
     if (!authLoading && user && role === "admin") {
       navigate("/", { replace: true });
@@ -29,67 +30,52 @@ const AdminLogin = () => {
 
   const handleForgotPassword = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
+    setSubmitting(true);
     setError("");
-    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email, {
+    const { error: err } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}/admin-login`,
     });
-    if (resetError) {
-      setError(resetError.message);
-    } else {
-      setResetSent(true);
-      toast.success("Correo enviado. Revisa tu bandeja de entrada.");
-    }
-    setLoading(false);
+    if (err) setError(err.message);
+    else { setResetSent(true); toast.success("Correo enviado. Revisa tu bandeja."); }
+    setSubmitting(false);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
+    setSubmitting(true);
     setError("");
 
     try {
       if (isSignUp) {
-        // Register new admin
-        const { error: signUpError } = await supabase.auth.signUp({
-          email,
-          password,
+        const { error: err } = await supabase.auth.signUp({
+          email, password,
           options: {
             data: { full_name: fullName, role: "admin" },
             emailRedirectTo: window.location.origin,
           },
         });
-        if (signUpError) {
-          setError(signUpError.message);
-        } else {
-          toast.success("¡Cuenta de admin creada! Ya puedes iniciar sesión.");
-          setIsSignUp(false);
-        }
+        if (err) setError(err.message);
+        else { toast.success("Cuenta creada. Ya puedes iniciar sesión."); setIsSignUp(false); }
       } else {
-        // Sign in — useAuth will pick up the session via onAuthStateChange
-        // and handle role resolution + redirect automatically
-        const { error: signInError } = await supabase.auth.signInWithPassword({
-          email,
-          password,
-        });
-
-        if (signInError) {
-          toast.error("Error al iniciar sesión: " + signInError.message);
-          setError(signInError.message);
+        const { error: err } = await supabase.auth.signInWithPassword({ email, password });
+        if (err) {
+          setError(
+            err.message.includes("Invalid login credentials")
+              ? "Correo o contraseña incorrectos."
+              : err.message
+          );
         }
-        // ✅ No manual navigate() here — useAuth useEffect handles the redirect
-        // once role is confirmed as "admin"
+        // El redirect lo maneja el useEffect de arriba una vez que role === "admin"
       }
-    } catch (err: any) {
-      console.error("[AdminLogin] unexpected error:", err);
-      setError("Error inesperado: " + (err?.message || String(err)));
+    } catch (ex: any) {
+      setError("Error inesperado: " + (ex?.message || String(ex)));
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
   };
 
-  // Show spinner while auth is resolving after submit
-  if (authLoading) {
+  // Solo mostramos el spinner si hay usuario pero el rol aún se está resolviendo
+  if (authLoading && user) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center space-y-3">
@@ -119,48 +105,37 @@ const AdminLogin = () => {
                   <CheckCircle className="h-12 w-12 text-green-500 mx-auto" />
                   <h3 className="font-semibold text-foreground">¡Correo enviado!</h3>
                   <p className="text-sm text-muted-foreground">
-                    Revisa tu bandeja de entrada en <strong>{email}</strong> y sigue el enlace para restablecer tu contraseña.
+                    Revisa tu bandeja en <strong>{email}</strong> y sigue el enlace para restablecer tu contraseña.
                   </p>
                 </div>
               ) : (
                 <form onSubmit={handleForgotPassword} className="space-y-4">
                   <div className="space-y-1">
                     <h3 className="font-semibold text-foreground">Recuperar contraseña</h3>
-                    <p className="text-xs text-muted-foreground">
-                      Ingresa tu correo y te enviaremos un enlace para restablecerla.
-                    </p>
+                    <p className="text-xs text-muted-foreground">Ingresa tu correo y te enviamos un enlace.</p>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="reset-email">Correo electrónico</Label>
                     <div className="relative">
                       <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        id="reset-email"
-                        type="email"
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        placeholder="admin@empresa.com"
-                        className="pl-10"
-                        required
-                      />
+                      <Input id="reset-email" type="email" value={email}
+                        onChange={e => setEmail(e.target.value)}
+                        placeholder="admin@empresa.com" className="pl-10" required />
                     </div>
                   </div>
                   {error && (
                     <div className="flex items-center gap-2 text-destructive text-sm bg-destructive/10 rounded-lg p-3">
-                      <AlertCircle className="h-4 w-4 shrink-0" />
-                      {error}
+                      <AlertCircle className="h-4 w-4 shrink-0" />{error}
                     </div>
                   )}
-                  <Button type="submit" className="w-full bg-gradient-primary" disabled={loading}>
-                    {loading ? "Enviando..." : "Enviar correo de recuperación"}
+                  <Button type="submit" className="w-full bg-gradient-primary" disabled={submitting}>
+                    {submitting ? "Enviando..." : "Enviar correo de recuperación"}
                   </Button>
                 </form>
               )}
-              <button
-                type="button"
+              <button type="button"
                 onClick={() => { setIsForgotPassword(false); setResetSent(false); setError(""); }}
-                className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-              >
+                className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
                 <ArrowLeft className="h-3 w-3" /> Volver al inicio de sesión
               </button>
             </div>
@@ -170,80 +145,55 @@ const AdminLogin = () => {
                 {isSignUp && (
                   <div className="space-y-2">
                     <Label htmlFor="fullName">Nombre completo</Label>
-                    <Input
-                      id="fullName"
-                      value={fullName}
-                      onChange={(e) => setFullName(e.target.value)}
-                      placeholder="Tu nombre"
-                      required
-                    />
+                    <Input id="fullName" value={fullName}
+                      onChange={e => setFullName(e.target.value)}
+                      placeholder="Tu nombre" required />
                   </div>
                 )}
                 <div className="space-y-2">
                   <Label htmlFor="email">Correo electrónico</Label>
                   <div className="relative">
                     <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      id="email"
-                      type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
-                      placeholder="admin@empresa.com"
-                      className="pl-10"
-                      required
-                    />
+                    <Input id="email" type="email" value={email}
+                      onChange={e => setEmail(e.target.value)}
+                      placeholder="admin@empresa.com" className="pl-10" required />
                   </div>
                 </div>
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label htmlFor="password">Contraseña</Label>
                     {!isSignUp && (
-                      <button
-                        type="button"
+                      <button type="button"
                         onClick={() => { setIsForgotPassword(true); setError(""); }}
-                        className="text-xs text-primary hover:underline"
-                      >
+                        className="text-xs text-primary hover:underline">
                         ¿Olvidaste tu contraseña?
                       </button>
                     )}
                   </div>
                   <div className="relative">
                     <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input
-                      id="password"
-                      type="password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className="pl-10"
-                      required
-                      minLength={6}
-                    />
+                    <Input id="password" type="password" value={password}
+                      onChange={e => setPassword(e.target.value)}
+                      placeholder="••••••••" className="pl-10" required minLength={6} />
                   </div>
                 </div>
-
                 {error && (
                   <div className="flex items-center gap-2 text-destructive text-sm bg-destructive/10 rounded-lg p-3">
-                    <AlertCircle className="h-4 w-4 shrink-0" />
-                    {error}
+                    <AlertCircle className="h-4 w-4 shrink-0" />{error}
                   </div>
                 )}
-
-                <Button type="submit" className="w-full bg-gradient-primary" disabled={loading}>
-                  {loading ? "Iniciando sesión..." : isSignUp ? "Crear cuenta" : "Iniciar sesión"}
+                <Button type="submit" className="w-full bg-gradient-primary" disabled={submitting || authLoading}>
+                  {submitting ? "Iniciando sesión..." : isSignUp ? "Crear cuenta" : "Iniciar sesión"}
                 </Button>
               </form>
 
               <div className="text-center">
-                <button
-                  type="button"
+                <button type="button"
                   onClick={() => { setIsSignUp(!isSignUp); setError(""); }}
-                  className="text-sm text-primary hover:underline"
-                >
+                  className="text-sm text-primary hover:underline">
                   {isSignUp ? "¿Ya tienes cuenta? Inicia sesión" : "¿No tienes cuenta? Regístrate"}
                 </button>
               </div>
-
               <div className="text-center">
                 <a href="/driver-login" className="text-xs text-muted-foreground hover:text-foreground">
                   ¿Eres mensajero? Entra aquí

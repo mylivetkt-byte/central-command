@@ -1,4 +1,7 @@
-import { createContext, useContext, useEffect, useState, useRef, useCallback, ReactNode } from "react";
+import {
+  createContext, useContext, useEffect,
+  useState, useRef, useCallback, ReactNode
+} from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { User, Session } from "@supabase/supabase-js";
 
@@ -13,10 +16,7 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType>({
-  user: null,
-  session: null,
-  role: null,
-  loading: true,
+  user: null, session: null, role: null, loading: true,
   signOut: async () => {},
 });
 
@@ -32,17 +32,30 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const initDone     = useRef(false);
   const fetchingRole = useRef(false);
 
-  // Usa RPC SECURITY DEFINER — evita bloqueos por RLS durante refresco de token
+  /**
+   * Obtiene el rol del usuario autenticado.
+   * Intenta primero con RPC (SECURITY DEFINER, ignora RLS).
+   * Si la función no existe en Supabase aún, cae en query directa.
+   */
   const fetchRole = useCallback(async (): Promise<AppRole> => {
     if (fetchingRole.current) return null;
     fetchingRole.current = true;
     try {
-      const { data, error } = await supabase.rpc("get_my_role");
-      if (error) {
-        console.error("[useAuth] fetchRole error:", error.message);
-        return null;
+      // Intento 1: RPC get_my_role
+      const { data: rpcData, error: rpcError } = await supabase.rpc("get_my_role");
+      if (!rpcError) {
+        return (rpcData as AppRole) ?? null;
       }
-      return (data as AppRole) ?? null;
+      // Intento 2: query directa (fallback si RPC no está creado)
+      const { data: { user: me } } = await supabase.auth.getUser();
+      if (!me) return null;
+      const { data, error } = await supabase
+        .from("user_roles")
+        .select("role")
+        .eq("user_id", me.id)
+        .maybeSingle();
+      if (error) { console.error("[useAuth] fetchRole fallback:", error.message); return null; }
+      return (data?.role as AppRole) ?? null;
     } catch (e) {
       console.error("[useAuth] fetchRole exception:", e);
       return null;
@@ -51,11 +64,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   }, []);
 
-  const applySession = useCallback(async (newSession: Session | null) => {
+  const applySession = useCallback(async (s: Session | null) => {
     if (!mounted.current) return;
-    setSession(newSession);
-    setUser(newSession?.user ?? null);
-    if (newSession?.user) {
+    setSession(s);
+    setUser(s?.user ?? null);
+    if (s?.user) {
       const r = await fetchRole();
       if (mounted.current) setRole(r);
     } else {
@@ -71,40 +84,24 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, newSession) => {
         if (!mounted.current) return;
-        console.log("[useAuth] event:", event, "user:", newSession?.user?.email ?? "none");
+        console.log("[useAuth]", event, newSession?.user?.email ?? "—");
 
-        if (event === "INITIAL_SESSION") {
-          // Ignorado — getSession() abajo maneja la inicialización.
-          // Evita doble ejecución que causaba parpadeo y logout falso.
-          return;
-        }
+        if (event === "INITIAL_SESSION") return; // getSession() lo maneja
 
         if (event === "SIGNED_IN") {
           setLoading(true);
           await applySession(newSession);
           return;
         }
-
         if (event === "SIGNED_OUT") {
-          setUser(null);
-          setSession(null);
-          setRole(null);
-          setLoading(false);
+          setUser(null); setSession(null); setRole(null); setLoading(false);
           return;
         }
-
         if (event === "TOKEN_REFRESHED") {
-          // Solo actualizamos session/user — NO re-fetchamos el rol.
-          // Antes se llamaba applySession aquí, lo que disparaba un segundo
-          // fetchRole que competía con el inicial y podía pisar role=null,
-          // causando que ProtectedRoute redirigiera al login en medio de carga.
-          if (mounted.current) {
-            setSession(newSession);
-            setUser(newSession?.user ?? null);
-          }
+          // Solo refrescamos sesión — NO el rol, para evitar race conditions
+          if (mounted.current) { setSession(newSession); setUser(newSession?.user ?? null); }
           return;
         }
-
         if (event === "USER_UPDATED") {
           setLoading(true);
           await applySession(newSession);
@@ -113,32 +110,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
     );
 
-    // getSession() es la fuente de verdad para la carga inicial.
-    // Se llama DESPUÉS de suscribirse para que INITIAL_SESSION (que se
-    // dispara síncronamente al suscribirse si hay sesión en localStorage)
-    // ya esté ignorado cuando llegamos aquí.
-    supabase.auth.getSession().then(({ data: { session: currentSession }, error }) => {
+    // Fuente de verdad para la carga inicial
+    supabase.auth.getSession().then(({ data: { session: s }, error }) => {
       if (!mounted.current) return;
-      if (error) {
-        console.error("[useAuth] getSession error:", error.message);
-        setLoading(false);
-        return;
-      }
-      if (!initDone.current) {
-        initDone.current = true;
-        applySession(currentSession);
-      }
+      if (error) { console.error("[useAuth] getSession:", error.message); setLoading(false); return; }
+      if (!initDone.current) { initDone.current = true; applySession(s); }
     });
 
-    // Failsafe: si en 3.5s nada resolvió, reintenta getSession una vez más
+    // Último recurso: si en 4s nada resolvió, reintenta
     const failsafe = setTimeout(async () => {
       if (!mounted.current) return;
-      console.warn("[useAuth] failsafe triggered — reintentando getSession");
-      const { data: { session: retrySession } } = await supabase.auth.getSession();
-      if (mounted.current) {
-        await applySession(retrySession);
-      }
-    }, 3500);
+      console.warn("[useAuth] failsafe");
+      const { data: { session: s } } = await supabase.auth.getSession();
+      if (mounted.current) await applySession(s);
+    }, 4000);
 
     return () => {
       mounted.current = false;
@@ -151,7 +136,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const signOut = async () => {
     setLoading(true);
     await supabase.auth.signOut();
-    // SIGNED_OUT en onAuthStateChange limpia el estado
   };
 
   return (
