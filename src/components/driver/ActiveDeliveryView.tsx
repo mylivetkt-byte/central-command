@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { 
   Navigation, 
   Phone, 
@@ -10,7 +9,10 @@ import {
   Package, 
   CheckCircle2, 
   Loader2,
-  Navigation2
+  Navigation2,
+  Maximize2,
+  Target,
+  ArrowUpRight
 } from "lucide-react";
 
 interface Delivery {
@@ -45,26 +47,21 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({
   const mapInstance = useRef<maplibregl.Map | null>(null);
   const [isMapReady, setIsMapReady] = useState(false);
   const driverMarkerRef = useRef<maplibregl.Marker | null>(null);
-  const markersRef = useRef<maplibregl.Marker[]>([]);
+  const destinationMarkerRef = useRef<maplibregl.Marker | null>(null);
   const [followMode, setFollowMode] = useState(true);
-  const [lastHeading, setLastHeading] = useState(0);
+  const [routeInfo, setRouteInfo] = useState<{ distance: string; duration: string; nextStreet: string; nextManeuver: string } | null>(null);
 
   // Inicializar mapa
   useEffect(() => {
     if (!mapContainer.current || mapInstance.current) return;
 
-    // Centro inicial: conductor si existe, sino recogida
-    const initialCenter: [number, number] = currentLocation 
-        ? [currentLocation.lng, currentLocation.lat]
-        : [delivery.pickup_lng || -73.1198, delivery.pickup_lat || 7.1193];
-
     mapInstance.current = new maplibregl.Map({
       container: mapContainer.current,
       style: 'https://tiles.openfreemap.org/styles/liberty',
-      center: initialCenter,
-      zoom: 16,
-      pitch: 60, // Modo conducción por defecto
-      bearing: 0
+      center: currentLocation ? [currentLocation.lng, currentLocation.lat] : [delivery.pickup_lng || -73.1198, delivery.pickup_lat || 7.1193],
+      zoom: 17,
+      pitch: 65,
+      bearing: currentLocation?.heading || 0
     });
 
     mapInstance.current.on('load', () => {
@@ -77,272 +74,228 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({
     };
   }, []);
 
-  // Función para obtener ruta real (OSRM)
-  const updateRoute = async () => {
-    if (!isMapReady || !mapInstance.current) return;
+  // Fetch Ruta y Maniobras (OSRM)
+  const fetchRoute = async () => {
+    if (!isMapReady || !mapInstance.current || !currentLocation) return;
     const map = mapInstance.current;
 
-    // Puntos para la ruta: Conductor -> Recogida o Recogida -> Entrega
-    let start: [number, number] | null = null;
-    let end: [number, number] | null = null;
+    const target = delivery.status === 'aceptado' 
+        ? [delivery.pickup_lng, delivery.pickup_lat]
+        : [delivery.delivery_lng, delivery.delivery_lat];
 
-    if (currentLocation) {
-        start = [currentLocation.lng, currentLocation.lat];
-        end = delivery.status === 'aceptado' 
-            ? [delivery.pickup_lng!, delivery.pickup_lat!]
-            : [delivery.delivery_lng!, delivery.delivery_lat!];
-    } else if (delivery.pickup_lat && delivery.delivery_lat) {
-        start = [delivery.pickup_lng!, delivery.pickup_lat!];
-        end = [delivery.delivery_lng!, delivery.delivery_lat!];
-    }
-
-    if (!start || !end || !start[0] || !end[0]) return;
+    if (!target[0] || !target[1]) return;
 
     try {
         const response = await fetch(
-            `https://router.project-osrm.org/route/v1/driving/${start[0]},${start[1]};${end[0]},${end[1]}?overview=full&geometries=geojson`
+            `https://router.project-osrm.org/route/v1/driving/${currentLocation.lng},${currentLocation.lat};${target[0]},${target[1]}?overview=full&geometries=geojson&steps=true`
         );
         const data = await response.json();
 
         if (data.routes && data.routes[0]) {
-            const coordinates = data.routes[0].geometry.coordinates;
-            const routeId = 'delivery-route';
+            const route = data.routes[0];
+            const coordinates = route.geometry.coordinates;
             
-            if (map.getSource(routeId)) {
-                (map.getSource(routeId) as maplibregl.GeoJSONSource).setData({
+            // Actualizar Línea de Ruta (Color Púrpura como en la imagen)
+            const routeSource = 'route-source';
+            if (map.getSource(routeSource)) {
+                (map.getSource(routeSource) as maplibregl.GeoJSONSource).setData({
                     type: 'Feature',
                     properties: {},
                     geometry: { type: 'LineString', coordinates }
                 });
             } else {
-                map.addSource(routeId, {
+                map.addSource(routeSource, {
                     type: 'geojson',
-                    data: {
-                        type: 'Feature',
-                        properties: {},
-                        geometry: { type: 'LineString', coordinates }
-                    }
+                    data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates } }
                 });
                 map.addLayer({
-                    id: routeId,
+                    id: 'route-line',
                     type: 'line',
-                    source: routeId,
+                    source: routeSource,
                     layout: { 'line-join': 'round', 'line-cap': 'round' },
-                    paint: { 'line-color': '#3b82f6', 'line-width': 8, 'line-opacity': 0.8 }
+                    paint: { 
+                        'line-color': '#6e39f5', // Púrpura navegación
+                        'line-width': 10,
+                        'line-opacity': 0.9,
+                        'line-border-width': 2,
+                        'line-border-color': '#ffffff'
+                    }
                 });
             }
+
+            // Datos de maniobra
+            const nextStep = route.legs[0].steps[1] || route.legs[0].steps[0];
+            setRouteInfo({
+                distance: (route.distance / 1000).toFixed(1) + " km",
+                duration: Math.ceil(route.duration / 60) + " min",
+                nextStreet: nextStep.name || "Siga recto",
+                nextManeuver: (nextStep.distance < 1000) ? Math.round(nextStep.distance) + " m" : (nextStep.distance/1000).toFixed(1) + " km"
+            });
         }
     } catch (err) {
-        console.error("Error fetching route:", err);
+        console.error("OSRM Error:", err);
     }
   };
 
-  // Actualizar ruta periódicamente o al cambiar estado/ubicación
   useEffect(() => {
-    updateRoute();
-    const interval = setInterval(updateRoute, 10000); // Cada 10s
-    return () => clearInterval(interval);
-  }, [isMapReady, delivery.status, currentLocation?.lat]);
+    fetchRoute();
+    const int = setInterval(fetchRoute, 5000);
+    return () => clearInterval(int);
+  }, [isMapReady, currentLocation?.lat, delivery.status]);
 
-  // Marcadores de puntos fijos
-  useEffect(() => {
-    if (!isMapReady || !mapInstance.current) return;
-    const map = mapInstance.current;
-
-    // Limpiar marcadores antiguos (excepto el del conductor)
-    markersRef.current.forEach(m => m.remove());
-    markersRef.current = [];
-
-    // Recogida
-    if (delivery.pickup_lat && delivery.pickup_lng) {
-      const el = document.createElement('div');
-      el.className = 'marker-pickup';
-      el.innerHTML = `<div class="bg-green-500 text-white p-2 rounded-full shadow-lg border-2 border-white"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg></div>`;
-      const m = new maplibregl.Marker({ element: el }).setLngLat([delivery.pickup_lng, delivery.pickup_lat]).addTo(map);
-      markersRef.current.push(m);
-    }
-
-    // Entrega
-    if (delivery.delivery_lat && delivery.delivery_lng) {
-      const el = document.createElement('div');
-      el.className = 'marker-delivery';
-      el.innerHTML = `<div class="bg-blue-600 text-white p-2 rounded-full shadow-lg border-2 border-white pulse-marker"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg></div>`;
-      const m = new maplibregl.Marker({ element: el }).setLngLat([delivery.delivery_lng, delivery.delivery_lat]).addTo(map);
-      markersRef.current.push(m);
-    }
-  }, [isMapReady, delivery.id]);
-
-  // MODO CONDUCCIÓN: Actualizar posición conductor y rotación
+  // Actualizar Marcadores
   useEffect(() => {
     if (!isMapReady || !mapInstance.current || !currentLocation) return;
     const map = mapInstance.current;
-    const { lat, lng, heading } = currentLocation;
 
-    // Actualizar marcador conductor
+    // Conductor (Moto Roja)
     if (!driverMarkerRef.current) {
-      const el = document.createElement('div');
-      el.innerHTML = `<div class="driver-nav-marker">
-        <div class="nav-arrow"></div>
-      </div>`;
-      driverMarkerRef.current = new maplibregl.Marker({ element: el }).setLngLat([lng, lat]).addTo(map);
+        const el = document.createElement('div');
+        el.innerHTML = `<div class="navigation-moto-marker">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="#ef4444" stroke="white" stroke-width="1.5">
+                <circle cx="12" cy="12" r="10" fill="rgba(239, 68, 68, 0.2)" />
+                <path d="M12 2L19 21L12 17L5 21L12 2Z" />
+            </svg>
+        </div>`;
+        driverMarkerRef.current = new maplibregl.Marker({ element: el, rotationAlignment: 'map' })
+            .setLngLat([currentLocation.lng, currentLocation.lat])
+            .addTo(map);
     } else {
-      driverMarkerRef.current.setLngLat([lng, lat]);
+        driverMarkerRef.current.setLngLat([currentLocation.lng, currentLocation.lat]);
+        if (currentLocation.heading !== null) {
+            driverMarkerRef.current.setRotation(currentLocation.heading);
+        }
     }
 
-    // Rotar flecha
-    if (heading !== null) {
-        setLastHeading(heading);
-        const arrow = driverMarkerRef.current.getElement().querySelector('.nav-arrow') as HTMLElement;
-        if (arrow) arrow.style.transform = `rotate(${heading}deg)`;
+    // Destino (Bandera de Meta como en la imagen)
+    const targetLngLat: [number, number] = delivery.status === 'aceptado' 
+        ? [delivery.pickup_lng!, delivery.pickup_lat!] 
+        : [delivery.delivery_lng!, delivery.delivery_lat!];
+
+    if (!destinationMarkerRef.current && targetLngLat[0]) {
+        const el = document.createElement('div');
+        el.innerHTML = `<div class="bg-white p-1 rounded-full shadow-2xl border-2 border-black">
+            <div class="w-8 h-8 flex items-center justify-center">🏁</div>
+        </div>`;
+        destinationMarkerRef.current = new maplibregl.Marker({ element: el })
+            .setLngLat(targetLngLat)
+            .addTo(map);
+    } else if (targetLngLat[0]) {
+        destinationMarkerRef.current?.setLngLat(targetLngLat);
     }
 
-    // Centrar si followMode está activo
     if (followMode) {
       map.easeTo({
-        center: [lng, lat],
-        bearing: heading ?? lastHeading,
-        pitch: 60,
-        zoom: 17,
+        center: [currentLocation.lng, currentLocation.lat],
+        bearing: currentLocation.heading || 0,
+        pitch: 65,
+        zoom: 18,
         duration: 1000
       });
     }
-  }, [currentLocation, followMode, isMapReady]);
-
-  const openInGoogleMaps = (lat: number, lng: number) => {
-    window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`, '_blank');
-  };
+  }, [currentLocation, followMode, isMapReady, delivery.status]);
 
   return (
-    <div className="flex flex-col h-full overflow-hidden bg-background">
-      <div className="relative flex-1 bg-muted">
+    <div className="flex flex-col h-screen w-screen overflow-hidden bg-background relative">
+      
+      {/* PANEL SUPERIOR NAVEGACIÓN (Como en la imagen) */}
+      <div className="absolute top-0 left-0 right-0 z-50 pointer-events-none p-2 pt-4">
+         <div className="bg-black/90 backdrop-blur-xl rounded-[28px] overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.4)] flex items-center p-5 gap-6 max-w-[450px] mx-auto border border-white/10">
+            <div className="flex-shrink-0">
+                <ArrowUpRight className="h-14 w-14 text-white stroke-[3px]" />
+            </div>
+            <div className="flex flex-col">
+                <span className="text-4xl font-black text-white leading-none mb-1">
+                    {routeInfo?.nextManeuver || "--- m"}
+                </span>
+                <span className="text-2xl font-black text-[#5ec6ff] tracking-tight truncate max-w-[200px]">
+                    {routeInfo?.nextStreet || "Seguir ruta"}
+                </span>
+            </div>
+         </div>
+      </div>
+
+      {/* MAPA */}
+      <div className="flex-1 relative">
         {!isMapReady && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-            <Loader2 className="h-10 w-10 animate-spin text-primary" />
+          <div className="absolute inset-0 z-[60] flex items-center justify-center bg-background">
+             <Loader2 className="h-10 w-10 animate-spin text-primary" />
           </div>
         )}
         <div ref={mapContainer} className="h-full w-full" />
         
-        <div className="absolute top-4 right-4 z-10 flex flex-col gap-3">
-          <Button 
-            variant={followMode ? "default" : "secondary"}
-            size="icon"
-            className={`rounded-full shadow-2xl h-14 w-14 ${followMode ? 'bg-primary border-4 border-white' : 'bg-white text-black'}`}
-            onClick={() => setFollowMode(!followMode)}
-          >
-            <Navigation2 className={`h-7 w-7 ${followMode ? 'fill-white' : ''}`} />
-          </Button>
-        </div>
-
-        <div className="absolute top-4 left-4 z-10 pointer-events-none">
-          <div className="bg-black/90 backdrop-blur-xl px-5 py-4 rounded-3xl border border-white/20 shadow-2xl flex items-center gap-4 max-w-[280px]">
-             <div className="bg-primary p-2.5 rounded-2xl shadow-lg shadow-primary/20">
-                <Navigation className="h-6 w-6 text-white" />
-             </div>
-             <div className="overflow-hidden">
-                <p className="text-[10px] uppercase font-black text-primary tracking-[0.2em] mb-1">En Navegación</p>
-                <p className="text-sm font-black text-white truncate leading-none">
-                  {delivery.status === 'aceptado' ? 'Hacia Recogida' : 'Hacia Destino'}
-                </p>
-                <p className="text-[10px] text-white/50 truncate mt-1">
-                  {delivery.status === 'aceptado' ? delivery.pickup_address : delivery.delivery_address}
-                </p>
-             </div>
-          </div>
+        {/* BOTONES FLOTANTES MAPA */}
+        <div className="absolute bottom-40 right-4 z-40 flex flex-col gap-4">
+             <Button 
+                variant="secondary" 
+                size="icon" 
+                className="h-14 w-14 rounded-full bg-white/90 backdrop-blur shadow-2xl border-none outline-none"
+                onClick={() => setFollowMode(true)}
+             >
+                <Target className={`h-7 w-7 ${followMode ? 'text-primary' : 'text-slate-400'}`} />
+             </Button>
         </div>
       </div>
 
-      <div className="bg-card w-full border-t border-border/10 p-6 rounded-t-[40px] -mt-10 relative z-20 shadow-[0_-20px_50px_rgba(0,0,0,0.5)]">
-        <div className="w-16 h-1.5 bg-muted/40 rounded-full mx-auto mb-8" />
-        
-        <div className="flex items-center justify-between mb-8">
-          <Badge className="bg-primary/20 text-primary border-none px-4 py-1.5 text-xs font-black tracking-widest">
-            ORDEN #{delivery.order_id}
-          </Badge>
-          <Button variant="outline" size="sm" className="rounded-xl border-primary/30 text-primary font-black py-5 px-6" onClick={() => {
-              const target = delivery.status === 'aceptado' ? [delivery.pickup_lat, delivery.pickup_lng] : [delivery.delivery_lat, delivery.delivery_lng];
-              if (target[0]) openInGoogleMaps(target[0]!, target[1]!);
-          }}>
-            GPS EXTERNO
-          </Button>
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 mb-8">
-           <div className={`p-5 rounded-3xl border transition-all ${delivery.status === 'aceptado' ? 'bg-primary/5 border-primary/40 ring-4 ring-primary/5 shadow-xl' : 'bg-muted/10 border-transparent opacity-30 grayscale'}`}>
-              <div className="flex items-center gap-4">
-                <div className="h-12 w-12 rounded-2xl bg-green-500 flex items-center justify-center text-white font-black shadow-lg shadow-green-500/20">A</div>
-                <div className="flex-1 overflow-hidden">
-                    <p className="text-[10px] font-black text-green-600 uppercase tracking-widest">Recogida</p>
-                    <p className="text-sm font-bold truncate text-foreground/90">{delivery.pickup_address}</p>
+      {/* PANEL INFERIOR ESTADÍSTICAS (Como en la imagen) */}
+      <div className="bg-white rounded-t-[40px] shadow-[0_-15px_60px_rgba(0,0,0,0.3)] p-6 relative z-50">
+          <div className="w-16 h-1.5 bg-slate-200 rounded-full mx-auto mb-6 opacity-30" />
+          
+          <div className="flex items-center justify-between mb-8 px-2">
+             <div className="flex items-center gap-4">
+                <div className="h-14 w-14 bg-black rounded-full flex items-center justify-center shadow-2xl">
+                    <Navigation2 className="h-7 w-7 text-white" />
                 </div>
-              </div>
-           </div>
-           
-           <div className={`p-5 rounded-3xl border transition-all ${delivery.status === 'en_camino' ? 'bg-primary/5 border-primary/40 ring-4 ring-primary/5 shadow-xl' : 'bg-muted/10 border-transparent opacity-30 grayscale'}`}>
-              <div className="flex items-center gap-4">
-                <div className="h-12 w-12 rounded-2xl bg-blue-600 flex items-center justify-center text-white font-black shadow-lg shadow-blue-600/20">B</div>
-                <div className="flex-1 overflow-hidden">
-                    <p className="text-[10px] font-black text-blue-600 uppercase tracking-widest">Destino Cliente</p>
-                    <p className="text-sm font-bold truncate text-foreground/90">{delivery.customer_name}</p>
-                    <p className="text-xs text-muted-foreground truncate">{delivery.delivery_address}</p>
+                <div className="flex flex-col">
+                    <span className="text-lg font-black text-slate-800 leading-none">Volver a centrar</span>
+                    <span className="text-lg font-bold text-slate-400 mt-1">
+                        {routeInfo?.duration || "14 min"} • {routeInfo?.distance || "6 km"}
+                    </span>
                 </div>
-                {delivery.customer_phone && delivery.status === 'en_camino' && (
-                    <Button size="icon" variant="outline" className="rounded-2xl h-14 w-14 bg-blue-50 border-blue-200" onClick={() => window.open(`tel:${delivery.customer_phone}`)}>
-                    <Phone className="h-6 w-6 text-blue-600" />
-                    </Button>
-                )}
-              </div>
-           </div>
-        </div>
+             </div>
+             <Button className="bg-[#f0f4f8] text-[#2c699a] hover:bg-slate-200 h-14 px-8 rounded-3xl font-black text-lg shadow-none border-none">
+                Vista general
+             </Button>
+          </div>
 
-        <div className="space-y-4 pt-2">
-          {delivery.status === 'aceptado' && (
-            <Button className="w-full h-18 rounded-[24px] bg-primary text-white font-black text-xl shadow-[0_10px_30px_rgba(59,130,246,0.3)] border-b-4 border-primary-foreground/20 active:border-b-0 active:translate-y-1 transition-all" onClick={onPickedUp}>
-              RECOGÍ EL PEDIDO
-            </Button>
-          )}
-          {delivery.status === 'en_camino' && (
-            <Button className="w-full h-18 rounded-[24px] bg-green-600 text-white font-black text-xl shadow-[0_10px_30px_rgba(34,197,94,0.3)] border-b-4 border-green-700/20 active:border-b-0 active:translate-y-1 transition-all" onClick={onDelivered}>
-              CONFIRMAR ENTREGA
-            </Button>
-          )}
-        </div>
+          <div className="grid grid-cols-1 gap-4">
+             {delivery.status === 'aceptado' ? (
+                <Button 
+                    className="w-full h-18 rounded-3xl bg-[#6e39f5] hover:bg-[#5a2ed1] text-white font-black text-xl shadow-xl shadow-indigo-200" 
+                    onClick={onPickedUp}
+                >
+                    YA RECOGÍ EL PEDIDO
+                </Button>
+             ) : (
+                <Button 
+                    className="w-full h-18 rounded-3xl bg-green-500 hover:bg-green-600 text-white font-black text-xl shadow-xl shadow-green-100" 
+                    onClick={onDelivered}
+                >
+                    CONFIRMAR ENTREGA
+                </Button>
+             )}
+             
+             <div className="flex gap-4">
+                <Button variant="outline" className="flex-1 h-16 rounded-3xl border-slate-100 text-slate-500 font-bold" onClick={() => window.open(`tel:${delivery.customer_phone}`)}>
+                    <Phone className="mr-2 h-5 w-5" /> Llamar Cliente
+                </Button>
+                <Button variant="outline" className="flex-1 h-16 rounded-3xl border-slate-100 text-slate-500 font-bold" onClick={() => {
+                     const t = delivery.status === 'aceptado' ? [delivery.pickup_lat, delivery.pickup_lng] : [delivery.delivery_lat, delivery.delivery_lng];
+                     window.open(`https://www.google.com/maps/dir/?api=1&destination=${t[0]},${t[1]}`, '_blank');
+                }}>
+                    Google Maps
+                </Button>
+             </div>
+          </div>
       </div>
 
       <style dangerouslySetInnerHTML={{ __html: `
-        .driver-nav-marker {
-            width: 50px;
-            height: 50px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+        .navigation-moto-marker {
+            transition: all 0.5s cubic-bezier(0.19, 1, 0.22, 1);
+            filter: drop-shadow(0 0 10px rgba(0,0,0,0.5));
         }
-        .nav-arrow {
-            width: 0;
-            height: 0;
-            border-left: 15px solid transparent;
-            border-right: 15px solid transparent;
-            border-bottom: 35px solid #3b82f6;
-            filter: drop-shadow(0 0 8px rgba(59,130,246,0.8));
-            transition: transform 0.5s ease-out;
-        }
-        .nav-arrow::after {
-            content: '';
-            position: absolute;
-            bottom: -35px;
-            left: -15px;
-            width: 0;
-            height: 0;
-            border-left: 15px solid transparent;
-            border-right: 15px solid transparent;
-            border-bottom: 12px solid #1d4ed8;
-        }
-        .pulse-marker {
-            animation: pulse-ring 1.5s cubic-bezier(0.455, 0.03, 0.515, 0.955) infinite;
-        }
-        @keyframes pulse-ring {
-            0% { transform: scale(0.8); box-shadow: 0 0 0 0 rgba(59,130,246, 0.7); }
-            70% { transform: scale(1); box-shadow: 0 0 0 15px rgba(59,130,246, 0); }
-            100% { transform: scale(0.8); box-shadow: 0 0 0 0 rgba(59,130,246, 0); }
+        .navigation-moto-marker svg {
+            transform: rotate(-45deg); /* Ajuste según el icono */
         }
       `}} />
     </div>
