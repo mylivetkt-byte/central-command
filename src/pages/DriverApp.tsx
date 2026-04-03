@@ -14,6 +14,7 @@ import { useDriverLocation } from "@/hooks/useDriverLocation";
 import OrderCard from "@/components/driver/OrderCard";
 import ActiveDeliveryView from "@/components/driver/ActiveDeliveryView";
 import DeliveryHistory from "@/components/driver/DeliveryHistory";
+import NearbyOrdersMap from "@/components/driver/NearbyOrdersMap";
 
 interface DeliveryOrder {
   id: string;
@@ -56,6 +57,7 @@ const DriverApp = () => {
   const [isAvailable, setIsAvailable] = useState(false);
   const [earningsToday, setEarningsToday] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [viewMode, setViewMode] = useState<"feed" | "map">("feed");
   const { isTracking, currentLocation, startTracking, stopTracking } = useDriverLocation();
   const notificationSound = useRef<HTMLAudioElement | null>(null);
   const prevPendingCount = useRef(0);
@@ -260,34 +262,63 @@ const DriverApp = () => {
         </div>
       </header>
 
-      {/* FEED DE PEDIDOS */}
-      <main className="flex-1 overflow-y-auto p-4 pb-32 space-y-4">
-         <div className="flex items-center justify-between mb-2 px-2">
-            <h2 className="text-sm font-black text-white/30 uppercase tracking-[0.3em]">Pedidos Disponibles</h2>
-            <div className="h-1 flex-1 mx-4 bg-white/5 rounded-full" />
-            <span className="text-indigo-400 font-black text-xs">{pendingOrders.length}</span>
-         </div>
+      {/* FEED / MAP SWITCHER */}
+      <div className="px-6 py-2">
+          <div className="bg-white/5 p-1 rounded-2xl flex gap-1">
+              <button 
+                onClick={() => setViewMode("feed")}
+                className={`flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === 'feed' ? 'bg-indigo-600 text-white shadow-lg' : 'text-white/30 hover:text-white/50'}`}
+              >
+                  Lista
+              </button>
+              <button 
+                onClick={() => setViewMode("map")}
+                className={`flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${viewMode === 'map' ? 'bg-indigo-600 text-white shadow-lg' : 'text-white/30 hover:text-white/50'}`}
+              >
+                  Ver Mapa
+              </button>
+          </div>
+      </div>
 
-         <AnimatePresence mode="popLayout">
+      <main className="flex-1 overflow-y-auto p-4 pb-32 space-y-4">
+         <AnimatePresence mode="wait">
             {activeTab === 'orders' ? (
-                <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className="space-y-4">
-                    {pendingOrders.length === 0 ? (
-                        <div className="text-center py-24 px-10 flex flex-col items-center">
-                            <div className="h-20 w-20 bg-white/5 rounded-[40%] flex items-center justify-center mb-6 animate-pulse">
-                                <Package className="h-10 w-10 text-white/10" />
+                <motion.div 
+                    key={viewMode}
+                    initial={{ opacity: 0, scale: 0.98 }} 
+                    animate={{ opacity: 1, scale: 1 }} 
+                    exit={{ opacity: 0, scale: 1.02 }}
+                    className="h-full w-full space-y-4"
+                >
+                    {viewMode === "feed" ? (
+                        pendingOrders.length === 0 ? (
+                            <div className="text-center py-24 px-10 flex flex-col items-center">
+                                <div className="h-20 w-20 bg-white/5 rounded-[40%] flex items-center justify-center mb-6 animate-pulse">
+                                    <Package className="h-10 w-10 text-white/10" />
+                                </div>
+                                <p className="text-sm font-black text-white/40 uppercase tracking-widest">Buscando rutas...</p>
                             </div>
-                            <p className="text-sm font-black text-white/40 uppercase tracking-widest">Buscando rutas...</p>
-                            <p className="text-[11px] text-white/20 mt-2">Mantente en zonas con alta demanda</p>
-                        </div>
+                        ) : (
+                            pendingOrders.map(order => (
+                                <OrderCard 
+                                    key={order.id} 
+                                    order={order} 
+                                    onAccept={() => acceptOrder(order)}
+                                    onReject={() => refreshData(true)}   
+                                />
+                            ))
+                        )
                     ) : (
-                        pendingOrders.map(order => (
-                            <OrderCard 
-                                key={order.id} 
-                                order={order} 
-                                onAccept={() => acceptOrder(order)}
-                                onReject={() => refreshData(true)}   
+                        <div className="h-[calc(100vh-420px)] min-h-[400px] w-full">
+                            <NearbyOrdersMap 
+                                orders={pendingOrders} 
+                                currentLocation={currentLocation} 
+                                onAcceptOrder={(id) => {
+                                    const order = pendingOrders.find(o => o.id === id);
+                                    if(order) acceptOrder(order);
+                                }}
                             />
-                        ))
+                        </div>
                     )}
                 </motion.div>
             ) : <DeliveryHistory />}
