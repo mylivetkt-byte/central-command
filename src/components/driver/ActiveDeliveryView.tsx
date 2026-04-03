@@ -1,7 +1,7 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { 
-  MapPin, Phone, Navigation, CheckCircle, Clock, 
-  ChevronDown, Bike, Package, User, ArrowRight
+  Phone, Navigation, CheckCircle, 
+  Bike, Package, User, ArrowRight
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -84,9 +84,7 @@ const ActiveDeliveryView = ({ delivery, onPickedUp, onDelivered }: ActiveDeliver
       }
     });
 
-    const bounds: L.LatLngBoundsExpression = [];
-    let hasPickup = false;
-    let hasDelivery = false;
+    const bounds: L.LatLngExpression[] = [];
 
     if (delivery.pickup_lat && delivery.pickup_lng) {
       const pickupIcon = L.divIcon({
@@ -97,7 +95,6 @@ const ActiveDeliveryView = ({ delivery, onPickedUp, onDelivered }: ActiveDeliver
       });
       L.marker([delivery.pickup_lat, delivery.pickup_lng], { icon: pickupIcon }).addTo(map);
       bounds.push([delivery.pickup_lat, delivery.pickup_lng]);
-      hasPickup = true;
     }
 
     if (delivery.delivery_lat && delivery.delivery_lng) {
@@ -109,21 +106,17 @@ const ActiveDeliveryView = ({ delivery, onPickedUp, onDelivered }: ActiveDeliver
       });
       L.marker([delivery.delivery_lat, delivery.delivery_lng], { icon: deliveryIcon }).addTo(map);
       bounds.push([delivery.delivery_lat, delivery.delivery_lng]);
-      hasDelivery = true;
     }
 
-    if (hasPickup && hasDelivery) {
+    if (delivery.pickup_lat && delivery.pickup_lng && delivery.delivery_lat && delivery.delivery_lng) {
       L.polyline(
-        [
-          [delivery.pickup_lat!, delivery.pickup_lng!],
-          [delivery.delivery_lat!, delivery.delivery_lng!],
-        ],
+        [[delivery.pickup_lat, delivery.pickup_lng], [delivery.delivery_lat, delivery.delivery_lng]],
         { color: '#22c55e', weight: 4, opacity: 0.8, dashArray: '10, 10' }
       ).addTo(map);
     }
 
     if (bounds.length > 0) {
-      map.fitBounds(bounds, { padding: [50, 50] });
+      map.fitBounds(bounds as L.LatLngBoundsExpression, { padding: [50, 50] });
     }
   }, [delivery.pickup_lat, delivery.pickup_lng, delivery.delivery_lat, delivery.delivery_lng]);
 
@@ -161,13 +154,10 @@ const ActiveDeliveryView = ({ delivery, onPickedUp, onDelivered }: ActiveDeliver
       animate={{ opacity: 1 }}
       className="flex flex-col h-full"
     >
-      {/* Map Area - takes most of the screen */}
       <div className="flex-1 relative bg-muted min-h-[40vh]">
-        {/* Real map */}
         <div ref={mapContainerRef} className="absolute inset-0" />
 
-        {/* ETA Badge */}
-        <div className="absolute top-4 left-4">
+        <div className="absolute top-4 left-4 z-[400]">
           <div className="bg-card/95 backdrop-blur-xl rounded-2xl px-4 py-2 shadow-lg border border-border/30">
             <p className="text-[10px] text-muted-foreground">Tiempo estimado</p>
             <p className="text-xl font-extrabold text-foreground">
@@ -176,8 +166,7 @@ const ActiveDeliveryView = ({ delivery, onPickedUp, onDelivered }: ActiveDeliver
           </div>
         </div>
 
-        {/* Status Badge */}
-        <div className="absolute top-4 right-4">
+        <div className="absolute top-4 right-4 z-[400]">
           <Badge className={`px-3 py-1.5 text-xs font-bold rounded-xl shadow-lg ${
             isPickingUp 
               ? "bg-warning/90 text-warning-foreground" 
@@ -191,8 +180,7 @@ const ActiveDeliveryView = ({ delivery, onPickedUp, onDelivered }: ActiveDeliver
           </Badge>
         </div>
 
-        {/* Navigate button on map */}
-        <div className="absolute bottom-4 right-4">
+        <div className="absolute bottom-4 right-4 z-[400]">
           <Button
             onClick={openInMaps}
             size="lg"
@@ -203,12 +191,10 @@ const ActiveDeliveryView = ({ delivery, onPickedUp, onDelivered }: ActiveDeliver
         </div>
       </div>
 
-      {/* Bottom Sheet */}
       <motion.div
         className="bg-card rounded-t-3xl border-t border-border/50 shadow-2xl shadow-black/40 relative z-10"
         style={{ marginTop: '-1.5rem' }}
       >
-        {/* Handle */}
         <div 
           className="flex justify-center pt-3 pb-2 cursor-pointer"
           onClick={() => setExpanded(!expanded)}
@@ -217,7 +203,6 @@ const ActiveDeliveryView = ({ delivery, onPickedUp, onDelivered }: ActiveDeliver
         </div>
 
         <div className="px-5 pb-6 space-y-4">
-          {/* Current destination */}
           <div>
             <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mb-1">
               {currentLabel}
@@ -233,7 +218,6 @@ const ActiveDeliveryView = ({ delivery, onPickedUp, onDelivered }: ActiveDeliver
                 exit={{ height: 0, opacity: 0 }}
                 className="space-y-4 overflow-hidden"
               >
-                {/* Route summary */}
                 <div className="flex items-center gap-3 p-3 rounded-xl bg-muted/50">
                   <div className="flex items-center gap-2 flex-1">
                     <div className="h-3 w-3 rounded-full bg-accent" />
@@ -246,7 +230,6 @@ const ActiveDeliveryView = ({ delivery, onPickedUp, onDelivered }: ActiveDeliver
                   </div>
                 </div>
 
-                {/* Customer & payment info */}
                 <div className="flex items-center justify-between p-3 rounded-xl bg-accent/10 border border-accent/20">
                   <div className="flex items-center gap-2">
                     <div className="h-9 w-9 rounded-full bg-muted flex items-center justify-center">
@@ -269,7 +252,6 @@ const ActiveDeliveryView = ({ delivery, onPickedUp, onDelivered }: ActiveDeliver
                   </div>
                 </div>
 
-                {/* Call customer */}
                 {delivery.customer_phone && (
                   <a
                     href={`tel:${delivery.customer_phone}`}
@@ -288,7 +270,6 @@ const ActiveDeliveryView = ({ delivery, onPickedUp, onDelivered }: ActiveDeliver
             )}
           </AnimatePresence>
 
-          {/* Action button */}
           {isPickingUp && (
             <Button
               onClick={onPickedUp}
