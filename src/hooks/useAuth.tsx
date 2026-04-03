@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, useRef, ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, useRef, useCallback, ReactNode } from "react";
 import { supabase } from "@/integrations/supabase/client";
 import type { User, Session } from "@supabase/supabase-js";
 
@@ -23,31 +23,21 @@ const AuthContext = createContext<AuthContextType>({
 export const useAuth = () => useContext(AuthContext);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser]       = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
-  const [role, setRole] = useState<AppRole>(null);
+  const [role, setRole]       = useState<AppRole>(null);
   const [loading, setLoading] = useState(true);
-  const mounted = useRef(true);
-  // BUG FIX #1: usar ref para saber si ya se procesó la sesión inicial,
-  // evita race condition cuando INITIAL_SESSION dispara antes del listener.
-  const sessionHandled = useRef(false);
 
-  const fetchRole = async (_userId: string): Promise<AppRole> => {
+  const mounted      = useRef(true);
+  const initDone     = useRef(false);
+  const fetchingRole = useRef(false);
+
+  // Usa RPC SECURITY DEFINER — evita bloqueos por RLS durante refresco de token
+  const fetchRole = useCallback(async (): Promise<AppRole> => {
+    if (fetchingRole.current) return null;
+    fetchingRole.current = true;
     try {
-      // Usamos RPC con SECURITY DEFINER en lugar de query directa a user_roles.
-      // La query directa está sujeta a RLS y puede colgarse si el token JWT
-      // todavía se está refrescando al recargar la página, causando el spinner
-      // infinito. La función RPC bypasea RLS y responde de inmediato.
-      const rpcPromise = supabase.rpc("get_my_role");
-
-      // Timeout de 4s: si la red falla o Supabase no responde,
-      // no dependemos del failsafe de 5s — fallamos rápido y limpio.
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("fetchRole timeout")), 4000)
-      );
-
-      const { data, error } = await Promise.race([rpcPromise, timeoutPromise]);
-
+      const { data, error } = await supabase.rpc("get_my_role");
       if (error) {
         console.error("[useAuth] fetchRole error:", error.message);
         return null;
@@ -56,82 +46,112 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     } catch (e) {
       console.error("[useAuth] fetchRole exception:", e);
       return null;
+    } finally {
+      fetchingRole.current = false;
     }
-  };
+  }, []);
 
-  // Función compartida para procesar una sesión (evita duplicar lógica)
-  const applySession = async (newSession: Session | null) => {
+  const applySession = useCallback(async (newSession: Session | null) => {
     if (!mounted.current) return;
     setSession(newSession);
     setUser(newSession?.user ?? null);
-
     if (newSession?.user) {
-      const r = await fetchRole(newSession.user.id);
+      const r = await fetchRole();
       if (mounted.current) setRole(r);
     } else {
       setRole(null);
     }
-
     if (mounted.current) setLoading(false);
-    sessionHandled.current = true;
-  };
+  }, [fetchRole]);
 
   useEffect(() => {
-    mounted.current = true;
-    sessionHandled.current = false;
+    mounted.current  = true;
+    initDone.current = false;
 
-    // BUG FIX #2: NO poner setLoading(true) dentro de onAuthStateChange
-    // para eventos como TOKEN_REFRESHED — evita que el spinner aparezca
-    // intermitentemente cuando solo se renueva el token.
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, newSession) => {
         if (!mounted.current) return;
-
         console.log("[useAuth] event:", event, "user:", newSession?.user?.email ?? "none");
 
-        // Solo mostrar loading en eventos que realmente cambian la sesión
-        const sessionChangeEvents = ["SIGNED_IN", "SIGNED_OUT", "USER_UPDATED", "INITIAL_SESSION"];
-        if (sessionChangeEvents.includes(event)) {
+        if (event === "INITIAL_SESSION") {
+          // Ignorado — getSession() abajo maneja la inicialización.
+          // Evita doble ejecución que causaba parpadeo y logout falso.
+          return;
+        }
+
+        if (event === "SIGNED_IN") {
           setLoading(true);
           await applySession(newSession);
+          return;
+        }
+
+        if (event === "SIGNED_OUT") {
+          setUser(null);
+          setSession(null);
+          setRole(null);
+          setLoading(false);
+          return;
+        }
+
+        if (event === "TOKEN_REFRESHED") {
+          // Solo actualizamos session/user — NO re-fetchamos el rol.
+          // Antes se llamaba applySession aquí, lo que disparaba un segundo
+          // fetchRole que competía con el inicial y podía pisar role=null,
+          // causando que ProtectedRoute redirigiera al login en medio de carga.
+          if (mounted.current) {
+            setSession(newSession);
+            setUser(newSession?.user ?? null);
+          }
+          return;
+        }
+
+        if (event === "USER_UPDATED") {
+          setLoading(true);
+          await applySession(newSession);
+          return;
         }
       }
     );
 
-    // BUG FIX #1 (principal): llamar getSession() después de suscribirse.
-    // En React StrictMode y ciertos race conditions, el evento INITIAL_SESSION
-    // puede disparar ANTES de que el listener esté listo, dejando loading = true
-    // para siempre (hasta que el failsafe de 8s lo corrige, causando el bug
-    // de "a veces inicia sesión y a veces no").
-    supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
-      if (!sessionHandled.current && mounted.current) {
-        console.log("[useAuth] getSession fallback triggered");
+    // getSession() es la fuente de verdad para la carga inicial.
+    // Se llama DESPUÉS de suscribirse para que INITIAL_SESSION (que se
+    // dispara síncronamente al suscribirse si hay sesión en localStorage)
+    // ya esté ignorado cuando llegamos aquí.
+    supabase.auth.getSession().then(({ data: { session: currentSession }, error }) => {
+      if (!mounted.current) return;
+      if (error) {
+        console.error("[useAuth] getSession error:", error.message);
+        setLoading(false);
+        return;
+      }
+      if (!initDone.current) {
+        initDone.current = true;
         applySession(currentSession);
       }
     });
 
-    // BUG FIX #3: el failsafe original usaba la variable `loading` en un
-    // closure estático (siempre era `true`), haciendo la condición inútil.
-    // Ahora simplemente fuerza loading=false sin condición de estado.
-    const failsafe = setTimeout(() => {
+    // Failsafe: si en 3.5s nada resolvió, reintenta getSession una vez más
+    const failsafe = setTimeout(async () => {
+      if (!mounted.current) return;
+      console.warn("[useAuth] failsafe triggered — reintentando getSession");
+      const { data: { session: retrySession } } = await supabase.auth.getSession();
       if (mounted.current) {
-        console.warn("[useAuth] Loading failsafe triggered — reducido a 5s");
-        setLoading(false);
+        await applySession(retrySession);
       }
-    }, 5000);
+    }, 3500);
 
     return () => {
       mounted.current = false;
       clearTimeout(failsafe);
       subscription.unsubscribe();
     };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const signOut = async () => {
+    setLoading(true);
     await supabase.auth.signOut();
-    setUser(null);
-    setSession(null);
-    setRole(null);
+    // SIGNED_OUT en onAuthStateChange limpia el estado
   };
 
   return (
