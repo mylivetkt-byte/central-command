@@ -35,6 +35,9 @@ type Tab = "orders" | "history";
 const SELECT_FIELDS =
   "id,order_id,customer_name,customer_phone,pickup_address,delivery_address,amount,commission,estimated_time,status,zone,pickup_lat,pickup_lng,delivery_lat,delivery_lng,notes";
 
+const fmt = (v: number) =>
+  new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(v);
+
 const DriverApp = () => {
   const { user, signOut }          = useAuth();
   const [pendingOrders, setPendingOrders]   = useState<DeliveryOrder[]>([]);
@@ -42,6 +45,7 @@ const DriverApp = () => {
   const [driverProfile, setDriverProfile]   = useState<any>(null);
   const [activeTab, setActiveTab]           = useState<Tab>("orders");
   const [isAvailable, setIsAvailable]       = useState(false);
+  const [todayEarnings, setTodayEarnings]   = useState(0);
   const { isTracking, startTracking, stopTracking } = useDriverLocation();
   const notificationSound   = useRef<HTMLAudioElement | null>(null);
   const gpsAutoStarted      = useRef(false);
@@ -61,13 +65,24 @@ const DriverApp = () => {
     }
   }, [user, isTracking, startTracking]);
 
-  // Cargar perfil del driver
+  // Cargar perfil y ganancias de hoy
   useEffect(() => {
     if (!user) return;
     supabase.from("driver_profiles").select("*").eq("id", user.id).maybeSingle()
       .then(({ data }) => {
         setDriverProfile(data);
         if (data) setIsAvailable(data.status === "activo" || data.status === "en_ruta");
+      });
+    // Ganancias del día actual
+    const todayStart = new Date(); todayStart.setHours(0,0,0,0);
+    supabase.from("deliveries")
+      .select("commission")
+      .eq("driver_id", user.id)
+      .eq("status", "entregado")
+      .gte("delivered_at", todayStart.toISOString())
+      .then(({ data }) => {
+        const total = (data || []).reduce((s, d) => s + Number(d.commission), 0);
+        setTodayEarnings(total);
       });
   }, [user]);
 
@@ -238,18 +253,22 @@ const DriverApp = () => {
 
       {/* Stats rápidas */}
       {driverProfile && (
-        <div className="grid grid-cols-3 gap-2 p-3">
-          <div className="text-center p-2.5 rounded-2xl bg-muted/40 border border-border/30">
-            <p className="text-lg font-extrabold text-foreground">{driverProfile.total_deliveries ?? 0}</p>
-            <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">Entregas</p>
+        <div className="grid grid-cols-4 gap-2 p-3">
+          <div className="text-center p-2 rounded-2xl bg-accent/10 border border-accent/20">
+            <p className="text-sm font-extrabold text-accent leading-tight">{fmt(todayEarnings)}</p>
+            <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium mt-0.5">Hoy</p>
           </div>
-          <div className="text-center p-2.5 rounded-2xl bg-accent/10 border border-accent/20">
-            <p className="text-lg font-extrabold text-accent">⭐ {driverProfile.rating ?? "0.0"}</p>
+          <div className="text-center p-2 rounded-2xl bg-muted/40 border border-border/30">
+            <p className="text-base font-extrabold text-foreground">{driverProfile.total_deliveries ?? 0}</p>
+            <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">Total</p>
+          </div>
+          <div className="text-center p-2 rounded-2xl bg-muted/40 border border-accent/20">
+            <p className="text-base font-extrabold text-accent">⭐ {driverProfile.rating ?? "0.0"}</p>
             <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">Rating</p>
           </div>
-          <div className="text-center p-2.5 rounded-2xl bg-muted/40 border border-border/30">
-            <p className="text-lg font-extrabold text-foreground">{driverProfile.acceptance_rate ?? 100}%</p>
-            <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">Aceptación</p>
+          <div className="text-center p-2 rounded-2xl bg-muted/40 border border-border/30">
+            <p className="text-base font-extrabold text-foreground">{driverProfile.acceptance_rate ?? 100}%</p>
+            <p className="text-[9px] uppercase tracking-wider text-muted-foreground font-medium">Acepta.</p>
           </div>
         </div>
       )}

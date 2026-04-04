@@ -1,7 +1,7 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from './useAuth';
-import { toast } from '@/components/ui/use-toast';
+import { toast } from 'sonner';
 
 interface LocationData {
   lat: number;
@@ -19,269 +19,140 @@ interface UseDriverLocationReturn {
   error: string | null;
 }
 
+// Throttle: solo enviamos ubicación a Supabase cada 15s como máximo.
+// Sin esto, en moto con GPS activo puede llegar a 60+ writes/min.
+const LOCATION_THROTTLE_MS = 15_000;
+
 export const useDriverLocation = (): UseDriverLocationReturn => {
   const { user, role } = useAuth();
-  const [isTracking, setIsTracking] = useState(false);
+  const [isTracking, setIsTracking]           = useState(false);
   const [currentLocation, setCurrentLocation] = useState<LocationData | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [watchId, setWatchId] = useState<number | null>(null);
+  const [error, setError]                     = useState<string | null>(null);
+  const watchIdRef     = useRef<number | null>(null);
+  const lastSentRef    = useRef<number>(0);
 
-  // Función para actualizar ubicación en Supabase
   const updateLocation = useCallback(async (location: LocationData) => {
     if (!user || role !== 'driver') return;
 
+    // Throttle — no enviar más de una vez cada 15s
+    const now = Date.now();
+    if (now - lastSentRef.current < LOCATION_THROTTLE_MS) return;
+    lastSentRef.current = now;
+
     try {
-      const { error } = await supabase
+      const { error: err } = await supabase
         .from('driver_locations')
         .upsert({
-          driver_id: user.id,
-          lat: location.lat,
-          lng: location.lng,
-          heading: location.heading,
-          speed: location.speed,
-          updated_at: new Date().toISOString()
-        }, {
-          onConflict: 'driver_id'
-        });
-
-      if (error) throw error;
-    } catch (err) {
-      console.error('Error updating location:', err);
-      setError('Error al actualizar ubicación');
+          driver_id:  user.id,
+          lat:        location.lat,
+          lng:        location.lng,
+          heading:    location.heading,
+          speed:      location.speed,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'driver_id' });
+      if (err) console.error('[GPS] update error:', err.message);
+    } catch (e) {
+      console.error('[GPS] exception:', e);
     }
   }, [user, role]);
 
-  // Iniciar tracking
   const startTracking = useCallback(() => {
     if (!navigator.geolocation) {
-      setError('Geolocalización no soportada en este navegador');
-      toast({
-        title: "Error",
-        description: "Tu navegador no soporta geolocalización",
-        variant: "destructive"
-      });
+      setError('Geolocalización no soportada');
+      toast.error('Tu navegador no soporta geolocalización');
       return;
     }
-
-    if (role !== 'driver') {
-      setError('Solo los conductores pueden activar el tracking');
-      return;
-    }
+    if (role !== 'driver') return;
+    if (watchIdRef.current !== null) return; // ya está activo
 
     setIsTracking(true);
     setError(null);
 
-    // Configuración para alta precisión
-    const options: PositionOptions = {
-      enableHighAccuracy: true,
-      timeout: 10000,
-      maximumAge: 0
-    };
-
-    // Iniciar watch position
     const id = navigator.geolocation.watchPosition(
-      (position) => {
-        const locationData: LocationData = {
-          lat: position.coords.latitude,
-          lng: position.coords.longitude,
-          heading: position.coords.heading,
-          speed: position.coords.speed,
-          accuracy: position.coords.accuracy
+      (pos) => {
+        const loc: LocationData = {
+          lat:      pos.coords.latitude,
+          lng:      pos.coords.longitude,
+          heading:  pos.coords.heading,
+          speed:    pos.coords.speed,
+          accuracy: pos.coords.accuracy,
         };
-
-        setCurrentLocation(locationData);
-        updateLocation(locationData);
+        setCurrentLocation(loc);
+        updateLocation(loc);
       },
       (err) => {
-        console.error('Geolocation error:', err);
-        let errorMessage = 'Error al obtener ubicación';
-        
-        switch (err.code) {
-          case err.PERMISSION_DENIED:
-            errorMessage = 'Permiso de ubicación denegado';
-            break;
-          case err.POSITION_UNAVAILABLE:
-            errorMessage = 'Ubicación no disponible';
-            break;
-          case err.TIMEOUT:
-            errorMessage = 'Tiempo de espera agotado';
-            break;
-        }
-        
-        setError(errorMessage);
-        toast({
-          title: "Error de GPS",
-          description: errorMessage,
-          variant: "destructive"
-        });
+        const msgs: Record<number, string> = {
+          1: 'Permiso de ubicación denegado. Actívalo en ajustes del navegador.',
+          2: 'Ubicación no disponible.',
+          3: 'Tiempo de espera agotado.',
+        };
+        const msg = msgs[err.code] ?? 'Error al obtener ubicación';
+        setError(msg);
+        toast.error(msg);
       },
-      options
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
     );
 
-    setWatchId(id);
-
-    toast({
-      title: "Tracking activado",
-      description: "Tu ubicación se está compartiendo en tiempo real"
-    });
+    watchIdRef.current = id;
   }, [role, updateLocation]);
 
-  // Detener tracking
   const stopTracking = useCallback(() => {
-    if (watchId !== null) {
-      navigator.geolocation.clearWatch(watchId);
-      setWatchId(null);
+    if (watchIdRef.current !== null) {
+      navigator.geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
     }
-
     setIsTracking(false);
     setCurrentLocation(null);
+  }, []);
 
-    toast({
-      title: "Tracking desactivado",
-      description: "Tu ubicación ya no se está compartiendo"
-    });
-  }, [watchId]);
-
-  // Limpiar al desmontar
   useEffect(() => {
     return () => {
-      if (watchId !== null) {
-        navigator.geolocation.clearWatch(watchId);
+      if (watchIdRef.current !== null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
       }
     };
-  }, [watchId]);
+  }, []);
 
-  return {
-    isTracking,
-    currentLocation,
-    startTracking,
-    stopTracking,
-    error
-  };
+  return { isTracking, currentLocation, startTracking, stopTracking, error };
 };
 
-// Hook para obtener la ubicación de un driver específico
+// ── Hook para ver ubicación de un driver específico (admin side) ──────────────
 export const useDriverLocationById = (driverId: string | null) => {
-  const [location, setLocation] = useState<LocationData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [location, setLocation] = useState<{ lat: number; lng: number; heading: number | null; speed: number | null; accuracy: null } | null>(null);
+  const [loading, setLoading]   = useState(true);
 
   useEffect(() => {
-    if (!driverId) {
-      setLoading(false);
-      return;
-    }
+    if (!driverId) { setLoading(false); return; }
 
-    const fetchLocation = async () => {
-      const { data, error } = await supabase
-        .from('driver_locations')
-        .select('lat, lng, heading, speed, updated_at')
-        .eq('driver_id', driverId)
-        .maybeSingle();
+    supabase.from('driver_locations').select('lat,lng,heading,speed')
+      .eq('driver_id', driverId).maybeSingle()
+      .then(({ data }) => {
+        if (data) setLocation({ ...data, accuracy: null });
+        setLoading(false);
+      });
 
-      if (!error && data) {
-        setLocation({
-          lat: data.lat,
-          lng: data.lng,
-          heading: data.heading,
-          speed: data.speed,
-          accuracy: null
-        });
-      }
-      setLoading(false);
-    };
-
-    fetchLocation();
-
-    // Suscribirse a cambios en tiempo real
-    const channel = supabase
-      .channel(`driver-location-${driverId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'UPDATE',
-          schema: 'public',
-          table: 'driver_locations',
-          filter: `driver_id=eq.${driverId}`
-        },
-        (payload) => {
-          const newData = payload.new;
-          setLocation({
-            lat: newData.lat,
-            lng: newData.lng,
-            heading: newData.heading,
-            speed: newData.speed,
-            accuracy: null
-          });
-        }
-      )
+    const ch = supabase.channel(`drv-loc-${driverId}`)
+      .on('postgres_changes', {
+        event: 'UPDATE', schema: 'public', table: 'driver_locations',
+        filter: `driver_id=eq.${driverId}`,
+      }, ({ new: n }) => setLocation({ lat: n.lat, lng: n.lng, heading: n.heading, speed: n.speed, accuracy: null }))
       .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(ch); };
   }, [driverId]);
 
   return { location, loading };
 };
 
-// Hook para calcular distancia entre dos puntos
-export const useDistance = (
-  point1: { lat: number; lng: number } | null,
-  point2: { lat: number; lng: number } | null
-) => {
-  const [distance, setDistance] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (!point1 || !point2) {
-      setDistance(null);
-      return;
-    }
-
-    // Fórmula de Haversine para calcular distancia
-    const R = 6371; // Radio de la Tierra en km
-    const dLat = toRad(point2.lat - point1.lat);
-    const dLng = toRad(point2.lng - point1.lng);
-    
-    const a = 
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(toRad(point1.lat)) * Math.cos(toRad(point2.lat)) *
-      Math.sin(dLng / 2) * Math.sin(dLng / 2);
-    
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-    const d = R * c; // Distancia en km
-
-    setDistance(d);
-  }, [point1, point2]);
-
-  return distance;
-};
-
-// Función helper para convertir grados a radianes
-const toRad = (degrees: number): number => {
-  return degrees * (Math.PI / 180);
-};
-
-// Hook para calcular tiempo estimado de llegada
-export const useETA = (
-  currentLocation: { lat: number; lng: number } | null,
-  destination: { lat: number; lng: number } | null,
-  averageSpeed: number = 30 // km/h por defecto
-) => {
-  const distance = useDistance(currentLocation, destination);
-  const [eta, setEta] = useState<number | null>(null); // en minutos
-
-  useEffect(() => {
-    if (distance === null || distance === 0) {
-      setEta(null);
-      return;
-    }
-
-    // Tiempo = Distancia / Velocidad (en minutos)
-    const timeInHours = distance / averageSpeed;
-    const timeInMinutes = Math.round(timeInHours * 60);
-    
-    setEta(timeInMinutes);
-  }, [distance, averageSpeed]);
-
-  return eta;
+// ── Distancia Haversine ───────────────────────────────────────────────────────
+const toRad = (d: number) => d * (Math.PI / 180);
+export const haversineKm = (
+  p1: { lat: number; lng: number },
+  p2: { lat: number; lng: number }
+): number => {
+  const R = 6371;
+  const dLat = toRad(p2.lat - p1.lat);
+  const dLng = toRad(p2.lng - p1.lng);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(p1.lat)) * Math.cos(toRad(p2.lat)) * Math.sin(dLng/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 };
