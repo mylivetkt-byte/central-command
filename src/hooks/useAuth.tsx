@@ -73,8 +73,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const queryPromise = (async (): Promise<AppRole> => {
       try {
         // Intento 1: RPC get_my_role (SECURITY DEFINER, no depende de RLS)
-        const { data, error } = await supabase.rpc("get_my_role");
-        if (!error) return (data as AppRole) ?? null;
+        const { data, error } = await (supabase.rpc as any)("get_my_role");
+        if (!error && data) return (data as unknown as AppRole) ?? null;
 
         // Intento 2: query directa (fallback si el RPC no existe aún)
         const { data: { user: me } } = await supabase.auth.getUser();
