@@ -42,6 +42,63 @@ interface Delivery {
   created_at?: string;
 }
 
+// Distancia euclidiana entre puntos [lng, lat]
+const distMeters = (
+  a: [number, number],
+  b: [number, number],
+): number => {
+  const R = 6371000;
+  const dLat = ((b[1] - a[1]) * Math.PI) / 180;
+  const dLng = ((b[0] - a[0]) * Math.PI) / 180;
+  const x =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((a[1] * Math.PI) / 180) *
+      Math.cos((b[1] * Math.PI) / 180) *
+      Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+};
+
+// Encuentra la distancia mínima de un punto a un segmento de línea
+const distPointToSegment = (
+  p: [number, number],
+  a: [number, number],
+  b: [number, number],
+): number => {
+  const dx = b[0] - a[0];
+  const dy = b[1] - a[1];
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq === 0) return distMeters(p, a);
+  let t = ((p[0] - a[0]) * dx + (p[1] - a[1]) * dy) / lenSq;
+  t = Math.max(0, Math.min(1, t));
+  const proj: [number, number] = [a[0] + t * dx, a[1] + t * dy];
+  return distMeters(p, proj);
+};
+
+// ¿Está el driver fuera de la ruta? (>200m del path)
+const isOffRoute = (
+  pos: [number, number],
+  coords: [number, number][],
+  thresholdM = 200,
+): boolean => {
+  for (let i = 0; i < coords.length - 1; i++) {
+    if (distPointToSegment(pos, coords[i], coords[i + 1]) <= thresholdM)
+      return false;
+  }
+  return true;
+};
+
+// Velocidad del GPS en km/h (usando haversine / dt)
+const calcSpeedKmh = (
+  prev: { lat: number; lng: number; t: number } | null,
+  curr: { lat: number; lng: number; t: number },
+): number | null => {
+  if (!prev) return null;
+  const dt = (curr.t - prev.t) / 1000;
+  if (dt < 1) return null;
+  const km = distMeters([prev.lng, prev.lat], [curr.lng, curr.lat]) / 1000;
+  return Math.round(km / (dt / 3600));
+};
+
 interface ActiveDeliveryViewProps {
   delivery: Delivery;
   onPickedUp: () => void;
@@ -66,11 +123,23 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({
   const deliveryMarkerRef = useRef<maplibregl.Marker | null>(null);
   const [followMode, setFollowMode] = useState(true);
   const [isExpanded, setIsExpanded] = useState(false);
-  const [routeInfo, setRouteInfo] = useState<{ distance: string; duration: string; nextStreet: string; nextManeuver: string } | null>(null);
+  const [routeInfo, setRouteInfo] = useState<{
+    distance: string;
+    duration: string;
+    nextStreet: string;
+    nextManeuver: string;
+  } | null>(null);
   const [showCancel, setShowCancel] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
   const [wakeLock, setWakeLock] = useState<WakeLockSentinel | null>(null);
+
+  // ── Navigation enhancements ─────────────────────────────────────────────
+  const [speedKmh, setSpeedKmh] = useState<number | null>(null);
+  const [traveledCoords, setTraveledCoords] = useState<[number, number][]>([]);
+  const prevPosRef = useRef<{ lat: number; lng: number; t: number } | null>(null);
+  const fullRouteRef = useRef<[number, number][]>([]);
+  const [etaProgress, setEtaProgress] = useState(1); // 1 = inicio, 0 = entregado
 
   const isPickingUp = delivery.status === "aceptado";
 
@@ -153,20 +222,34 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({
 
         if (data.routes && data.routes[0]) {
             const route = data.routes[0];
-            const coordinates = route.geometry.coordinates;
+            const coordinates: [number, number][] = route.geometry.coordinates;
+            fullRouteRef.current = coordinates;
             const sourceId = 'route-source';
 
             if (!map.getSource(sourceId)) {
-                map.addSource(sourceId, { type: 'geojson', data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates } } });
-                map.addLayer({ id: 'route-case', type: 'line', source: sourceId, layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#ffffff', 'line-width': 12, 'line-opacity': 1 } });
-                map.addLayer({ id: 'route-line', type: 'line', source: sourceId, layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#6366f1', 'line-width': 6, 'line-opacity': 1 } });
+                map.addSource(sourceId, { type: 'geojson', data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [coordinates[0], coordinates[coordinates.length - 1]] } } });
+                // capa de ruta recorrida (gris)
+                map.addSource('route-traveled', { type: 'geojson', data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [] } } });
+                map.addLayer({ id: 'route-case', type: 'line', source: 'route-source', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#ffffff', 'line-width': 12, 'line-opacity': 1 } });
+                map.addLayer({ id: 'route-line', type: 'line', source: 'route-source', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#6366f1', 'line-width': 6, 'line-opacity': 1 } });
+                map.addLayer({ id: 'route-traveled-line', type: 'line', source: 'route-traveled', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#94a3b8', 'line-width': 6, 'line-opacity': 0.8, 'line-dasharray': [4, 4] } });
             } else {
-                (map.getSource(sourceId) as maplibregl.GeoJSONSource).setData({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates } });
+                (map.getSource(sourceId) as maplibregl.GeoJSONSource).setData({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [coordinates[0], coordinates[coordinates.length - 1]] } });
             }
 
+            // Calcular progreso: distancia restante vs total
+            const totalDist = route.distance;
+            const driverPos: [number, number] = [currentLocation.lng, currentLocation.lat];
+            let distToNext = 0;
+            // Usar el primer step como referencia
             const nextStep = route.legs[0].steps[1] || route.legs[0].steps[0];
+            // Distancia del driver al punto final de la ruta
+            const endpoint = coordinates[coordinates.length - 1];
+            distToNext = distMeters(driverPos, endpoint);
+            setEtaProgress(Math.min(1, Math.max(0, distToNext / totalDist * 1.1)));
+
             setRouteInfo({
-                distance: (route.distance / 1000).toFixed(1) + " km",
+                distance: (distToNext / 1000).toFixed(1) + " km",
                 duration: Math.ceil(route.duration / 60) + " min",
                 nextStreet: nextStep.name || "Continuar",
                 nextManeuver: (nextStep.distance < 1000) ? Math.round(nextStep.distance) + " m" : (nextStep.distance/1000).toFixed(1) + " km"
@@ -226,13 +309,40 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({
     updateDestinationMarker(deliveryMarkerRef, delivery.delivery_lat, delivery.delivery_lng, '🏁', 'bg-indigo-600', 'Entrega');
 
     if (followMode) {
-      map.easeTo({ 
-        center: [currentLocation.lng, currentLocation.lat], 
-        bearing: currentLocation.heading || 0, 
-        duration: 1000 
+      map.easeTo({
+        center: [currentLocation.lng, currentLocation.lat],
+        bearing: currentLocation.heading || 0,
+        duration: 1000
       });
     }
+
+    // Actualizar marcador de ruta recorrida (breadcrumb)
+    const pos: [number, number] = [currentLocation.lng, currentLocation.lat];
+    setTraveledCoords(prev => {
+      const all = [...prev, pos];
+      return all;
+    });
+
+    // Velocidad calculada
+    const prev = prevPosRef.current;
+    const curr = { lat: currentLocation.lat, lng: currentLocation.lng, t: Date.now() };
+    const spd = calcSpeedKmh(prev, curr);
+    if (spd !== null) setSpeedKmh(spd);
+    prevPosRef.current = curr;
   }, [currentLocation, followMode, isMapReady, delivery]);
+
+  // ── Update breadcrumb line ─────────────────────────────────────────────
+  useEffect(() => {
+    if (!isMapReady || !mapInstance.current || traveledCoords.length < 2) return;
+    const src = mapInstance.current.getSource('route-traveled');
+    if (src) {
+      (src as maplibregl.GeoJSONSource).setData({
+        type: 'Feature',
+        properties: {},
+        geometry: { type: 'LineString', coordinates: traveledCoords },
+      });
+    }
+  }, [traveledCoords, isMapReady]);
 
   // ── Navigation external ────────────────────────────────────────────────────
   const openNav = (app: "google" | "waze") => {
@@ -323,7 +433,7 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({
           </button>
       </div>
 
-      <motion.div 
+      <motion.div
         drag="y" dragConstraints={{ top: -450, bottom: 0 }}
         animate={{ y: isExpanded ? -450 : 0 }}
         className="absolute bottom-0 inset-x-0 z-[1002] bg-white rounded-t-[55px] shadow-[0_-40px_120px_rgba(0,0,0,0.7)] flex flex-col"
@@ -344,6 +454,28 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({
                     <span className="text-lg font-black text-indigo-600">#{delivery.order_id.slice(-4).toUpperCase()}</span>
                   </div>
               </div>
+
+              {/* ETA PROGRESS BAR */}
+              <div className="w-full h-1.5 bg-slate-100 rounded-full mb-4 overflow-hidden">
+                <div
+                  className="h-full bg-indigo-600 rounded-full transition-all duration-1000"
+                  style={{ width: `${Math.max(2, (1 - etaProgress) * 100)}%` }}
+                />
+              </div>
+
+              {/* SPEED INDICATOR */}
+              {speedKmh !== null && (
+                <div className="bg-slate-50 rounded-2xl p-3 mb-6 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <Bike className="h-4 w-4 text-slate-400" />
+                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Velocidad</p>
+                  </div>
+                  <div className="flex items-baseline gap-1">
+                    <span className="text-2xl font-black text-slate-800">{speedKmh}</span>
+                    <span className="text-[10px] font-bold text-slate-400">km/h</span>
+                  </div>
+                </div>
+              )}
 
               <div className="space-y-4 mb-6">
                   <div className={`p-6 rounded-[35px] border-2 ${isPickingUp ? 'border-indigo-600 bg-indigo-50/20' : 'border-slate-50 bg-slate-50/50'}`}>
