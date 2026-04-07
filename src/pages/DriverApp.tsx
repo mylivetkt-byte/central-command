@@ -108,7 +108,7 @@ const DriverApp = () => {
 
     // Pendientes (Con Broadcast & Realtime)
     if (isAvailable) {
-      const { data: pending, error } = await supabase.from("pending_delivery_offers").select("*");
+      const { data: pending, error } = await supabase.from("deliveries").select("*").eq("status", "pendiente").is("driver_id", null);
       if (!error && pending) {
         let orders: DeliveryOrder[] = pending.map((d: any) => ({
             ...d,
@@ -167,7 +167,7 @@ const DriverApp = () => {
   const toggleAvailability = async () => {
     if (!user) return;
     const newStatus = isAvailable ? "inactivo" : "activo";
-    const { error } = await supabase.from("driver_profiles").update({ status: newStatus as any }).eq("id", user.id);
+    const { error } = await (supabase.from("driver_profiles") as any).update({ status: newStatus }).eq("id", user.id);
     if (error) { toast.error("Error al cambiar disponibilidad"); return; }
     
     setIsAvailable(!isAvailable);
@@ -195,7 +195,7 @@ const DriverApp = () => {
     setActiveDelivery(data[0] as any);
     toast.success("¡Pedido Aceptado!", { description: "Navega hacia el punto de recogida." });
     
-    await supabase.from("delivery_audit_log").insert({
+    await (supabase.from("delivery_audit_log") as any).insert({
       delivery_id: order.id, event: "Pedido aceptado",
       details: "Aceptado por mensajero tras broadcast", performed_by: user.id,
     });
@@ -207,7 +207,7 @@ const DriverApp = () => {
     if (s === "en_camino") updates.picked_up_at = new Date().toISOString();
     if (s === "entregado") updates.delivered_at = new Date().toISOString();
     
-    const { error } = await supabase.from("deliveries").update(updates).eq("id", activeDelivery.id);
+    const { error } = await (supabase.from("deliveries") as any).update(updates).eq("id", activeDelivery.id);
     if (error) { toast.error("Error actualizando estado"); return; }
 
     if (s === "entregado") {
@@ -219,7 +219,7 @@ const DriverApp = () => {
         toast.success("Estado actualizado");
     }
 
-    await supabase.from("delivery_audit_log").insert({
+    await (supabase.from("delivery_audit_log") as any).insert({
       delivery_id: activeDelivery.id,
       event: s === "en_camino" ? "En camino" : (s === "entregado" ? "Entregado" : s),
       details: `Estado cambiado a ${s}`, performed_by: user.id,

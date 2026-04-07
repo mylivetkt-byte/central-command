@@ -25,7 +25,7 @@ const Audit = () => {
   const queryClient = useQueryClient();
 
   // BUG FIX: usar delivery_audit_log en lugar de deliveries
-  const { data: logs = [], isLoading } = useQuery({
+  const { data: logs = [], isLoading } = useQuery<any[]>({
     queryKey: ["audit-log"],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -34,7 +34,7 @@ const Audit = () => {
         .order("created_at", { ascending: false })
         .limit(100);
       if (error) throw error;
-      return data || [];
+      return (data || []) as any[];
     },
     refetchInterval: 15000,
   });
@@ -95,7 +95,7 @@ const Audit = () => {
                     Pedido {orderId}
                   </h3>
                   <div className="relative ml-3 border-l-2 border-border/50 pl-6 space-y-4">
-                    {events.map((e: any) => (
+                    {(events as any[]).map((e: any) => (
                       <div key={e.id} className="relative">
                         <div className="absolute -left-[31px] top-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-card border border-border">
                           {iconForEvent(e.event)}

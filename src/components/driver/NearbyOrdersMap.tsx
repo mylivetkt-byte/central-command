@@ -40,11 +40,11 @@ const NearbyOrdersMap: React.FC<NearbyOrdersMapProps> = ({ orders, currentLocati
 
     mapInstance.current = new maplibregl.Map({
       container: mapContainer.current,
-      style: 'https://tiles.openfreemap.org/styles/liberty',
+      style: 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json',
       center: currentLocation ? [currentLocation.lng, currentLocation.lat] : [-73.1198, 7.1193],
       zoom: 16,
       pitch: 60,
-      antialias: false // Already removed to fix TS
+      
     });
 
     mapInstance.current.on('style.load', () => {

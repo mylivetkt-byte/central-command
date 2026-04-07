@@ -40,8 +40,7 @@ export const useDriverLocation = (): UseDriverLocationReturn => {
     lastSentRef.current = now;
 
     try {
-      const { error: err } = await supabase
-        .from('driver_locations')
+      const { error: err } = await (supabase.from('driver_locations') as any)
         .upsert({
           driver_id:  user.id,
           lat:        location.lat,
@@ -127,7 +126,7 @@ export const useDriverLocationById = (driverId: string | null) => {
     supabase.from('driver_locations').select('lat,lng,heading,speed')
       .eq('driver_id', driverId).maybeSingle()
       .then(({ data }) => {
-        if (data) setLocation({ ...data, accuracy: null });
+        if (data) setLocation({ ...(data as any), accuracy: null });
         setLoading(false);
       });
 
