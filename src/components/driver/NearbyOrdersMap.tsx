@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { Package, MapPin, Navigation, Target, Compass } from "lucide-react";
+import { Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface Order {
@@ -16,22 +16,27 @@ interface Order {
 
 interface NearbyOrdersMapProps {
   orders: Order[];
-  currentLocation: { lat: number; lng: number } | null;
+  currentLocation: { lat: number; lng: number; heading?: number | null } | null;
   onAcceptOrder: (id: string) => void;
 }
+
+const MAPTILER_STYLE = 'https://api.maptiler.com/maps/streets-v2/style.json?key=get_your_own_OpIi9ZULNHzrESv6T2vL';
+const CARTO_VOYAGER = 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json';
 
 const NearbyOrdersMap: React.FC<NearbyOrdersMapProps> = ({ orders, currentLocation, onAcceptOrder }) => {
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);
+  const driverMarkerRef = useRef<maplibregl.Marker | null>(null);
 
   const recenter = () => {
     if (!mapInstance.current || !currentLocation) return;
     mapInstance.current.easeTo({
-        center: [currentLocation.lng, currentLocation.lat],
-        zoom: 17,
-        pitch: 65,
-        duration: 1500
+      center: [currentLocation.lng, currentLocation.lat],
+      zoom: 16,
+      pitch: 55,
+      bearing: currentLocation.heading || 0,
+      duration: 1200
     });
   };
 
@@ -40,34 +45,29 @@ const NearbyOrdersMap: React.FC<NearbyOrdersMapProps> = ({ orders, currentLocati
 
     mapInstance.current = new maplibregl.Map({
       container: mapContainer.current,
-      style: 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json',
+      style: CARTO_VOYAGER,
       center: currentLocation ? [currentLocation.lng, currentLocation.lat] : [-73.1198, 7.1193],
       zoom: 16,
-      pitch: 60,
-      
+      pitch: 55,
     });
 
     mapInstance.current.on('style.load', () => {
       if (!mapInstance.current) return;
-      
-      // Realism: 3D Buildings
-      mapInstance.current.addLayer({
-        'id': '3d-buildings',
-        'source': 'openfreemap',
-        'source-layer': 'building',
-        'type': 'fill-extrusion',
-        'minzoom': 15,
-        'paint': {
-          'fill-extrusion-color': [
-            'interpolate', ['linear'], ['get', 'render_height'],
-            0, '#1e293b',
-            20, '#0f172a'
-          ],
-          'fill-extrusion-height': ['get', 'render_height'],
-          'fill-extrusion-base': ['get', 'render_min_height'],
-          'fill-extrusion-opacity': 0.8
-        }
-      });
+      try {
+        mapInstance.current.addLayer({
+          id: '3d-buildings',
+          source: 'carto',
+          'source-layer': 'building',
+          type: 'fill-extrusion',
+          minzoom: 14,
+          paint: {
+            'fill-extrusion-color': '#e2e8f0',
+            'fill-extrusion-height': ['coalesce', ['get', 'render_height'], 8],
+            'fill-extrusion-base': ['coalesce', ['get', 'render_min_height'], 0],
+            'fill-extrusion-opacity': 0.6
+          }
+        });
+      } catch {}
     });
 
     return () => { mapInstance.current?.remove(); mapInstance.current = null; };
@@ -77,92 +77,149 @@ const NearbyOrdersMap: React.FC<NearbyOrdersMapProps> = ({ orders, currentLocati
     if (!mapInstance.current) return;
     const map = mapInstance.current;
 
-    // Clear old markers
+    // Clear order markers (not driver)
     markersRef.current.forEach(m => m.remove());
     markersRef.current = [];
 
-    // Driver Marker: HIGH DETAIL MOTORCYCLE with Shadow
+    // Driver marker - clean GPS navigation arrow
     if (currentLocation) {
+      const heading = currentLocation.heading || 0;
+      if (!driverMarkerRef.current) {
         const el = document.createElement('div');
-        el.className = 'driver-marker-moto-advanced';
+        el.className = 'driver-nav-marker';
         el.innerHTML = `
-          <div class="relative w-20 h-20 flex items-center justify-center pointer-events-none transform-gpu">
-            <!-- Ground Shadow (Better Integration) -->
-            <div class="absolute bottom-4 h-6 w-12 bg-black/40 rounded-full blur-md"></div>
-            
-            <div class="bg-indigo-600 rounded-[28px] p-4 shadow-[0_15px_40px_rgba(99,102,241,0.5)] border-4 border-white transform hover:scale-110 transition-all duration-300">
-               <svg xmlns="http://www.w3.org/2000/svg" width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="drop-shadow-2xl"><circle cx="18.5" cy="17.5" r="3.5"/><circle cx="5.5" cy="17.5" r="3.5"/><circle cx="15" cy="5" r="1"/><path d="M12 17.5V14l-3-3 4-3 2 3h2"/></svg>
+          <div class="driver-dot-wrapper">
+            <div class="driver-pulse"></div>
+            <div class="driver-accuracy"></div>
+            <div class="driver-arrow" style="transform: rotate(${heading}deg)">
+              <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <circle cx="24" cy="24" r="18" fill="#4F46E5" stroke="white" stroke-width="4"/>
+                <path d="M24 12L30 28H18L24 12Z" fill="white"/>
+              </svg>
             </div>
-            
-            <!-- Pulse ring -->
-            <div class="absolute inset-0 border-4 border-indigo-400/30 rounded-full animate-ping scale-75"></div>
           </div>
         `;
-        const m = new maplibregl.Marker({ 
-            element: el, 
-            anchor: 'bottom', // Anchoring to bottom for better precision at high pitch
-            rotationAlignment: 'map' 
-        })
-        .setLngLat([currentLocation.lng, currentLocation.lat])
-        .addTo(map);
-        markersRef.current.push(m);
+        driverMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'center' })
+          .setLngLat([currentLocation.lng, currentLocation.lat])
+          .addTo(map);
+      } else {
+        driverMarkerRef.current.setLngLat([currentLocation.lng, currentLocation.lat]);
+        const arrow = driverMarkerRef.current.getElement().querySelector('.driver-arrow') as HTMLElement;
+        if (arrow) arrow.style.transform = `rotate(${heading}deg)`;
+      }
     }
 
-    // Orders Markers
+    // Order pickup markers
     orders.forEach(order => {
-        if (!order.pickup_lat || !order.pickup_lng) return;
-        
-        const el = document.createElement('div');
-        el.className = 'cursor-pointer group';
-        el.innerHTML = `
-          <div class="relative flex flex-col items-center">
-            <div class="bg-emerald-500 text-white px-4 py-1.5 rounded-[20px] text-xs font-black shadow-2xl mb-1 transform group-hover:scale-125 transition-all font-mono border-2 border-white/30">$${(order.commission/1000).toFixed(1)}k</div>
-            <div class="h-4 w-4 bg-emerald-500 rounded-full border-2 border-white shadow-xl shadow-emerald-500/50"></div>
+      if (!order.pickup_lat || !order.pickup_lng) return;
+      const el = document.createElement('div');
+      el.className = 'order-pickup-marker';
+      el.innerHTML = `
+        <div class="order-marker-pin">
+          <div class="order-marker-inner">
+            <span class="order-marker-price">$${(order.commission / 1000).toFixed(0)}k</span>
           </div>
-        `;
-        
-        const marker = new maplibregl.Marker({ element: el, anchor: 'bottom' })
-            .setLngLat([order.pickup_lng, order.pickup_lat])
-            .addTo(map);
-        
-        el.onclick = () => {
-             map.easeTo({ center: [order.pickup_lng as number, order.pickup_lat as number], zoom: 17, pitch: 70, duration: 1500 });
-        };
-        
-        markersRef.current.push(marker);
+          <div class="order-marker-stem"></div>
+        </div>
+      `;
+      const marker = new maplibregl.Marker({ element: el, anchor: 'bottom' })
+        .setLngLat([order.pickup_lng, order.pickup_lat])
+        .addTo(map);
+      el.onclick = () => {
+        map.easeTo({ center: [order.pickup_lng!, order.pickup_lat!], zoom: 17, pitch: 60, duration: 1000 });
+      };
+      markersRef.current.push(marker);
     });
-
   }, [orders, currentLocation]);
 
   return (
-    <div className="relative w-full h-full bg-slate-950 overflow-hidden">
-      <div ref={mapContainer} className="w-full h-full grayscale-[0.05] contrast-[1.2] brightness-[0.85]" />
-      
-      {/* Botón de Centrar */}
-      <div className="absolute right-6 bottom-32 z-[1001] flex flex-col gap-4">
-          <Button 
-            variant="secondary" 
-            size="icon" 
-            className="h-14 w-14 rounded-[22px] bg-white/95 backdrop-blur-xl shadow-2xl border-none text-slate-900 active:scale-90 transition-all group"
-            onClick={recenter}
-          >
-              <Target className="h-7 w-7 group-hover:text-indigo-600 transition-colors" />
-          </Button>
+    <div className="relative w-full h-full overflow-hidden">
+      <div ref={mapContainer} className="w-full h-full" />
+
+      {/* Recenter */}
+      <div className="absolute right-4 bottom-28 z-[1001]">
+        <Button
+          variant="secondary"
+          size="icon"
+          className="h-12 w-12 rounded-full bg-white shadow-lg border border-slate-200 text-slate-700 active:scale-90 transition-all"
+          onClick={recenter}
+        >
+          <Target className="h-5 w-5" />
+        </Button>
       </div>
 
-      <div className="absolute top-6 left-6 pointer-events-none">
-          <div className="bg-slate-900/80 backdrop-blur-3xl px-6 py-3 rounded-[24px] border border-white/10 flex items-center gap-3 shadow-2xl">
-              <div className="h-2.5 w-2.5 bg-emerald-500 rounded-full animate-pulse shadow-[0_0_10px_#10b981]" />
-              <div className="flex flex-col">
-                <span className="text-[10px] font-black text-white uppercase tracking-widest leading-none mb-1">Mapa Directo</span>
-                <span className="text-[8px] font-bold text-white/30 uppercase tracking-[0.2em] leading-none">Rutas de alta demanda</span>
-              </div>
-          </div>
+      {/* Status pill */}
+      <div className="absolute top-4 left-4 z-[1001] pointer-events-none">
+        <div className="bg-white/95 backdrop-blur-md px-4 py-2.5 rounded-full flex items-center gap-2.5 shadow-lg border border-slate-100">
+          <div className="h-2 w-2 bg-emerald-500 rounded-full animate-pulse" />
+          <span className="text-xs font-bold text-slate-700">En línea</span>
+          <span className="text-[10px] text-slate-400 font-semibold">{orders.length} disponibles</span>
+        </div>
       </div>
 
       <style dangerouslySetInnerHTML={{ __html: `
-        .maplibregl-ctrl-bottom-left, .maplibregl-ctrl-bottom-right { display: none !important; }
-        .driver-marker-moto-advanced { transition: all 1s linear; }
+        .maplibregl-ctrl-bottom-left, .maplibregl-ctrl-bottom-right, .maplibregl-ctrl-top-right { display: none !important; }
+
+        .driver-dot-wrapper {
+          position: relative;
+          width: 48px;
+          height: 48px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .driver-pulse {
+          position: absolute;
+          width: 60px;
+          height: 60px;
+          border-radius: 50%;
+          background: rgba(79, 70, 229, 0.15);
+          animation: driverPulse 2s ease-out infinite;
+        }
+        .driver-accuracy {
+          position: absolute;
+          width: 44px;
+          height: 44px;
+          border-radius: 50%;
+          background: rgba(79, 70, 229, 0.08);
+        }
+        .driver-arrow {
+          position: relative;
+          z-index: 2;
+          transition: transform 0.6s ease;
+          filter: drop-shadow(0 4px 12px rgba(79, 70, 229, 0.5));
+        }
+        @keyframes driverPulse {
+          0% { transform: scale(0.8); opacity: 1; }
+          100% { transform: scale(2.2); opacity: 0; }
+        }
+
+        .order-marker-pin {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          filter: drop-shadow(0 4px 8px rgba(0,0,0,0.15));
+          cursor: pointer;
+          transition: transform 0.2s;
+        }
+        .order-marker-pin:hover { transform: scale(1.15); }
+        .order-marker-inner {
+          background: #10b981;
+          color: white;
+          padding: 6px 14px;
+          border-radius: 20px;
+          font-size: 12px;
+          font-weight: 800;
+          border: 3px solid white;
+          line-height: 1;
+        }
+        .order-marker-stem {
+          width: 3px;
+          height: 10px;
+          background: #10b981;
+          border-radius: 0 0 2px 2px;
+        }
+        .order-marker-price { font-family: system-ui, -apple-system, sans-serif; }
       `}} />
     </div>
   );
