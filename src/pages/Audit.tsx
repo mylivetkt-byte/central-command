@@ -25,7 +25,7 @@ const Audit = () => {
   const queryClient = useQueryClient();
 
   // BUG FIX: usar delivery_audit_log en lugar de deliveries
-  const { data: logs = [], isLoading } = useQuery({
+  const { data: logs = [], isLoading } = useQuery<any[]>({
     queryKey: ["audit-log"],
     queryFn: async () => {
       const { data, error } = await supabase
