@@ -19,6 +19,7 @@ import AdminLogin from "./pages/AdminLogin";
 import DriverLogin from "./pages/DriverLogin";
 import DriverApp from "./pages/DriverApp";
 import MapTracking from "./pages/MapTracking";
+import CustomerTracking from "./pages/CustomerTracking";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -46,6 +47,9 @@ const App = () => (
             {/* Auth */}
             <Route path="/admin-login" element={<AdminLogin />} />
             <Route path="/driver-login" element={<DriverLogin />} />
+
+            {/* Customer Tracking — public, no auth */}
+            <Route path="/track/:orderId" element={<CustomerTracking />} />
 
             {/* Admin Central */}
             <Route path="/" element={<AdminRoute><Dashboard /></AdminRoute>} />
