@@ -173,8 +173,7 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({
       center: currentLocation ? [currentLocation.lng, currentLocation.lat] : [delivery.pickup_lng || -73.1198, delivery.pickup_lat || 7.1193],
       zoom: 18,
       pitch: 75,
-      bearing: currentLocation?.heading || 0,
-      antialias: false
+      bearing: currentLocation?.heading || 0
     });
 
     mapInstance.current.on('style.load', () => {
@@ -370,14 +369,14 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({
     }
     setCancelling(true);
     try {
-      const { error } = await supabase.from("deliveries").update({
+      const { error } = await (supabase.from("deliveries") as any).update({
         status: "cancelado",
         driver_id: null,
         cancelled_at: new Date().toISOString(),
       }).eq("id", delivery.id);
       if (error) throw error;
 
-      await supabase.from("delivery_audit_log").insert({
+      await (supabase.from("delivery_audit_log") as any).insert({
         delivery_id: delivery.id,
         event: "Entrega cancelada por mensajero",
         details: cancelReason,
