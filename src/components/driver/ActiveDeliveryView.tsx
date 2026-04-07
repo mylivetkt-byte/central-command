@@ -23,6 +23,7 @@ import { useDriverLocation } from "@/hooks/useDriverLocation";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
+import ChatBubble from "@/components/ChatBubble";
 
 interface Delivery {
   id: string;
@@ -541,6 +542,17 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({
                     </div>
                 </motion.div>
               )}
+
+              {/* CHAT WITH CENTRAL */}
+              <div className="mb-4">
+                {delivery.id && user && (
+                  <ChatBubble
+                    deliveryId={delivery.id}
+                    currentUserId={user.id}
+                    isDriverView={true}
+                  />
+                )}
+              </div>
 
               <div className="mt-auto pb-12">
                 {isPickingUp ? (

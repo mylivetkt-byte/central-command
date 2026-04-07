@@ -1,5 +1,7 @@
+import { useAuth } from "@/hooks/useAuth";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import AddressAutocomplete from "@/components/ui/AddressAutocomplete";
+import ChatBubble from "@/components/ChatBubble";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
@@ -39,6 +41,7 @@ const emptyForm: NewDeliveryForm = {
 };
 
 const Dispatch = () => {
+  const { user } = useAuth();
   const [showNewForm, setShowNewForm] = useState(false);
   const [form, setForm] = useState<NewDeliveryForm>(emptyForm);
   const [selectedOrder, setSelectedOrder] = useState<string | null>(null);
@@ -312,6 +315,33 @@ const Dispatch = () => {
                 </div>
             </div>
         </div>
+
+        {/* CHAT SECTION - Shows when an order with a driver is selected */}
+        <AnimatePresence>
+          {selectedOrder && user && (() => {
+            const order = pending.find((p: any) => p.id === selectedOrder);
+            if (!order || !order.driver_id) return null;
+            return (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                className="overflow-hidden"
+              >
+                <div className="max-w-[600px] mx-auto">
+                  <div className="bg-slate-900 rounded-[32px] border border-white/5 overflow-hidden shadow-2xl p-4">
+                    <ChatBubble
+                      deliveryId={order.id}
+                      currentUserId={user.id}
+                      isDriverView={false}
+                      initialOpen={true}
+                    />
+                  </div>
+                </div>
+              </motion.div>
+            );
+          })()}
+        </AnimatePresence>
 
         <style dangerouslySetInnerHTML={{ __html: `
             .dispatch-autocomplete input { height: 3.5rem !important; border-radius: 1rem !important; padding-left: 3.5rem !important; }
