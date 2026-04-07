@@ -95,7 +95,7 @@ const Audit = () => {
                     Pedido {orderId}
                   </h3>
                   <div className="relative ml-3 border-l-2 border-border/50 pl-6 space-y-4">
-                    {events.map((e: any) => (
+                    {(events as any[]).map((e: any) => (
                       <div key={e.id} className="relative">
                         <div className="absolute -left-[31px] top-0.5 flex h-6 w-6 items-center justify-center rounded-full bg-card border border-border">
                           {iconForEvent(e.event)}
