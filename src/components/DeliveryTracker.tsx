@@ -54,11 +54,18 @@ const DeliveryTracker: React.FC<DeliveryTrackerProps> = ({ deliveryId, height = 
     queryFn: async () => {
       const { data, error } = await supabase
         .from('deliveries')
-        .select('*, driver_profiles(id, last_lat, last_lng, profiles(full_name))')
+        .select('*')
         .eq('id', deliveryId)
         .single();
       if (error) throw error;
-      return data as Delivery;
+      // fetch driver location separately
+      const d = data as any;
+      if (d.driver_id) {
+        const { data: loc } = await supabase.from('driver_locations').select('lat, lng').eq('driver_id', d.driver_id).maybeSingle();
+        const { data: prof } = await supabase.from('profiles').select('full_name').eq('id', d.driver_id).maybeSingle();
+        d.driver_profiles = { id: d.driver_id, last_lat: loc?.lat || null, last_lng: loc?.lng || null, profiles: prof };
+      }
+      return d as Delivery;
     },
     refetchInterval: 5000
   });

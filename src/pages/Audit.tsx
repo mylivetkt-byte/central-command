@@ -34,7 +34,7 @@ const Audit = () => {
         .order("created_at", { ascending: false })
         .limit(100);
       if (error) throw error;
-      return (data || []) as any[];
+      return (data || []) as any;
     },
     refetchInterval: 15000,
   });

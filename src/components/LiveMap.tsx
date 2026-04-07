@@ -54,9 +54,16 @@ const LiveMap: React.FC<LiveMapProps> = ({
     queryFn: async () => {
       const { data, error } = await supabase
         .from('driver_profiles')
-        .select('id, status, last_lat, last_lng, current_load, profiles(full_name)');
+        .select('id, status, current_load, profiles(full_name)');
       if (error) throw error;
-      return data as Driver[];
+      // Also fetch locations
+      const { data: locs } = await supabase.from('driver_locations').select('driver_id, lat, lng');
+      const locMap = new Map((locs || []).map((l: any) => [l.driver_id, l]));
+      return (data || []).map((d: any) => ({
+        ...d,
+        last_lat: locMap.get(d.id)?.lat || null,
+        last_lng: locMap.get(d.id)?.lng || null,
+      })) as Driver[];
     },
     refetchInterval: 5000,
     enabled: showDrivers
