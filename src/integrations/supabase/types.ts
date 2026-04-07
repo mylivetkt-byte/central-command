@@ -321,6 +321,8 @@ export type Database = {
       }
     }
     Functions: {
+      get_driver_stats: { Args: { p_driver_id?: string }; Returns: Json }
+      get_my_role: { Args: never; Returns: string }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]

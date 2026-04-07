@@ -1,30 +1,34 @@
 import { motion, useMotionValue, useTransform, AnimatePresence } from "framer-motion";
-import { Clock, DollarSign, ChevronRight, Bike, Check, MapPin, Wallet, Package, Map } from "lucide-react";
+import { Clock, DollarSign, ChevronRight, Bike, Check, MapPin, Wallet, Package, Map, BellRing, AlertCircle, Phone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 
+interface Order {
+  id: string;
+  order_id: string;
+  customer_name?: string;
+  customer_phone?: string | null;
+  pickup_address: string;
+  delivery_address: string;
+  amount: number;
+  commission: number;
+  estimated_time: number | null;
+  zone: string | null;
+  notes?: string | null;
+  pickup_lat: number | null;
+  pickup_lng: number | null;
+  delivery_lat: number | null;
+  delivery_lng: number | null;
+}
+
 interface OrderCardProps {
-  order: {
-    id: string;
-    order_id: string;
-    customer_name?: string;
-    pickup_address: string;
-    delivery_address: string;
-    amount: number;
-    commission: number;
-    estimated_time: number | null;
-    zone: string | null;
-    pickup_lat: number | null;
-    pickup_lng: number | null;
-    delivery_lat: number | null;
-    delivery_lng: number | null;
-  };
+  order: Order;
   onAccept: () => void;
   onReject: () => void;
 }
 
-const formatCurrency = (v: number) =>
+const fmt = (v: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(v);
 
 const SlideToAccept = ({ onAccept, commission }: { onAccept: () => void; commission: number }) => {
@@ -44,18 +48,18 @@ const SlideToAccept = ({ onAccept, commission }: { onAccept: () => void; commiss
         drag="x" dragConstraints={{ left: 0, right: 230 }} dragElastic={0.05} dragSnapToOrigin={!complete}
         style={{ x }}
         onDragEnd={(_, info) => { if (info.offset.x > 200) { setComplete(true); onAccept(); } }}
-        className="absolute top-1.5 left-1.5 bottom-1.5 w-24 bg-indigo-500 rounded-[20px] shadow-2xl flex items-center justify-center cursor-grab active:cursor-grabbing z-10 transition-all hover:bg-indigo-400"
+        className="absolute top-1.5 left-1.5 bottom-1.5 w-20 bg-indigo-500 rounded-[20px] shadow-2xl flex items-center justify-center cursor-grab active:cursor-grabbing z-10 transition-all hover:bg-indigo-400"
       >
         {complete ? <Check className="h-7 w-7 text-white animate-bounce" /> : <Bike className="h-7 w-7 text-white" />}
       </motion.div>
       <div className="absolute right-6 inset-y-0 flex items-center pointer-events-none z-0">
-          <span className="text-sm font-black text-indigo-400">{formatCurrency(commission)}</span>
+          <span className="text-sm font-black text-indigo-400">{fmt(commission)}</span>
       </div>
     </div>
   );
 };
 
-const OrderCardMap = ({ order }: { order: OrderCardProps["order"] }) => {
+const OrderCardMap = ({ order }: { order: Order }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
 
@@ -67,8 +71,8 @@ const OrderCardMap = ({ order }: { order: OrderCardProps["order"] }) => {
   }, []);
 
   useEffect(() => {
-    if (!mapRef.current) return;
     const map = mapRef.current;
+    if (!map) return;
     map.eachLayer((layer) => { if (layer instanceof L.Marker || layer instanceof L.Polyline) map.removeLayer(layer); });
     const bounds: L.LatLngExpression[] = [];
     if (order.pickup_lat && order.pickup_lng) {
@@ -107,8 +111,13 @@ const OrderCard = ({ order, onAccept, onReject }: OrderCardProps) => {
         
         <div className="absolute top-4 left-4 z-10 flex flex-col gap-2">
            <div className="bg-indigo-600 px-4 py-1.5 rounded-xl shadow-xl shadow-indigo-600/20">
-                <p className="text-[10px] font-black text-white uppercase tracking-[0.2em] flex items-center gap-1"><BellRing className="h-3 w-3" /> OFERTA NUEVA</p>
+                <p className="text-[10px] font-black text-white uppercase tracking-[0.2em] flex items-center gap-1">🔔 OFERTA NUEVA</p>
            </div>
+           {order.zone && (
+             <div className="bg-white/5 backdrop-blur-xl px-3 py-1 rounded-lg border border-white/5">
+                <p className="text-[9px] font-black text-white/40 uppercase tracking-widest">{order.zone}</p>
+             </div>
+           )}
         </div>
       </div>
 
@@ -119,8 +128,8 @@ const OrderCard = ({ order, onAccept, onReject }: OrderCardProps) => {
                     <Wallet className="h-7 w-7 text-indigo-500" />
                 </div>
                 <div className="flex flex-col">
-                    <p className="text-3xl font-black text-white tracking-tighter">{formatCurrency(order.commission)}</p>
-                    <p className="text-[10px] font-black text-white/30 uppercase tracking-[0.2em] mt-1">Tu ganacia</p>
+                    <p className="text-3xl font-black text-white tracking-tighter">{fmt(order.commission)}</p>
+                    <p className="text-[10px] font-black text-white/30 uppercase tracking-[0.2em] mt-1">Tu ganancia</p>
                 </div>
             </div>
             <div className="text-right flex flex-col items-end">
@@ -128,7 +137,7 @@ const OrderCard = ({ order, onAccept, onReject }: OrderCardProps) => {
                     <Package className="h-3 w-3 text-white/20" />
                     <span className="text-[10px] font-black text-white/20 uppercase tracking-widest">A Cobrar</span>
                 </div>
-                <p className="text-xl font-black text-white/80">{formatCurrency(order.amount)}</p>
+                <p className="text-xl font-black text-white/80">{fmt(order.amount)}</p>
             </div>
         </div>
 
@@ -152,9 +161,22 @@ const OrderCard = ({ order, onAccept, onReject }: OrderCardProps) => {
           </div>
         </div>
 
-        <div className="space-y-4 pt-2">
+        {/* Customer & Notes */}
+        <div className="space-y-4 pt-2 border-t border-white/5">
+           <div className="flex items-center justify-between">
+              <span className="text-xs font-black text-white/30 uppercase">{order.customer_name}</span>
+              {order.customer_phone && <span className="text-[10px] font-bold text-indigo-400">{order.customer_phone}</span>}
+           </div>
+           {order.notes && (
+              <div className="bg-amber-500/10 border border-amber-500/20 p-4 rounded-2xl flex items-start gap-3">
+                 <AlertCircle className="h-4 w-4 text-amber-500 shrink-0 mt-0.5" />
+                 <p className="text-xs text-amber-200/70 leading-relaxed font-medium">{order.notes}</p>
+              </div>
+           )}
+        </div>
+
+        <div className="space-y-4">
           <SlideToAccept onAccept={onAccept} commission={order.commission} />
-          
           <button onClick={onReject} className="w-full flex items-center justify-center gap-2 py-3 text-[10px] font-black text-white/20 hover:text-red-400 uppercase tracking-[0.3em] transition-all">
              IGNORAR ESTE PEDIDO
           </button>
@@ -163,9 +185,5 @@ const OrderCard = ({ order, onAccept, onReject }: OrderCardProps) => {
     </motion.div>
   );
 };
-
-const BellRing = ({ className }: { className?: string }) => (
-    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" className={className}><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
-);
 
 export default OrderCard;

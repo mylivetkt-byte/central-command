@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { Button } from "@/components/ui/button";
@@ -10,9 +10,19 @@ import {
   ExternalLink,
   Check,
   Bike,
-  Target
+  Target,
+  XCircle,
+  AlertCircle,
+  ChevronDown,
+  ArrowRight,
+  CheckCircle,
+  User
 } from "lucide-react";
 import { motion, AnimatePresence } from 'framer-motion';
+import { useDriverLocation } from "@/hooks/useDriverLocation";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
+import { toast } from "sonner";
 
 interface Delivery {
   id: string;
@@ -22,6 +32,9 @@ interface Delivery {
   customer_phone?: string | null;
   pickup_address?: string;
   delivery_address: string;
+  amount?: number;
+  commission?: number;
+  notes?: string | null;
   delivery_lat?: number | null;
   delivery_lng?: number | null;
   pickup_lat?: number | null;
@@ -31,17 +44,20 @@ interface Delivery {
 
 interface ActiveDeliveryViewProps {
   delivery: Delivery;
-  currentLocation: { lat: number; lng: number; heading: number | null } | null;
   onPickedUp: () => void;
   onDelivered: () => void;
 }
 
+const fmt = (v: number) =>
+  new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(v);
+
 const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ 
   delivery, 
-  currentLocation, 
   onPickedUp, 
   onDelivered 
 }) => {
+  const { user } = useAuth();
+  const { currentLocation } = useDriverLocation();
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<maplibregl.Map | null>(null);
   const [isMapReady, setIsMapReady] = useState(false);
@@ -51,7 +67,33 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({
   const [followMode, setFollowMode] = useState(true);
   const [isExpanded, setIsExpanded] = useState(false);
   const [routeInfo, setRouteInfo] = useState<{ distance: string; duration: string; nextStreet: string; nextManeuver: string } | null>(null);
+  const [showCancel, setShowCancel] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
+  const [wakeLock, setWakeLock] = useState<WakeLockSentinel | null>(null);
 
+  const isPickingUp = delivery.status === "aceptado";
+
+  // ── Screen Wake Lock ──────────────────────────────────────────────────────
+  useEffect(() => {
+    const acquire = async () => {
+      try {
+        if ("wakeLock" in navigator) {
+          const wl = await (navigator as any).wakeLock.request("screen");
+          setWakeLock(wl);
+        }
+      } catch {}
+    };
+    acquire();
+    const handleVisibility = () => { if (document.visibilityState === "visible") acquire(); };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibility);
+      wakeLock?.release().catch(() => {});
+    };
+  }, []);
+
+  // ── Initialize Map (MapLibre 3D) ───────────────────────────────────────────
   useEffect(() => {
     if (!mapContainer.current || mapInstance.current) return;
 
@@ -62,6 +104,7 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({
       zoom: 18,
       pitch: 75,
       bearing: currentLocation?.heading || 0,
+      antialias: false
     });
 
     mapInstance.current.on('style.load', () => {
@@ -69,7 +112,7 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({
         const map = mapInstance.current;
         if (!map) return;
 
-        // Realistic 3D
+        // Realistic 3D Buildings
         map.addLayer({
             'id': '3d-buildings-realistic',
             'source': 'openfreemap',
@@ -92,7 +135,8 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({
     return () => { mapInstance.current?.remove(); mapInstance.current = null; };
   }, []);
 
-  const fetchRoute = async () => {
+  // ── Fetch Route (OSRM) ─────────────────────────────────────────────────────
+  const fetchRouteDetails = useCallback(async () => {
     if (!isMapReady || !mapInstance.current || !currentLocation) return;
     const map = mapInstance.current;
 
@@ -129,27 +173,26 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({
             });
         }
     } catch (err) { }
-  };
+  }, [isMapReady, currentLocation, delivery]);
 
   useEffect(() => {
-    fetchRoute();
-    const int = setInterval(fetchRoute, 5000);
+    fetchRouteDetails();
+    const int = setInterval(fetchRouteDetails, 15000);
     return () => clearInterval(int);
-  }, [isMapReady, currentLocation?.lat, delivery.status]);
+  }, [fetchRouteDetails]);
 
+  // ── Markers management ─────────────────────────────────────────────────────
   useEffect(() => {
     if (!isMapReady || !mapInstance.current || !currentLocation) return;
     const map = mapInstance.current;
 
-    // Advanced Moto Marker with SHADOW for realism
+    // Advanced Moto Marker with Shadow
     if (!driverMarkerRef.current) {
         const el = document.createElement('div');
         el.className = 'driver-marker';
         el.innerHTML = `
           <div class="relative w-24 h-24 flex items-center justify-center pointer-events-none transform-gpu">
-            <!-- Perspective Shadow -->
             <div class="absolute bottom-6 h-6 w-14 bg-black/40 rounded-full blur-md" style="transform: skewX(-20deg)"></div>
-            
             <div class="bg-indigo-600 rounded-[28px] p-4 shadow-[0_15px_45px_rgba(99,102,241,0.7)] border-4 border-white transition-all duration-300">
                <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" class="drop-shadow-2xl"><circle cx="18.5" cy="17.5" r="3.5"/><circle cx="5.5" cy="17.5" r="3.5"/><circle cx="15" cy="5" r="1"/><path d="M12 17.5V14l-3-3 4-3 2 3h2"/></svg>
             </div>
@@ -157,7 +200,7 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({
         `;
         driverMarkerRef.current = new maplibregl.Marker({ 
             element: el, 
-            anchor: 'bottom', // Precision fix
+            anchor: 'bottom',
             rotationAlignment: 'map' 
         })
         .setLngLat([currentLocation.lng, currentLocation.lat])
@@ -170,7 +213,7 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({
         }
     }
 
-    const addMarker = (ref: any, lat: any, lng: any, emoji: string, bg: string) => {
+    const updateDestinationMarker = (ref: any, lat: any, lng: any, emoji: string, bg: string, label: string) => {
         if (!lat || !lng) return;
         if (!ref.current) {
             const el = document.createElement('div');
@@ -179,13 +222,64 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({
         } else ref.current.setLngLat([lng, lat]);
     };
 
-    addMarker(pickupMarkerRef, delivery.pickup_lat, delivery.pickup_lng, '🏠', 'bg-emerald-500');
-    addMarker(deliveryMarkerRef, delivery.delivery_lat, delivery.delivery_lng, '🏁', 'bg-indigo-600');
+    updateDestinationMarker(pickupMarkerRef, delivery.pickup_lat, delivery.pickup_lng, '📦', 'bg-emerald-500', 'Recogida');
+    updateDestinationMarker(deliveryMarkerRef, delivery.delivery_lat, delivery.delivery_lng, '🏁', 'bg-indigo-600', 'Entrega');
 
     if (followMode) {
-      map.easeTo({ center: [currentLocation.lng, currentLocation.lat], bearing: currentLocation.heading || 0, duration: 1500 });
+      map.easeTo({ 
+        center: [currentLocation.lng, currentLocation.lat], 
+        bearing: currentLocation.heading || 0, 
+        duration: 1000 
+      });
     }
   }, [currentLocation, followMode, isMapReady, delivery]);
+
+  // ── Navigation external ────────────────────────────────────────────────────
+  const openNav = (app: "google" | "waze") => {
+    const dest = isPickingUp 
+      ? { lat: delivery.pickup_lat, lng: delivery.pickup_lng }
+      : { lat: delivery.delivery_lat, lng: delivery.delivery_lng };
+    const addr = isPickingUp ? delivery.pickup_address : delivery.delivery_address;
+    
+    if (app === "google") {
+      window.open(dest?.lat
+        ? `https://www.google.com/maps/dir/?api=1&destination=${dest.lat},${dest.lng}&travelmode=driving`
+        : `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(addr || "")}&travelmode=driving`, "_blank");
+    } else {
+      window.open(dest?.lat
+        ? `https://waze.com/ul?ll=${dest.lat},${dest.lng}&navigate=yes`
+        : `https://waze.com/ul?q=${encodeURIComponent(addr || "")}&navigate=yes`, "_blank");
+    }
+  };
+
+  const handleCancelDelivery = async () => {
+    if (!user || !cancelReason.trim()) {
+      toast.error("Describe el problema antes de cancelar");
+      return;
+    }
+    setCancelling(true);
+    try {
+      const { error } = await supabase.from("deliveries").update({
+        status: "cancelado",
+        driver_id: null,
+        cancelled_at: new Date().toISOString(),
+      }).eq("id", delivery.id);
+      if (error) throw error;
+
+      await supabase.from("delivery_audit_log").insert({
+        delivery_id: delivery.id,
+        event: "Entrega cancelada por mensajero",
+        details: cancelReason,
+        performed_by: user.id,
+      });
+
+      toast.success("Entrega cancelada. El pedido volvió a estar disponible.");
+      setShowCancel(false);
+      window.location.reload(); // Quick way to reset state
+    } catch (e: any) {
+      toast.error("Error al cancelar: " + e.message);
+    } finally { setCancelling(false); }
+  };
 
   return (
     <div className="h-full w-full bg-[#020617] overflow-hidden relative font-sans">
@@ -219,11 +313,21 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({
           </Button>
       </div>
 
+      {/* NAVIGATION QUICK BUTTONS */}
+      <div className="absolute right-6 bottom-[280px] z-[1001] flex flex-col gap-3">
+          <button onClick={() => openNav("google")} className="h-12 px-4 rounded-2xl bg-white/95 backdrop-blur-xl flex items-center gap-2 text-slate-900 font-black text-[10px] uppercase tracking-widest shadow-2xl border border-white">
+             <Navigation className="h-4 w-4 text-blue-600" /> Google
+          </button>
+          <button onClick={() => openNav("waze")} className="h-12 px-4 rounded-2xl bg-[#05C8F7] flex items-center gap-2 text-white font-black text-[10px] uppercase tracking-widest shadow-2xl">
+             <Navigation className="h-4 w-4" /> Waze
+          </button>
+      </div>
+
       <motion.div 
-        drag="y" dragConstraints={{ top: -420, bottom: 0 }}
-        animate={{ y: isExpanded ? -420 : 0 }}
+        drag="y" dragConstraints={{ top: -450, bottom: 0 }}
+        animate={{ y: isExpanded ? -450 : 0 }}
         className="absolute bottom-0 inset-x-0 z-[1002] bg-white rounded-t-[55px] shadow-[0_-40px_120px_rgba(0,0,0,0.7)] flex flex-col"
-        style={{ height: '560px', marginBottom: '-420px' }}
+        style={{ height: '600px', marginBottom: '-460px' }}
       >
           <div className="w-full pt-5 pb-3 active:bg-slate-50 transition-colors" onClick={() => setIsExpanded(!isExpanded)}>
               <div className="w-24 h-2 bg-slate-200 rounded-full mx-auto" />
@@ -237,33 +341,77 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({
                       <span className="text-xl font-bold text-slate-400 uppercase tracking-widest">{routeInfo?.distance || "--"}</span>
                   </div>
                   <div className="bg-indigo-50 px-6 py-3 rounded-2xl">
-                    <span className="text-lg font-black text-indigo-600">#{delivery.order_id.slice(-4)}</span>
+                    <span className="text-lg font-black text-indigo-600">#{delivery.order_id.slice(-4).toUpperCase()}</span>
                   </div>
               </div>
 
-              <div className="space-y-4 mb-8">
-                  <div className="p-6 rounded-[35px] border-2 border-indigo-600 bg-indigo-50/20">
+              <div className="space-y-4 mb-6">
+                  <div className={`p-6 rounded-[35px] border-2 ${isPickingUp ? 'border-indigo-600 bg-indigo-50/20' : 'border-slate-50 bg-slate-50/50'}`}>
                       <div className="flex items-center gap-5">
-                          <div className="h-14 w-14 rounded-2xl bg-emerald-500 flex items-center justify-center text-white text-2xl shadow-md">🏠</div>
+                          <div className="h-14 w-14 rounded-2xl bg-emerald-500 flex items-center justify-center text-white text-2xl shadow-md">📦</div>
                           <div className="flex-1 min-w-0">
-                              <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1">Recogida</p>
+                              <p className="text-[10px] font-black text-emerald-600 uppercase tracking-widest mb-1">Punto de Recogida</p>
                               <p className="text-sm font-black text-slate-800 truncate">{delivery.pickup_address}</p>
                           </div>
                       </div>
                   </div>
-                  <div className="p-6 rounded-[35px] border-2 border-slate-50 bg-slate-50/50">
+                  <div className={`p-6 rounded-[35px] border-2 ${!isPickingUp ? 'border-indigo-600 bg-indigo-50/20' : 'border-slate-50 bg-slate-50/50'}`}>
                       <div className="flex items-center gap-5">
-                          <div className="h-14 w-14 rounded-2xl bg-indigo-600 flex items-center justify-center text-white text-2xl shadow-md">🏁</div>
+                          <div className="h-14 w-14 rounded-2xl bg-indigo-600 flex items-center justify-center text-white text-2xl shadow-md">🏠</div>
                           <div className="flex-1 min-w-0">
-                              <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1">Entrega</p>
-                              <p className="text-sm font-black text-slate-800 truncate">{delivery.customer_name}</p>
+                              <p className="text-[10px] font-black text-indigo-600 uppercase tracking-widest mb-1">Entrega a</p>
+                              <p className="text-sm font-black text-slate-800 truncate">{delivery.delivery_address}</p>
                           </div>
                       </div>
                   </div>
               </div>
 
-              <div className="mt-auto pb-12 space-y-4">
-                {delivery.status === 'aceptado' ? (
+              {/* Order Details Mini */}
+              <div className="flex items-center justify-between p-4 bg-slate-50 rounded-3xl mb-6">
+                  <div className="flex items-center gap-3">
+                      <div className="h-10 w-10 rounded-full bg-slate-200 flex items-center justify-center"><User className="h-5 w-5 text-slate-500" /></div>
+                      <div>
+                          <p className="text-xs font-black text-slate-900">{delivery.customer_name}</p>
+                          <p className="text-[10px] font-bold text-slate-400">Cliente</p>
+                      </div>
+                  </div>
+                  <div className="text-right">
+                      <p className="text-base font-black text-indigo-600 leading-none">{fmt(delivery.amount || 0)}</p>
+                      <p className="text-[10px] font-bold text-slate-400">Por cobrar</p>
+                  </div>
+              </div>
+
+              {/* Cancel Button */}
+              {!showCancel ? (
+                <button onClick={() => setShowCancel(true)} className="flex items-center justify-center gap-2 text-slate-400 hover:text-red-500 transition-colors py-2 group">
+                   <XCircle className="h-4 w-4" />
+                   <span className="text-[10px] font-black uppercase tracking-widest">Reportar Problema</span>
+                </button>
+              ) : (
+                <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-3 pb-4">
+                    <textarea 
+                        value={cancelReason} 
+                        onChange={e => setCancelReason(e.target.value)}
+                        placeholder="Describe el problema..."
+                        className="w-full rounded-2xl bg-slate-50 border-2 border-slate-100 p-4 text-sm font-bold placeholder:text-slate-300 focus:border-indigo-500 focus:outline-none transition-all"
+                        rows={2}
+                    />
+                    <div className="flex gap-2">
+                        <Button variant="outline" onClick={() => setShowCancel(false)} className="flex-1 h-12 rounded-2xl font-black text-[10px] uppercase">Cerrar</Button>
+                        <Button 
+                            variant="destructive" 
+                            onClick={handleCancelDelivery} 
+                            disabled={cancelling || !cancelReason.trim()}
+                            className="flex-[2] h-12 rounded-2xl font-black text-[10px] uppercase"
+                        >
+                            {cancelling ? "Cancelando..." : "Liberar Pedido"}
+                        </Button>
+                    </div>
+                </motion.div>
+              )}
+
+              <div className="mt-auto pb-12">
+                {isPickingUp ? (
                     <Button onClick={onPickedUp} className="w-full h-22 rounded-[40px] bg-indigo-600 hover:bg-indigo-700 text-white font-black text-2xl shadow-2xl active:scale-95 transition-all">YA RECOGÍ</Button>
                 ) : (
                     <Button onClick={onDelivered} className="w-full h-22 rounded-[40px] bg-emerald-500 hover:bg-emerald-600 text-white font-black text-2xl shadow-2xl active:scale-95 transition-all">ENTREGADO</Button>
@@ -275,7 +423,7 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({
       <style dangerouslySetInnerHTML={{ __html: `
         .maplibregl-ctrl { display: none !important; }
         ::-webkit-scrollbar { display: none; }
-        .driver-marker { transition: transform 0.8s ease-out; }
+        .driver-marker { transition: transform 0.2s linear; }
       `}} />
     </div>
   );
