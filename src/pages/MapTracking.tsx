@@ -27,7 +27,7 @@ export default function MapTracking() {
         .limit(20);
 
       if (error) throw error;
-      return data;
+      return data as any[];
     },
     refetchInterval: 10000 // Refrescar cada 10 segundos
   });

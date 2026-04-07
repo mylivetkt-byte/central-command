@@ -83,7 +83,7 @@ const LiveMap: React.FC<LiveMapProps> = ({
 
     mapInstance.current = new maplibregl.Map({
       container: mapContainer.current,
-      style: 'https://tiles.openfreemap.org/styles/liberty', // OpenFreeMap Premium Vector Style
+      style: 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json',
       center: BUCARAMANGA_CENTER,
       zoom: 13,
       pitch: 45 // 3D effect

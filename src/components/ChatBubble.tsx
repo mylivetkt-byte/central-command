@@ -100,7 +100,7 @@ const ChatBubble = ({
   const send = async () => {
     if (!text.trim() || !currentUserId) return;
     setText("");
-    const { error } = await supabase.from("chat_messages").insert({
+    const { error } = await (supabase.from("chat_messages") as any).insert({
       delivery_id: deliveryId,
       sender_id: currentUserId,
       sender_role: isDriverView ? "driver" : "admin",
