@@ -20,6 +20,8 @@ import DriverLogin from "./pages/DriverLogin";
 import DriverApp from "./pages/DriverApp";
 import MapTracking from "./pages/MapTracking";
 import CustomerTracking from "./pages/CustomerTracking";
+import InstallApp from "./pages/InstallApp";
+import DriverQR from "./pages/DriverQR";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -48,8 +50,10 @@ const App = () => (
             <Route path="/admin-login" element={<AdminLogin />} />
             <Route path="/driver-login" element={<DriverLogin />} />
 
-            {/* Customer Tracking — public, no auth */}
+            {/* Public pages */}
             <Route path="/track/:orderId" element={<CustomerTracking />} />
+            <Route path="/install" element={<InstallApp />} />
+            <Route path="/driver-qr" element={<AdminRoute><DriverQR /></AdminRoute>} />
 
             {/* Admin Central */}
             <Route path="/" element={<AdminRoute><Dashboard /></AdminRoute>} />
