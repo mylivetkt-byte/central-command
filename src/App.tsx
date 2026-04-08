@@ -20,6 +20,8 @@ import DriverLogin from "./pages/DriverLogin";
 import DriverApp from "./pages/DriverApp";
 import MapTracking from "./pages/MapTracking";
 import CustomerTracking from "./pages/CustomerTracking";
+import InstallApp from "./pages/InstallApp";
+import DriverQR from "./pages/DriverQR";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();

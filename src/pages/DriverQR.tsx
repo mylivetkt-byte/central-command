@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Download, QrCode } from "lucide-react";
 
@@ -6,11 +6,9 @@ const QR_SIZE = 256;
 const INSTALL_URL = "https://logi-smart-pulse.lovable.app/install";
 
 const DriverQR = () => {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const [qrReady, setQrReady] = useState(false);
 
-  // We'll use a simple QR approach via an external API rendered as image
-  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${QR_SIZE}x${QR_SIZE}&data=${encodeURIComponent(INSTALL_URL)}&bgcolor=0f172a&color=3b82f6&format=svg`;
+  const qrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=${QR_SIZE}x${QR_SIZE}&data=${encodeURIComponent(INSTALL_URL)}&format=svg`;
 
   const handleDownload = () => {
     const link = document.createElement("a");
@@ -33,7 +31,6 @@ const DriverQR = () => {
           </p>
         </div>
 
-        {/* QR Code */}
         <div className="mx-auto w-72 h-72 bg-white rounded-3xl p-4 shadow-2xl shadow-blue-500/20">
           <img
             src={qrImageUrl}
@@ -59,8 +56,5 @@ const DriverQR = () => {
     </div>
   );
 };
-
-// Need useState import
-import { useState } from "react";
 
 export default DriverQR;
