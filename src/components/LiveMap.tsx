@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import maplibregl from 'maplibre-gl';
+import { MapStyleSwitcher, useMapStyle, MapStyle } from '@/components/MapStyleSwitcher';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
@@ -59,7 +60,12 @@ const LiveMap: React.FC<LiveMapProps> = ({
       // Also fetch locations
       const { data: locs } = await supabase.from('driver_locations').select('driver_id, lat, lng');
       const locMap = new Map((locs || []).map((l: any) => [l.driver_id, l]));
-      return (data || []).map((d: any) => ({
+      const handleStyleChange = (style: MapStyle) => {
+    setStyle(style.id);
+    mapInstance.current?.setStyle(style.url);
+  };
+
+  return (data || []).map((d: any) => ({
         ...d,
         last_lat: locMap.get(d.id)?.lat || null,
         last_lng: locMap.get(d.id)?.lng || null,
@@ -90,7 +96,7 @@ const LiveMap: React.FC<LiveMapProps> = ({
 
     mapInstance.current = new maplibregl.Map({
       container: mapContainer.current,
-      style: 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json',
+      style: mapStyle.url,
       center: BUCARAMANGA_CENTER,
       zoom: 13,
       pitch: 45 // 3D effect

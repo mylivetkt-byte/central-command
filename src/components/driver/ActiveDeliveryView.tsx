@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import maplibregl from 'maplibre-gl';
+import { MapStyleSwitcher, useMapStyle, MapStyle } from '@/components/MapStyleSwitcher';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { Button } from "@/components/ui/button";
 import {
@@ -87,7 +88,12 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPic
     acquire();
     const h = () => { if (document.visibilityState === "visible") acquire(); };
     document.addEventListener("visibilitychange", h);
-    return () => { document.removeEventListener("visibilitychange", h); wakeLock?.release().catch(() => {}); };
+    const handleStyleChange = (style: MapStyle) => {
+    setStyle(style.id);
+    mapInstance.current?.setStyle(style.url);
+  };
+
+  return () => { document.removeEventListener("visibilitychange", h); wakeLock?.release().catch(() => {}); };
   }, []);
 
   // Initialize Map
@@ -96,7 +102,7 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPic
 
     mapInstance.current = new maplibregl.Map({
       container: mapContainer.current,
-      style: 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json',
+      style: mapStyle.url,
       center: currentLocation ? [currentLocation.lng, currentLocation.lat] : [delivery.pickup_lng || -73.1198, delivery.pickup_lat || 7.1193],
       zoom: 17,
       pitch: 65,

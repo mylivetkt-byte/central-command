@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { MapStyleSwitcher, useMapStyle, MapStyle } from '@/components/MapStyleSwitcher';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { Target } from "lucide-react";
@@ -20,10 +21,9 @@ interface NearbyOrdersMapProps {
   onAcceptOrder: (id: string) => void;
 }
 
-const MAPTILER_STYLE = 'https://api.maptiler.com/maps/streets-v2/style.json?key=get_your_own_OpIi9ZULNHzrESv6T2vL';
-const CARTO_VOYAGER = 'https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json';
 
 const NearbyOrdersMap: React.FC<NearbyOrdersMapProps> = ({ orders, currentLocation, onAcceptOrder }) => {
+  
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);
@@ -45,7 +45,7 @@ const NearbyOrdersMap: React.FC<NearbyOrdersMapProps> = ({ orders, currentLocati
 
     mapInstance.current = new maplibregl.Map({
       container: mapContainer.current,
-      style: CARTO_VOYAGER,
+      style: mapStyle.url,
       center: currentLocation ? [currentLocation.lng, currentLocation.lat] : [-73.1198, 7.1193],
       zoom: 16,
       pitch: 55,
@@ -131,6 +131,11 @@ const NearbyOrdersMap: React.FC<NearbyOrdersMapProps> = ({ orders, currentLocati
       markersRef.current.push(marker);
     });
   }, [orders, currentLocation]);
+
+  const handleStyleChange = useCallback((style: MapStyle) => {
+    setStyle(style.id);
+    mapInstance.current?.setStyle(style.url);
+  }, [setStyle]);
 
   return (
     <div className="relative w-full h-full overflow-hidden">
