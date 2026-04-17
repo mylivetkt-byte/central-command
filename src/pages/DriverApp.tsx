@@ -9,7 +9,7 @@ import { useDriverLocation } from "@/hooks/useDriverLocation";
 import DeliveryHistory from "@/components/driver/DeliveryHistory";
 import NearbyOrdersMap from "@/components/driver/NearbyOrdersMap";
 import ActiveDeliveryView from "@/components/driver/ActiveDeliveryView";
-import NewOrderAlert from "@/components/driver/NewOrderAlert";
+// import NewOrderAlert from "@/components/driver/NewOrderAlert";
 
 interface DeliveryOrder {
   id: string;
@@ -492,11 +492,11 @@ const DriverApp = () => {
       </nav>
 
       {/* ── ALERTA DE NUEVO PEDIDO ── */}
-      <NewOrderAlert
+      {/* <NewOrderAlert
         order={alertOrder}
         onAccept={acceptFromAlert}
         onDismiss={() => setAlertOrder(null)}
-      />
+      /> */}
     </div>
   );
 };
