@@ -98,11 +98,11 @@ export const MapStyleSwitcher = ({
       {/* Botón principal */}
       <button
         onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-bold shadow-lg transition-all active:scale-95"
+        className="flex items-center gap-1.5 rounded-sm px-3 py-2 text-xs font-bold shadow-lg transition-all active:scale-95"
         style={{
-          background: dark ? "rgba(15,23,42,0.90)" : "rgba(255,255,255,0.92)",
-          color: dark ? "white" : "#1e293b",
-          border: dark ? "1px solid rgba(255,255,255,0.12)" : "1px solid rgba(0,0,0,0.1)",
+          background: dark ? "#000000" : "#ffffff",
+          color: dark ? "#ffffff" : "#000000",
+          border: dark ? "1px solid rgba(255,255,255,0.2)" : "1px solid rgba(0,0,0,0.2)",
           backdropFilter: "blur(12px)",
         }}
       >
@@ -118,10 +118,10 @@ export const MapStyleSwitcher = ({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.92, y: -8 }}
             transition={{ duration: 0.15 }}
-            className="absolute mt-2 right-0 p-2 rounded-2xl shadow-2xl grid grid-cols-3 gap-2"
+            className="absolute mt-2 right-0 p-2 rounded-sm shadow-2xl grid grid-cols-3 gap-2"
             style={{
-              background: dark ? "rgba(15,23,42,0.96)" : "rgba(255,255,255,0.97)",
-              border: dark ? "1px solid rgba(255,255,255,0.1)" : "1px solid rgba(0,0,0,0.08)",
+              background: dark ? "#0a0a0a" : "#ffffff",
+              border: dark ? "1px solid rgba(255,255,255,0.15)" : "1px solid rgba(0,0,0,0.15)",
               backdropFilter: "blur(20px)",
               width: 220,
             }}
@@ -130,14 +130,14 @@ export const MapStyleSwitcher = ({
               <button
                 key={style.id}
                 onClick={() => { onSelect(style); setOpen(false); }}
-                className="flex flex-col items-center gap-1.5 rounded-xl p-2 transition-all active:scale-95"
+                className="flex flex-col items-center gap-1.5 rounded-sm p-2 transition-all active:scale-95"
                 style={{
                   background: current.id === style.id
-                    ? (dark ? "rgba(99,102,241,0.3)" : "rgba(99,102,241,0.12)")
+                    ? (dark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.05)")
                     : "transparent",
                   border: current.id === style.id
-                    ? "1.5px solid rgba(99,102,241,0.6)"
-                    : "1.5px solid transparent",
+                    ? "1px solid rgba(255,255,255,0.4)"
+                    : "1px solid rgba(0,0,0,0.4)",
                 }}
               >
                 {/* Thumbnail del estilo */}
@@ -157,9 +157,9 @@ export const MapStyleSwitcher = ({
                   </div>
                   {/* Check si está seleccionado */}
                   {current.id === style.id && (
-                    <div className="absolute top-0.5 right-0.5 h-3.5 w-3.5 rounded-full bg-indigo-500 flex items-center justify-center">
+                    <div className="absolute top-0.5 right-0.5 h-3.5 w-3.5 rounded-full bg-white flex items-center justify-center">
                       <svg width="8" height="8" viewBox="0 0 8 8" fill="none">
-                        <path d="M1.5 4l1.5 1.5L6.5 2" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                        <path d="M1.5 4l1.5 1.5L6.5 2" stroke="black" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
                       </svg>
                     </div>
                   )}

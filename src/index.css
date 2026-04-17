@@ -8,61 +8,61 @@
 
 @layer base {
   :root {
-    --background: 222 47% 6%;
-    --foreground: 210 40% 96%;
+    --background: 0 0% 0%;
+    --foreground: 0 0% 100%;
 
-    --card: 222 47% 9%;
-    --card-foreground: 210 40% 96%;
+    --card: 0 0% 5%;
+    --card-foreground: 0 0% 100%;
 
-    --popover: 222 47% 9%;
-    --popover-foreground: 210 40% 96%;
+    --popover: 0 0% 5%;
+    --popover-foreground: 0 0% 100%;
 
-    --primary: 217 91% 60%;
-    --primary-foreground: 222 47% 6%;
+    --primary: 0 0% 100%;
+    --primary-foreground: 0 0% 0%;
 
-    --secondary: 217 33% 17%;
-    --secondary-foreground: 210 40% 96%;
+    --secondary: 0 0% 15%;
+    --secondary-foreground: 0 0% 100%;
 
-    --muted: 217 33% 14%;
-    --muted-foreground: 215 20% 55%;
+    --muted: 0 0% 15%;
+    --muted-foreground: 0 0% 65%;
 
-    --accent: 160 84% 39%;
-    --accent-foreground: 222 47% 6%;
+    --accent: 0 0% 100%;
+    --accent-foreground: 0 0% 0%;
 
-    --destructive: 0 84% 60%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 100% 41%;
+    --destructive-foreground: 0 0% 100%;
 
-    --warning: 38 92% 50%;
-    --warning-foreground: 222 47% 6%;
+    --warning: 45 100% 50%;
+    --warning-foreground: 0 0% 0%;
 
-    --success: 160 84% 39%;
-    --success-foreground: 222 47% 6%;
+    --success: 147 94% 33%;
+    --success-foreground: 0 0% 100%;
 
-    --border: 217 33% 17%;
-    --input: 217 33% 17%;
-    --ring: 217 91% 60%;
+    --border: 0 0% 15%;
+    --input: 0 0% 15%;
+    --ring: 0 0% 100%;
 
-    --radius: 0.75rem;
+    --radius: 0.25rem;
 
-    --sidebar-background: 222 47% 7%;
-    --sidebar-foreground: 215 20% 65%;
-    --sidebar-primary: 217 91% 60%;
-    --sidebar-primary-foreground: 210 40% 98%;
-    --sidebar-accent: 217 33% 14%;
-    --sidebar-accent-foreground: 210 40% 96%;
-    --sidebar-border: 217 33% 14%;
-    --sidebar-ring: 217 91% 60%;
+    --sidebar-background: 0 0% 2%;
+    --sidebar-foreground: 0 0% 90%;
+    --sidebar-primary: 0 0% 100%;
+    --sidebar-primary-foreground: 0 0% 0%;
+    --sidebar-accent: 0 0% 10%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 0 0% 10%;
+    --sidebar-ring: 0 0% 100%;
 
-    --chart-1: 217 91% 60%;
-    --chart-2: 160 84% 39%;
-    --chart-3: 38 92% 50%;
-    --chart-4: 280 67% 60%;
-    --chart-5: 0 84% 60%;
+    --chart-1: 0 0% 100%;
+    --chart-2: 147 94% 33%;
+    --chart-3: 45 100% 50%;
+    --chart-4: 0 0% 60%;
+    --chart-5: 0 100% 41%;
 
-    --gradient-primary: linear-gradient(135deg, hsl(217 91% 60%), hsl(200 95% 50%));
-    --gradient-success: linear-gradient(135deg, hsl(160 84% 39%), hsl(140 70% 45%));
-    --gradient-warning: linear-gradient(135deg, hsl(38 92% 50%), hsl(25 95% 53%));
-    --gradient-danger: linear-gradient(135deg, hsl(0 84% 60%), hsl(350 80% 55%));
+    --gradient-primary: linear-gradient(to right, #ffffff, #a3a3a3);
+    --gradient-success: linear-gradient(to right, #05a357, #026b39);
+    --gradient-warning: linear-gradient(to right, #ffc000, #b28600);
+    --gradient-danger: linear-gradient(to right, #e11900, #8a0f00);
   }
 }
 
@@ -72,41 +72,42 @@
   }
 
   body {
-    @apply bg-background text-foreground font-sans antialiased;
+    @apply bg-background text-foreground antialiased;
     font-family: 'Inter', system-ui, sans-serif;
+    letter-spacing: -0.02em;
   }
 }
 
 @layer utilities {
   .glass-card {
-    @apply bg-card/80 backdrop-blur-xl border border-border/50 rounded-xl;
+    @apply bg-card border border-border rounded-sm shadow-none;
   }
   .glow-primary {
-    box-shadow: 0 0 20px -5px hsl(var(--primary) / 0.3);
+    @apply border-primary/50;
+    box-shadow: 0 0 0 1px hsl(var(--primary) / 0.1);
   }
   .glow-success {
-    box-shadow: 0 0 20px -5px hsl(var(--accent) / 0.3);
+    @apply border-success/50;
   }
   .glow-warning {
-    box-shadow: 0 0 20px -5px hsl(var(--warning) / 0.3);
+    @apply border-warning/50;
   }
   .glow-danger {
-    box-shadow: 0 0 20px -5px hsl(var(--destructive) / 0.3);
+    @apply border-destructive/50;
   }
   .text-gradient-primary {
-    @apply bg-clip-text text-transparent;
-    background-image: var(--gradient-primary);
+    @apply text-foreground font-bold;
   }
   .bg-gradient-primary {
-    background-image: var(--gradient-primary);
+    @apply bg-primary;
   }
   .bg-gradient-success {
-    background-image: var(--gradient-success);
+    @apply bg-success;
   }
   .bg-gradient-warning {
-    background-image: var(--gradient-warning);
+    @apply bg-warning;
   }
   .bg-gradient-danger {
-    background-image: var(--gradient-danger);
+    @apply bg-destructive;
   }
 }

@@ -11,39 +11,39 @@ interface KPICardProps {
 }
 
 const variantStyles = {
-  primary: "glow-primary border-primary/20",
-  success: "glow-success border-accent/20",
-  warning: "glow-warning border-warning/20",
-  danger: "glow-danger border-destructive/20",
-  default: "border-border/50",
+  primary: "glow-primary border-primary/40",
+  success: "glow-success border-success/40",
+  warning: "glow-warning border-warning/40",
+  danger: "glow-danger border-destructive/40",
+  default: "border-border",
 };
 
 const iconBgStyles = {
-  primary: "bg-primary/10 text-primary",
-  success: "bg-accent/10 text-accent",
-  warning: "bg-warning/10 text-warning",
-  danger: "bg-destructive/10 text-destructive",
+  primary: "bg-white text-black",
+  success: "bg-success text-success-foreground",
+  warning: "bg-warning text-warning-foreground",
+  danger: "bg-destructive text-destructive-foreground",
   default: "bg-muted text-muted-foreground",
 };
 
 export const KPICard = ({ title, value, subtitle, icon, variant = "default", trend }: KPICardProps) => (
   <motion.div
-    initial={{ opacity: 0, y: 20 }}
+    initial={{ opacity: 0, y: 10 }}
     animate={{ opacity: 1, y: 0 }}
-    className={`glass-card p-5 ${variantStyles[variant]}`}
+    className={`glass-card p-4 transition-all ${variantStyles[variant]}`}
   >
     <div className="flex items-start justify-between">
       <div className="space-y-1">
-        <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{title}</p>
-        <p className="text-2xl font-bold text-foreground">{value}</p>
-        {subtitle && <p className="text-xs text-muted-foreground">{subtitle}</p>}
+        <p className="text-[10px] font-bold uppercase tracking-tighter text-muted-foreground">{title}</p>
+        <p className="text-3xl font-black text-foreground tracking-tighter">{value}</p>
+        {subtitle && <p className="text-xs font-medium text-muted-foreground">{subtitle}</p>}
         {trend && (
-          <p className={`text-xs font-medium ${trend.value >= 0 ? "text-accent" : "text-destructive"}`}>
+          <p className={`text-xs font-bold ${trend.value >= 0 ? "text-success" : "text-destructive"}`}>
             {trend.value >= 0 ? "↑" : "↓"} {Math.abs(trend.value)}% {trend.label}
           </p>
         )}
       </div>
-      <div className={`rounded-xl p-3 ${iconBgStyles[variant]}`}>
+      <div className={`rounded-sm p-2 shadow-sm ${iconBgStyles[variant]}`}>
         {icon}
       </div>
     </div>

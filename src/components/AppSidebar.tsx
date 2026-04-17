@@ -26,20 +26,20 @@ export const AppSidebar = () => {
 
   return (
     <aside
-      className={`fixed left-0 top-0 z-40 flex h-screen flex-col border-r border-border/50 bg-sidebar transition-all duration-300 ${collapsed ? "w-16" : "w-60"}`}
+      className={`fixed left-0 top-0 z-40 flex h-screen flex-col border-r border-border bg-sidebar transition-all duration-300 ${collapsed ? "w-16" : "w-60"}`}
     >
-      <div className="flex h-16 items-center justify-between px-4 border-b border-border/50">
+      <div className="flex h-16 items-center justify-between px-4 border-b border-border">
         {!collapsed && (
           <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-lg bg-gradient-primary flex items-center justify-center">
+            <div className="h-8 w-8 rounded-sm bg-primary flex items-center justify-center">
               <Truck className="h-4 w-4 text-primary-foreground" />
             </div>
-            <span className="text-sm font-bold text-foreground">LogiCentral</span>
+            <span className="text-sm font-black text-foreground uppercase tracking-tight">Menesa Command</span>
           </div>
         )}
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+          className="rounded-sm p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
         >
           {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
         </button>
@@ -52,9 +52,9 @@ export const AppSidebar = () => {
             <RouterNavLink
               key={to}
               to={to}
-              className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all ${
+              className={`flex items-center gap-3 rounded-sm px-3 py-2.5 text-sm font-bold transition-all ${
                 active
-                  ? "bg-primary/10 text-primary glow-primary"
+                  ? "bg-white text-black shadow-lg"
                   : "text-sidebar-foreground hover:bg-muted hover:text-foreground"
               }`}
             >
@@ -65,19 +65,19 @@ export const AppSidebar = () => {
         })}
       </nav>
 
-      <div className="border-t border-border/50 p-3 space-y-2">
+      <div className="border-t border-border p-3 space-y-2">
         {!collapsed && (
-          <div className="rounded-lg bg-muted/50 p-3">
-            <p className="text-xs font-medium text-muted-foreground">{user?.email}</p>
-            <p className="text-xs text-primary">Admin</p>
+          <div className="rounded-sm bg-muted/30 p-3 border border-border/50">
+            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{user?.email}</p>
+            <p className="text-[10px] text-white font-black bg-black px-1.5 py-0.5 inline-block mt-1">ADMINISTRADOR</p>
           </div>
         )}
         <button
           onClick={signOut}
-          className="flex items-center gap-2 w-full rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+          className="flex items-center gap-2 w-full rounded-sm px-3 py-2 text-sm font-bold text-muted-foreground hover:bg-destructive hover:text-destructive-foreground transition-colors"
         >
           <LogOut className="h-4 w-4 shrink-0" />
-          {!collapsed && <span>Cerrar sesión</span>}
+          {!collapsed && <span>SALIR</span>}
         </button>
       </div>
     </aside>

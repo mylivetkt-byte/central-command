@@ -10,11 +10,11 @@ const formatCurrency = (v: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(v);
 
 const statusColors: Record<string, string> = {
-  pendiente:  "bg-yellow-500/10 text-yellow-500 border-yellow-500/20",
-  aceptado:   "bg-blue-500/10 text-blue-500 border-blue-500/20",
-  en_camino:  "bg-primary/10 text-primary border-primary/20",
-  entregado:  "bg-accent/10 text-accent border-accent/20",
-  cancelado:  "bg-destructive/10 text-destructive border-destructive/20",
+  pendiente:  "bg-yellow-500/10 text-yellow-500 border-yellow-500/30",
+  aceptado:   "bg-white/10 text-white border-white/40",
+  en_camino:  "bg-white/20 text-white border-white/50",
+  entregado:  "bg-success/15 text-success border-success/30",
+  cancelado:  "bg-destructive/15 text-destructive border-destructive/30",
 };
 
 const Operations = () => {
