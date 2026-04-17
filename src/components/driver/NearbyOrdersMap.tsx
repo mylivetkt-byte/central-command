@@ -23,7 +23,7 @@ interface NearbyOrdersMapProps {
 
 
 const NearbyOrdersMap: React.FC<NearbyOrdersMapProps> = ({ orders, currentLocation, onAcceptOrder }) => {
-  
+  const { current: mapStyle, setStyle } = useMapStyle("dark");
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);
@@ -140,6 +140,14 @@ const NearbyOrdersMap: React.FC<NearbyOrdersMapProps> = ({ orders, currentLocati
   return (
     <div className="relative w-full h-full overflow-hidden">
       <div ref={mapContainer} className="w-full h-full" />
+
+      {/* Style Switcher */}
+      <MapStyleSwitcher 
+        current={mapStyle} 
+        onSelect={handleStyleChange} 
+        position="top-right"
+        dark={mapStyle.id === 'dark'}
+      />
 
       {/* Recenter */}
       <div className="absolute right-4 bottom-28 z-[1001]">
