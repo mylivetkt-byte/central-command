@@ -74,9 +74,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       try {
         // Intento 1: RPC get_my_role (SECURITY DEFINER, no depende de RLS)
         const { data, error } = await (supabase.rpc as any)("get_my_role");
+        if (error) {
+          console.error("[useAuth] RPC get_my_role error:", error.message);
+        }
         if (!error && data) return (data as unknown as AppRole) ?? null;
 
         // Intento 2: query directa (fallback si el RPC no existe aún)
+        console.log("[useAuth] RPC falló o no existe, intentando query directa a user_roles...");
         const { data: { user: me } } = await supabase.auth.getUser();
         if (!me) return null;
         const { data: row, error: rowErr } = await supabase
@@ -84,9 +88,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           .select("role")
           .eq("user_id", me.id)
           .maybeSingle();
-        if (rowErr || !row) return null;
+        
+        if (rowErr) {
+          console.error("[useAuth] Error query directa user_roles:", rowErr.message);
+          return null;
+        }
+        if (!row) {
+          console.warn("[useAuth] El usuario no tiene rol asignado en la tabla user_roles");
+          return null;
+        }
         return ((row as any).role as AppRole) ?? null;
-      } catch {
+      } catch (err) {
+        console.error("[useAuth] Excepción crítica en fetchRole:", err);
         return null;
       }
     })();

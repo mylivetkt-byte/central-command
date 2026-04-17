@@ -28,16 +28,18 @@ export const ProtectedRoute = ({ children, requiredRole, redirectTo }: Props) =>
   // En este caso NO redirigimos — mostramos un estado de error con reintento.
   if (role === null) {
     return (
-      <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4">
+      <div className="min-h-screen bg-black flex flex-col items-center justify-center gap-6 p-6">
         <div className="text-center space-y-2">
-          <p className="text-sm font-semibold text-foreground">No se pudo verificar tu rol</p>
-          <p className="text-xs text-muted-foreground">Revisa tu conexión e intenta de nuevo</p>
+          <p className="text-lg font-black text-white uppercase tracking-tighter">No se pudo verificar tu rol</p>
+          <p className="text-sm text-white/40 max-w-xs mx-auto">
+            Tenemos problemas para confirmar tu acceso. Revisa tu conexión a internet e intenta de nuevo.
+          </p>
         </div>
         <button
           onClick={() => window.location.reload()}
-          className="rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90"
+          className="w-full max-w-xs rounded-none bg-white py-4 text-sm font-black text-black uppercase tracking-widest hover:bg-white/90 transition-all active:scale-95 shadow-xl"
         >
-          Reintentar
+          Reintentar ahora
         </button>
       </div>
     );
