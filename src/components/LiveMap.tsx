@@ -48,6 +48,7 @@ const LiveMap: React.FC<LiveMapProps> = ({
   const mapInstance = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<{ [key: string]: maplibregl.Marker }>({});
   const [isMapReady, setIsMapReady] = useState(false);
+  const { current: mapStyle, setStyle } = useMapStyle("dark");
 
   // Consulta de drivers
   const { data: drivers = [] } = useQuery({
@@ -60,12 +61,7 @@ const LiveMap: React.FC<LiveMapProps> = ({
       // Also fetch locations
       const { data: locs } = await supabase.from('driver_locations').select('driver_id, lat, lng');
       const locMap = new Map((locs || []).map((l: any) => [l.driver_id, l]));
-      const handleStyleChange = (style: MapStyle) => {
-    setStyle(style.id);
-    mapInstance.current?.setStyle(style.url);
-  };
-
-  return (data || []).map((d: any) => ({
+      return (data || []).map((d: any) => ({
         ...d,
         last_lat: locMap.get(d.id)?.lat || null,
         last_lng: locMap.get(d.id)?.lng || null,

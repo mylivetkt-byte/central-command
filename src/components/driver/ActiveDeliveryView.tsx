@@ -77,6 +77,7 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPic
   const [traveledCoords, setTraveledCoords] = useState<[number, number][]>([]);
   const prevPosRef = useRef<{ lat: number; lng: number; t: number } | null>(null);
   const [etaProgress, setEtaProgress] = useState(1);
+  const { current: mapStyle, setStyle } = useMapStyle("dark");
 
   const isPickingUp = delivery.status === "aceptado";
 
@@ -88,10 +89,6 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPic
     acquire();
     const h = () => { if (document.visibilityState === "visible") acquire(); };
     document.addEventListener("visibilitychange", h);
-    const handleStyleChange = (style: MapStyle) => {
-    setStyle(style.id);
-    mapInstance.current?.setStyle(style.url);
-  };
 
   return () => { document.removeEventListener("visibilitychange", h); wakeLock?.release().catch(() => {}); };
   }, []);
