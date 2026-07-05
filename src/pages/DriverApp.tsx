@@ -9,7 +9,7 @@ import { useDriverLocation } from "@/hooks/useDriverLocation";
 import DeliveryHistory from "@/components/driver/DeliveryHistory";
 import NearbyOrdersMap from "@/components/driver/NearbyOrdersMap";
 import ActiveDeliveryView from "@/components/driver/ActiveDeliveryView";
-// import NewOrderAlert from "@/components/driver/NewOrderAlert";
+import NewOrderAlert from "@/components/driver/NewOrderAlert";
 
 interface DeliveryOrder {
   id: string;
@@ -43,6 +43,7 @@ const DriverApp = () => {
   const [driverProfile, setDriverProfile]     = useState<any>(null);
   const [earningsToday, setEarningsToday]     = useState(0);
   const [alertOrder, setAlertOrder]           = useState<any>(null);
+  const shownAlertIds                          = useRef<Set<string>>(new Set());
 
   const { isTracking, currentLocation, startTracking, stopTracking } = useDriverLocation();
   const prevCount   = useRef(0);
@@ -121,15 +122,20 @@ const DriverApp = () => {
         delivery_lng: d.delivery_lng ?? null,
       }));
 
-      if (orders.length > prevCount.current) {
-        try { new Audio("https://assets.mixkit.co/active_storage/sfx/2358/2358-preview.mp3").play(); } catch (_) {}
+      // Detect newly arrived orders and trigger a full-screen alert for the first unseen one
+      if (isAvailable && !activeDelivery) {
+        const fresh = orders.find(o => !shownAlertIds.current.has(o.id));
+        if (fresh && !alertOrder) {
+          shownAlertIds.current.add(fresh.id);
+          setAlertOrder(fresh);
+        }
       }
       prevCount.current = orders.length;
       setPendingOrders(orders);
     } else {
       setPendingOrders([]);
     }
-  }, [user, isAvailable]);
+  }, [user, isAvailable, activeDelivery, alertOrder]);
 
   // ── Realtime ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -224,6 +230,20 @@ const DriverApp = () => {
       if (error || !claimed) toast.error("El pedido ya fue tomado");
       else { toast.success("¡Pedido tomado!"); fetchData(); }
     }
+    setAlertOrder(null);
+  };
+
+  // ── Rechazar oferta desde la alerta ───────────────────────────────────────
+  const rejectFromAlert = async () => {
+    if (!alertOrder || !user) { setAlertOrder(null); return; }
+    try {
+      await supabase.from("delivery_audit_log" as any).insert({
+        delivery_id: alertOrder.id,
+        event: "Oferta rechazada",
+        details: "Rechazada por mensajero",
+        performed_by: user.id,
+      });
+    } catch (_) {}
     setAlertOrder(null);
   };
 
@@ -516,11 +536,12 @@ const DriverApp = () => {
       </nav>
 
       {/* ── ALERTA DE NUEVO PEDIDO ── */}
-      {/* <NewOrderAlert
+      <NewOrderAlert
         order={alertOrder}
+        timeoutSeconds={30}
         onAccept={acceptFromAlert}
-        onDismiss={() => setAlertOrder(null)}
-      /> */}
+        onReject={rejectFromAlert}
+      />
     </div>
   );
 };
