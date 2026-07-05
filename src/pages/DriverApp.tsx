@@ -536,11 +536,12 @@ const DriverApp = () => {
       </nav>
 
       {/* ── ALERTA DE NUEVO PEDIDO ── */}
-      {/* <NewOrderAlert
+      <NewOrderAlert
         order={alertOrder}
+        timeoutSeconds={30}
         onAccept={acceptFromAlert}
-        onDismiss={() => setAlertOrder(null)}
-      /> */}
+        onReject={rejectFromAlert}
+      />
     </div>
   );
 };
