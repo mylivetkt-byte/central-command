@@ -39,7 +39,7 @@ const InstallApp = () => {
 
         <div className="space-y-3">
           <h1 className="text-3xl font-bold text-white tracking-tight">
-            LogiSmart Conductor
+            GoMoto Conductor
           </h1>
           <p className="text-blue-200/70 text-sm leading-relaxed">
             Instala la app en tu teléfono para recibir pedidos, navegar rutas y gestionar entregas — incluso sin conexión.
@@ -87,7 +87,7 @@ const InstallApp = () => {
         )}
 
         <p className="text-blue-200/30 text-xs">
-          v1.0 · LogiSmart Pulse
+          v1.0 · GoMoto
         </p>
       </div>
     </div>

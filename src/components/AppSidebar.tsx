@@ -34,7 +34,7 @@ export const AppSidebar = () => {
             <div className="h-8 w-8 rounded-sm bg-primary flex items-center justify-center">
               <Truck className="h-4 w-4 text-primary-foreground" />
             </div>
-            <span className="text-sm font-black text-foreground uppercase tracking-tight">Menesa Command</span>
+            <span className="text-sm font-black text-foreground uppercase tracking-tight">GoMoto Command</span>
           </div>
         )}
         <button

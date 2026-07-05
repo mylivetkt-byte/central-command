@@ -95,7 +95,7 @@ const DriverLogin = () => {
             <div className="mx-auto h-14 w-14 rounded-xl bg-gradient-success flex items-center justify-center">
               <Bike className="h-7 w-7 text-accent-foreground" />
             </div>
-            <h1 className="text-2xl font-bold text-foreground">LogiCentral</h1>
+            <h1 className="text-2xl font-bold text-foreground">GoMoto</h1>
             <p className="text-sm text-muted-foreground">App del Mensajero</p>
           </div>
 

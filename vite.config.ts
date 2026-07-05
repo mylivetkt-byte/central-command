@@ -38,8 +38,8 @@ export default defineConfig(({ mode }) => ({
       },
       includeAssets: ["favicon.ico", "apple-touch-icon.png"],
       manifest: {
-        name: "MenesaApp - Conductor",
-        short_name: "MenesaApp",
+        name: "GoMoto - Conductor",
+        short_name: "GoMoto",
         description: "App de entregas para conductores",
         theme_color: "#1a1a2e",
         background_color: "#1a1a2e",
