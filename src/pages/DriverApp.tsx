@@ -170,12 +170,24 @@ const DriverApp = () => {
     setToggling(false);
   };
 
-  // ── Aceptar pedido (vía RPC claim_delivery — respeta RLS) ─────────────────
+  // ── Aceptar pedido (update atómico respetando estado pendiente) ──────────
   const acceptOrder = async (order: DeliveryOrder) => {
     if (!user) return;
-    const { data, error } = await supabase.rpc("claim_delivery", { p_delivery_id: order.id });
-    if (error || !data?.ok) {
-      toast.error(data?.error || "Otro mensajero fue más rápido");
+    const { data: claimed, error } = await supabase
+      .from("deliveries")
+      .update({
+        driver_id: user.id,
+        status: "aceptado",
+        accepted_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", order.id)
+      .eq("status", "pendiente")
+      .is("driver_id", null)
+      .select()
+      .maybeSingle();
+    if (error || !claimed) {
+      toast.error("Otro mensajero fue más rápido");
       fetchData();
       return;
     }
@@ -196,8 +208,20 @@ const DriverApp = () => {
     const found = pendingOrders.find(o => o.id === alertOrder.id || o.order_id === alertOrder.order_id);
     if (found) await acceptOrder(found);
     else if (alertOrder.id) {
-      const { data, error } = await supabase.rpc("claim_delivery", { p_delivery_id: alertOrder.id });
-      if (error || !data?.ok) toast.error(data?.error || "El pedido ya fue tomado");
+      const { data: claimed, error } = await supabase
+        .from("deliveries")
+        .update({
+          driver_id: user.id,
+          status: "aceptado",
+          accepted_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", alertOrder.id)
+        .eq("status", "pendiente")
+        .is("driver_id", null)
+        .select()
+        .maybeSingle();
+      if (error || !claimed) toast.error("El pedido ya fue tomado");
       else { toast.success("¡Pedido tomado!"); fetchData(); }
     }
     setAlertOrder(null);
