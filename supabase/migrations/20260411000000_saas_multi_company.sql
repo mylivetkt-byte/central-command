@@ -2,8 +2,13 @@
 -- SAAS MULTI-EMPRESA
 -- ============================================================
 
--- 1. Agregar rol super_admin al enum
-ALTER TYPE public.app_role ADD VALUE IF NOT EXISTS 'super_admin' BEFORE 'admin';
+-- 1. Agregar rol super_admin al enum (al final para evitar error de transacción)
+-- Se ejecuta con DO pq en la misma transacción no se puede usar el nuevo valor
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_enum WHERE enumlabel = 'super_admin' AND enumtypid = 'app_role'::regtype) THEN
+    ALTER TYPE public.app_role ADD VALUE 'super_admin';
+  END IF;
+END $$;
 
 -- 2. Tabla de empresas
 CREATE TABLE IF NOT EXISTS public.saas_companies (
@@ -39,11 +44,22 @@ ALTER TABLE public.delivery_audit_log ADD COLUMN IF NOT EXISTS company_id UUID R
 ALTER TABLE public.chat_messages ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES public.saas_companies(id) ON DELETE SET NULL;
 ALTER TABLE public.alerts ADD COLUMN IF NOT EXISTS company_id UUID REFERENCES public.saas_companies(id) ON DELETE SET NULL;
 
+-- Helper: función reutilizable para check super_admin (usa TEXT para evitar error de enum)
+CREATE OR REPLACE FUNCTION public.is_super_admin(uid UUID)
+RETURNS BOOLEAN
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = public
+AS $$
+  SELECT EXISTS (SELECT 1 FROM public.user_roles WHERE user_id = uid AND role::TEXT = 'super_admin');
+$$;
+
 -- 5. RLS: super_admin ve todo, cada empresa ve solo lo suyo
 CREATE POLICY "super_admin all companies" ON public.saas_companies
   FOR ALL TO authenticated
-  USING (public.has_role(auth.uid(), 'super_admin'))
-  WITH CHECK (public.has_role(auth.uid(), 'super_admin'));
+  USING (public.is_super_admin(auth.uid()))
+  WITH CHECK (public.is_super_admin(auth.uid()));
 
 CREATE POLICY "users read own company" ON public.saas_companies
   FOR SELECT TO authenticated
@@ -57,8 +73,8 @@ CREATE POLICY "users read own company" ON public.saas_companies
 
 CREATE POLICY "super_admin all company_users" ON public.company_users
   FOR ALL TO authenticated
-  USING (public.has_role(auth.uid(), 'super_admin'))
-  WITH CHECK (public.has_role(auth.uid(), 'super_admin'));
+  USING (public.is_super_admin(auth.uid()))
+  WITH CHECK (public.is_super_admin(auth.uid()));
 
 CREATE POLICY "users read own company_users" ON public.company_users
   FOR SELECT TO authenticated
@@ -79,12 +95,9 @@ $$;
 DROP POLICY IF EXISTS "super_admin all deliveries" ON public.deliveries;
 CREATE POLICY "super_admin all deliveries" ON public.deliveries
   FOR ALL TO authenticated
-  USING (public.has_role(auth.uid(), 'super_admin'))
-  WITH CHECK (public.has_role(auth.uid(), 'super_admin'));
+  USING (public.is_super_admin(auth.uid()))
+  WITH CHECK (public.is_super_admin(auth.uid()));
 
--- Modificar policies existentes para filtrar por empresa
--- Nota: las policies actuales ya existen con nombres anteriores,
--- agregamos una policy complementaria de company
 CREATE POLICY "user company deliveries" ON public.deliveries
   FOR ALL TO authenticated
   USING (
@@ -106,8 +119,8 @@ CREATE POLICY "user company deliveries" ON public.deliveries
 DROP POLICY IF EXISTS "super_admin all driver_profiles" ON public.driver_profiles;
 CREATE POLICY "super_admin all driver_profiles" ON public.driver_profiles
   FOR ALL TO authenticated
-  USING (public.has_role(auth.uid(), 'super_admin'))
-  WITH CHECK (public.has_role(auth.uid(), 'super_admin'));
+  USING (public.is_super_admin(auth.uid()))
+  WITH CHECK (public.is_super_admin(auth.uid()));
 
 CREATE POLICY "user company driver_profiles" ON public.driver_profiles
   FOR ALL TO authenticated
@@ -130,8 +143,8 @@ CREATE POLICY "user company driver_profiles" ON public.driver_profiles
 DROP POLICY IF EXISTS "super_admin all driver_locations" ON public.driver_locations;
 CREATE POLICY "super_admin all driver_locations" ON public.driver_locations
   FOR ALL TO authenticated
-  USING (public.has_role(auth.uid(), 'super_admin'))
-  WITH CHECK (public.has_role(auth.uid(), 'super_admin'));
+  USING (public.is_super_admin(auth.uid()))
+  WITH CHECK (public.is_super_admin(auth.uid()));
 
 CREATE POLICY "user company driver_locations" ON public.driver_locations
   FOR ALL TO authenticated
@@ -154,8 +167,8 @@ CREATE POLICY "user company driver_locations" ON public.driver_locations
 DROP POLICY IF EXISTS "super_admin all chat_messages" ON public.chat_messages;
 CREATE POLICY "super_admin all chat_messages" ON public.chat_messages
   FOR ALL TO authenticated
-  USING (public.has_role(auth.uid(), 'super_admin'))
-  WITH CHECK (public.has_role(auth.uid(), 'super_admin'));
+  USING (public.is_super_admin(auth.uid()))
+  WITH CHECK (public.is_super_admin(auth.uid()));
 
 CREATE POLICY "user company chat_messages" ON public.chat_messages
   FOR ALL TO authenticated
@@ -178,8 +191,8 @@ CREATE POLICY "user company chat_messages" ON public.chat_messages
 DROP POLICY IF EXISTS "super_admin all delivery_audit_log" ON public.delivery_audit_log;
 CREATE POLICY "super_admin all delivery_audit_log" ON public.delivery_audit_log
   FOR ALL TO authenticated
-  USING (public.has_role(auth.uid(), 'super_admin'))
-  WITH CHECK (public.has_role(auth.uid(), 'super_admin'));
+  USING (public.is_super_admin(auth.uid()))
+  WITH CHECK (public.is_super_admin(auth.uid()));
 
 CREATE POLICY "user company delivery_audit_log" ON public.delivery_audit_log
   FOR ALL TO authenticated
@@ -202,8 +215,8 @@ CREATE POLICY "user company delivery_audit_log" ON public.delivery_audit_log
 DROP POLICY IF EXISTS "super_admin all alerts" ON public.alerts;
 CREATE POLICY "super_admin all alerts" ON public.alerts
   FOR ALL TO authenticated
-  USING (public.has_role(auth.uid(), 'super_admin'))
-  WITH CHECK (public.has_role(auth.uid(), 'super_admin'));
+  USING (public.is_super_admin(auth.uid()))
+  WITH CHECK (public.is_super_admin(auth.uid()));
 
 CREATE POLICY "user company alerts" ON public.alerts
   FOR ALL TO authenticated
@@ -230,8 +243,7 @@ SECURITY DEFINER
 SET search_path = public
 AS $$
 BEGIN
-  -- Verificar que quien ejecuta es super_admin
-  IF NOT public.has_role(auth.uid(), 'super_admin') THEN
+  IF NOT public.is_super_admin(auth.uid()) THEN
     RETURN 'error: solo super_admin puede resetear';
   END IF;
 
@@ -254,7 +266,6 @@ AS $$
 DECLARE
   v_company_id UUID;
 BEGIN
-  -- Si el usuario metadata tiene company_id, asignarlo
   v_company_id := (NEW.raw_user_meta_data->>'company_id')::UUID;
   IF v_company_id IS NOT NULL THEN
     INSERT INTO public.company_users (user_id, company_id, role)
