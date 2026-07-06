@@ -356,6 +356,10 @@ export type Database = {
         }
         Returns: boolean
       }
+      insert_driver_audit_entry: {
+        Args: { p_delivery_id: string; p_details?: string; p_event: string }
+        Returns: undefined
+      }
     }
     Enums: {
       app_role: "admin" | "driver"
