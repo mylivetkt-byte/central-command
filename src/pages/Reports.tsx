@@ -126,12 +126,12 @@ const Reports = () => {
 
     const totalAmount = delivered.reduce((s: number, d: any) => s + Number(d.amount || 0), 0);
     const totalCommission = delivered.reduce((s: number, d: any) => s + Number(d.commission || 0), 0);
-    // Cobrado = solo los entregados (ya cobró el cliente)
+    // Cobrado = total de pedidos entregados (lo que pagó el cliente)
     const collected = totalAmount;
-    // Pendiente de cobro = los que están en camino o aceptados (aún no entrega)
+    // Pendiente de cobro = los que están en camino/aceptados (aún no entrega)
     const pendingAmount = inProgress.reduce((s: number, d: any) => s + Number(d.amount || 0), 0);
-    // A entregar a central = lo que recaudó y debe entregar
-    const amountToCentral = collected;
+    // A entregar a central = Cobro - Comisión (la diferencia)
+    const amountToCentral = totalAmount - totalCommission;
 
     return {
       driverId: drv.id,
