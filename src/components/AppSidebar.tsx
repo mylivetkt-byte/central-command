@@ -1,7 +1,8 @@
 import { NavLink as RouterNavLink, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, BarChart3, Truck, Users, DollarSign,
-  AlertTriangle, ClipboardList, Map, Zap, ChevronLeft, ChevronRight, LogOut, MapPin
+  AlertTriangle, ClipboardList, Map, Zap, ChevronLeft, ChevronRight, LogOut, MapPin,
+  Building2
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useSidebar } from "./SidebarContext";
@@ -17,12 +18,13 @@ const navItems = [
   { to: "/alerts", label: "Alertas", icon: AlertTriangle },
   { to: "/audit", label: "Auditoría", icon: ClipboardList },
   { to: "/reports", label: "Reportes", icon: Truck },
+  { to: "/saas/companies", label: "Empresas", icon: Building2, adminOnly: true },
 ];
 
 export const AppSidebar = () => {
   const { collapsed, setCollapsed } = useSidebar();
   const location = useLocation();
-  const { signOut, user } = useAuth();
+  const { signOut, user, role } = useAuth();
 
   return (
     <aside
@@ -46,7 +48,7 @@ export const AppSidebar = () => {
       </div>
 
       <nav className="flex-1 space-y-1 px-2 py-4 overflow-y-auto">
-        {navItems.map(({ to, label, icon: Icon }) => {
+        {navItems.filter(item => !(item as any).adminOnly || role === "super_admin").map(({ to, label, icon: Icon }) => {
           const active = location.pathname === to;
           return (
             <RouterNavLink

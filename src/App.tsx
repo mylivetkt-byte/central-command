@@ -5,6 +5,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/hooks/useAuth";
+import { CompanyProvider } from "@/hooks/useCompany";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import Dashboard from "./pages/Dashboard";
 import Analytics from "./pages/Analytics";
@@ -23,6 +24,9 @@ import CustomerTracking from "./pages/CustomerTracking";
 import InstallApp from "./pages/InstallApp";
 import DriverQR from "./pages/DriverQR";
 import NotFound from "./pages/NotFound";
+import SaaSCompanies from "./pages/SaaSCompanies";
+import SaaSCompanyDetail from "./pages/SaaSCompanyDetail";
+import SaaSNewCompany from "./pages/SaaSNewCompany";
 
 const queryClient = new QueryClient();
 
@@ -45,6 +49,7 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <AuthProvider>
+          <CompanyProvider>
           <Routes>
             {/* Auth */}
             <Route path="/admin-login" element={<AdminLogin />} />
@@ -67,11 +72,17 @@ const App = () => (
             <Route path="/reports" element={<AdminRoute><Reports /></AdminRoute>} />
             <Route path="/map-tracking" element={<AdminRoute><MapTracking /></AdminRoute>} />
 
+            {/* SaaS */}
+            <Route path="/saas/companies" element={<AdminRoute><SaaSCompanies /></AdminRoute>} />
+            <Route path="/saas/companies/new" element={<AdminRoute><SaaSNewCompany /></AdminRoute>} />
+            <Route path="/saas/companies/:id" element={<AdminRoute><SaaSCompanyDetail /></AdminRoute>} />
+
             {/* Driver App */}
             <Route path="/driver" element={<DriverRoute><DriverApp /></DriverRoute>} />
 
             <Route path="*" element={<NotFound />} />
           </Routes>
+          </CompanyProvider>
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>
