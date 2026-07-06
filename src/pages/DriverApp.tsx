@@ -61,6 +61,25 @@ const DriverApp = () => {
     return () => { document.body.style.overflow = ""; };
   }, []);
 
+  // Mantener la pantalla encendida mientras la app está en uso
+  useEffect(() => {
+    let wl: any = null;
+    const acquire = async () => {
+      try {
+        if ("wakeLock" in navigator) {
+          wl = await (navigator as any).wakeLock.request("screen");
+        }
+      } catch {}
+    };
+    acquire();
+    const onVis = () => { if (document.visibilityState === "visible") acquire(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      try { wl?.release?.(); } catch {}
+    };
+  }, []);
+
   useEffect(() => {
     if (user && !gpsStarted.current && !isTracking) {
       gpsStarted.current = true;
