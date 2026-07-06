@@ -76,18 +76,18 @@ const Dispatch = () => {
     refetchInterval: 10000,
   });
 
-  // BROADCAST PARA LOS MENSAJEROS
-  const broadcastNewOrder = async () => {
+  // BROADCAST PARA LOS MENSAJEROS — envía el ID real de la orden
+  const broadcastNewOrder = async (deliveryId: string) => {
     const channel = supabase.channel("dispatch-notifications");
     await channel.subscribe(async (status) => {
       if (status === "SUBSCRIBED") {
         await channel.send({
           type: "broadcast",
           event: "new-order",
-          payload: { message: "Nuevo pedido publicado" }
+          payload: { id: deliveryId }
         });
-        console.log("Broadcast sent!");
-        supabase.removeChannel(channel);
+        console.log("Broadcast sent for:", deliveryId);
+        setTimeout(() => supabase.removeChannel(channel), 500);
       }
     });
   };
@@ -96,7 +96,7 @@ const Dispatch = () => {
     mutationFn: async (formData: NewDeliveryForm) => {
       const orderId = `DOM-${Date.now().toString().slice(-6)}`;
       
-      const { error } = await (supabase.from("deliveries") as any).insert({
+      const { data: inserted, error } = await (supabase.from("deliveries") as any).insert({
         order_id: orderId,
         customer_name: formData.customer_name,
         customer_phone: formData.customer_phone || null,
@@ -112,11 +112,11 @@ const Dispatch = () => {
         zone: formData.zone || null,
         status: "pendiente",
         notes: formData.notes || null,
-      });
+      }).select("id").maybeSingle();
       if (error) throw error;
       
-      // Enviar señal a los mensajeros
-      await broadcastNewOrder();
+      // Enviar señal a los mensajeros con el ID real
+      if (inserted?.id) await broadcastNewOrder(inserted.id);
       
       return orderId;
     },
@@ -137,6 +137,18 @@ const Dispatch = () => {
         .update({ driver_id: driverId, status: "aceptado", accepted_at: new Date().toISOString() })
         .eq("id", deliveryId);
       if (error) throw error;
+      // Notificar al conductor asignado
+      const ch = supabase.channel("dispatch-notifications");
+      await ch.subscribe(async (status) => {
+        if (status === "SUBSCRIBED") {
+          await ch.send({
+            type: "broadcast",
+            event: "order-assigned",
+            payload: { deliveryId, driverId }
+          });
+          setTimeout(() => supabase.removeChannel(ch), 500);
+        }
+      });
     },
     onSuccess: () => {
       toast.success("Mensajero asignado con éxito");

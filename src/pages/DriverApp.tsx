@@ -163,9 +163,8 @@ const DriverApp = () => {
       .subscribe();
 
     const ch2 = supabase.channel("dispatch-notifications")
-      .on("broadcast", { event: "new-order" }, (msg) => {
+      .on("broadcast", { event: "new-order" }, () => {
         fetchData();
-        if (msg.payload && isAvailable) setAlertOrder(msg.payload);
       })
       .subscribe();
 
