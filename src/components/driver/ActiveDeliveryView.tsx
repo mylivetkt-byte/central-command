@@ -339,15 +339,34 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPic
     if (!user) { toast.error("Debes iniciar sesión"); return; }
     setCancelling(true);
     try {
-      const { error } = await (supabase.from("deliveries") as any).update({ status: "cancelado", driver_id: null, cancelled_at: new Date().toISOString() }).eq("id", delivery.id);
+      // Devolver el pedido a la bolsa: status pendiente y sin conductor
+      const { error } = await (supabase.from("deliveries") as any)
+        .update({
+          status: "pendiente",
+          driver_id: null,
+          accepted_at: null,
+          picked_up_at: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", delivery.id);
       if (error) throw error;
       await (supabase.from("delivery_audit_log") as any).insert({
         delivery_id: delivery.id,
-        event: "Entrega cancelada por mensajero",
+        event: "Entrega rechazada por mensajero",
         details: `Motivo: ${reason}${cancelPhotos.length > 0 ? ` (${cancelPhotos.length} foto(s) adjunta(s))` : ''}`,
         performed_by: user.id
       });
-      toast.success("Entrega cancelada. El pedido volvió a estar disponible.");
+      // Volver a difundir para que otros mensajeros lo vean al instante
+      try {
+        const ch = supabase.channel("dispatch-notifications");
+        await ch.subscribe(async (status) => {
+          if (status === "SUBSCRIBED") {
+            await ch.send({ type: "broadcast", event: "new-order", payload: { id: delivery.id } });
+            setTimeout(() => supabase.removeChannel(ch), 500);
+          }
+        });
+      } catch {}
+      toast.success("Pedido devuelto. Ya está disponible para otros mensajeros.");
       setShowCancel(false);
       window.location.reload();
     } catch (e: any) { toast.error("Error al cancelar: " + e.message); }
