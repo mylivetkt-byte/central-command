@@ -448,7 +448,7 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPic
           <div className="w-12 h-1.5 bg-slate-200 rounded-full mx-auto" />
         </div>
 
-        <div className="px-6 pt-3 flex-1 flex flex-col overflow-hidden">
+        <div className="px-6 pt-3 flex-1 flex flex-col overflow-y-auto">
           {/* ETA bar */}
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-baseline gap-2">
