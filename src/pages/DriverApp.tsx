@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Switch } from "@/components/ui/switch";
-import { Package, History, Power, LogOut, Bike, LayoutGrid } from "lucide-react";
+import { Package, History, Power, LogOut, Bike, LayoutGrid, Battery, BatteryCharging, Flame, Trophy, Zap } from "lucide-react";
 import { toast } from "sonner";
 import { AnimatePresence, motion } from "framer-motion";
 import { useDriverLocation } from "@/hooks/useDriverLocation";
@@ -32,30 +32,35 @@ interface DeliveryOrder {
 const fmt = (v: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(v);
 
+const DAILY_GOAL_DELIVERIES = 10;
+const WEEKLY_GOAL_EARNINGS = 500000;
+const STREAK_BONUS_THRESHOLD = 5;
+
 const DriverApp = () => {
   const { user, signOut } = useAuth();
   const [pendingOrders, setPendingOrders]     = useState<DeliveryOrder[]>([]);
-  const [activeDelivery, setActiveDelivery]   = useState<DeliveryOrder | null>(null);
+  const [activeDeliveries, setActiveDeliveries] = useState<DeliveryOrder[]>([]);
   const [activeTab, setActiveTab]             = useState<"orders" | "history">("orders");
   const [viewMode, setViewMode]               = useState<"feed" | "map">("map");
   const [isAvailable, setIsAvailable]         = useState(false);
   const [toggling, setToggling]               = useState(false);
   const [driverProfile, setDriverProfile]     = useState<any>(null);
   const [earningsToday, setEarningsToday]     = useState(0);
+  const [earningsWeek, setEarningsWeek]       = useState(0);
+  const [deliveriesToday, setDeliveriesToday] = useState(0);
+  const [deliveryStreak, setDeliveryStreak]   = useState(0);
   const [alertOrder, setAlertOrder]           = useState<any>(null);
   const shownAlertIds                          = useRef<Set<string>>(new Set());
 
-  const { isTracking, currentLocation, startTracking, stopTracking } = useDriverLocation();
+  const { isTracking, currentLocation, startTracking, stopTracking, batterySaver, setBatterySaver } = useDriverLocation();
   const prevCount   = useRef(0);
   const gpsStarted  = useRef(false);
 
-  // ── Prevenir scroll en body (app mobile) ─────────────────────────────────
   useEffect(() => {
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = ""; };
   }, []);
 
-  // ── GPS auto-start ────────────────────────────────────────────────────────
   useEffect(() => {
     if (user && !gpsStarted.current && !isTracking) {
       gpsStarted.current = true;
@@ -63,7 +68,6 @@ const DriverApp = () => {
     }
   }, [user, isTracking, startTracking]);
 
-  // ── Cargar perfil y ganancias del día ────────────────────────────────────
   useEffect(() => {
     if (!user) return;
     supabase.from("driver_profiles").select("*").eq("id", user.id).maybeSingle()
@@ -75,31 +79,46 @@ const DriverApp = () => {
       });
 
     const today = new Date().toISOString().split("T")[0];
+    const weekStart = new Date(); weekStart.setDate(weekStart.getDate() - weekStart.getDay()); weekStart.setHours(0,0,0,0);
+    const weekStartStr = weekStart.toISOString();
+
     supabase.from("deliveries")
-      .select("commission")
+      .select("commission, delivered_at, created_at")
       .eq("driver_id", user.id)
       .eq("status", "entregado")
       .gte("updated_at", today)
       .then(({ data }) => {
         const total = (data || []).reduce((s, d: any) => s + Number(d.commission || 0), 0);
         setEarningsToday(total);
+        setDeliveriesToday(data?.length || 0);
       });
+
+    supabase.from("deliveries")
+      .select("commission")
+      .eq("driver_id", user.id)
+      .eq("status", "entregado")
+      .gte("updated_at", weekStartStr)
+      .then(({ data }) => {
+        const total = (data || []).reduce((s, d: any) => s + Number(d.commission || 0), 0);
+        setEarningsWeek(total);
+      });
+
+    // Load streak from localStorage
+    const savedStreak = localStorage.getItem(`streak-${user.id}`);
+    if (savedStreak) setDeliveryStreak(Number(savedStreak));
   }, [user]);
 
-  // ── Fetch pedidos pendientes y entrega activa ─────────────────────────────
   const fetchData = useCallback(async () => {
     if (!user) return;
 
-    // Entrega activa propia
     const { data: active } = await supabase
       .from("deliveries")
       .select("*")
       .eq("driver_id", user.id)
       .in("status", ["aceptado", "en_camino"])
-      .maybeSingle();
-    setActiveDelivery(active as any);
+      .order("created_at", { ascending: true });
+    setActiveDeliveries((active || []) as any);
 
-    // Pedidos disponibles (vista segura)
     if (isAvailable) {
       const { data: pending } = await supabase
         .from("pending_delivery_offers" as any)
@@ -122,8 +141,7 @@ const DriverApp = () => {
         delivery_lng: d.delivery_lng ?? null,
       }));
 
-      // Detect newly arrived orders and trigger a full-screen alert for the first unseen one
-      if (isAvailable && !activeDelivery) {
+      if (isAvailable && activeDeliveries.length === 0) {
         const fresh = orders.find(o => !shownAlertIds.current.has(o.id));
         if (fresh && !alertOrder) {
           shownAlertIds.current.add(fresh.id);
@@ -135,9 +153,8 @@ const DriverApp = () => {
     } else {
       setPendingOrders([]);
     }
-  }, [user, isAvailable, activeDelivery, alertOrder]);
+  }, [user, isAvailable, activeDeliveries.length, alertOrder]);
 
-  // ── Realtime ──────────────────────────────────────────────────────────────
   useEffect(() => {
     fetchData();
 
@@ -161,7 +178,6 @@ const DriverApp = () => {
     };
   }, [fetchData, isAvailable]);
 
-  // ── Toggle disponibilidad ─────────────────────────────────────────────────
   const toggleAvailability = async () => {
     if (!user || toggling) return;
     setToggling(true);
@@ -176,7 +192,6 @@ const DriverApp = () => {
     setToggling(false);
   };
 
-  // ── Aceptar pedido (update atómico respetando estado pendiente) ──────────
   const acceptOrder = async (order: DeliveryOrder) => {
     if (!user) return;
     const { data: claimed, error } = await supabase
@@ -208,7 +223,6 @@ const DriverApp = () => {
     fetchData();
   };
 
-  // ── Aceptar desde alerta push ─────────────────────────────────────────────
   const acceptFromAlert = async () => {
     if (!alertOrder) return;
     const found = pendingOrders.find(o => o.id === alertOrder.id || o.order_id === alertOrder.order_id);
@@ -233,38 +247,39 @@ const DriverApp = () => {
     setAlertOrder(null);
   };
 
-  // ── Rechazar oferta desde la alerta ───────────────────────────────────────
-  const rejectFromAlert = async () => {
+  const rejectFromAlert = async (reason?: string) => {
     if (!alertOrder || !user) { setAlertOrder(null); return; }
     try {
       await supabase.from("delivery_audit_log" as any).insert({
         delivery_id: alertOrder.id,
         event: "Oferta rechazada",
-        details: "Rechazada por mensajero",
+        details: reason ? `Motivo: ${reason}` : "Rechazada por mensajero",
         performed_by: user.id,
       });
     } catch (_) {}
     setAlertOrder(null);
   };
 
-  // ── Actualizar estado de entrega ──────────────────────────────────────────
   const updateStatus = async (s: string) => {
-    if (!activeDelivery || !user) return;
+    if (activeDeliveries.length === 0 || !user) return;
+    const delivery = activeDeliveries[0];
     const updates: any = { status: s, updated_at: new Date().toISOString() };
     if (s === "en_camino")  updates.picked_up_at   = new Date().toISOString();
     if (s === "entregado")  updates.delivered_at   = new Date().toISOString();
-    const { error } = await supabase.from("deliveries").update(updates).eq("id", activeDelivery.id);
+    const { error } = await supabase.from("deliveries").update(updates).eq("id", delivery.id);
     if (error) { toast.error("Error actualizando estado"); return; }
     if (s === "entregado") {
-      setActiveDelivery(null);
-      setEarningsToday(e => e + Number(activeDelivery.commission));
-      toast.success("¡Entrega completada! 🎉");
+      const streak = deliveryStreak + 1;
+      setDeliveryStreak(streak);
+      localStorage.setItem(`streak-${user.id}`, String(streak));
+      setEarningsToday(e => e + Number(delivery.commission));
+      toast.success(streak > 0 && streak % STREAK_BONUS_THRESHOLD === 0 ? `🔥 ¡${streak} entregas consecutivas! Bono activado` : "¡Entrega completada! 🎉");
     } else {
       toast.success("Estado actualizado");
       fetchData();
     }
     await supabase.from("delivery_audit_log" as any).insert({
-      delivery_id: activeDelivery.id,
+      delivery_id: delivery.id,
       event: s === "en_camino" ? "En camino" : "Entregado",
       details: `Estado: ${s}`, performed_by: user.id,
     });
@@ -273,14 +288,18 @@ const DriverApp = () => {
   const name     = user?.user_metadata?.full_name || "Mensajero";
   const initials = name.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2);
 
-  // ── Pantalla de entrega activa ────────────────────────────────────────────
-  if (activeDelivery) {
+  // Active delivery view (supports multi-stop)
+  if (activeDeliveries.length > 0) {
+    const primary = activeDeliveries[0];
     return (
       <div className="fixed inset-0 bg-slate-950 flex flex-col">
         <header className="bg-slate-900/90 backdrop-blur-xl border-b border-white/5 px-4 py-2 flex items-center justify-between z-50">
           <div className="flex items-center gap-2">
             <Bike className="h-5 w-5 text-indigo-400" />
             <span className="text-sm font-bold text-white">Servicio activo</span>
+            {activeDeliveries.length > 1 && (
+              <span className="text-[10px] font-black text-indigo-400 bg-indigo-500/20 px-2 py-0.5 rounded-full">{activeDeliveries.length} pedidos</span>
+            )}
           </div>
           <div className="flex items-center gap-1.5">
             <span className={`h-2 w-2 rounded-full ${isTracking ? "bg-emerald-500 animate-pulse" : "bg-red-500"}`} />
@@ -289,23 +308,27 @@ const DriverApp = () => {
         </header>
         <div className="flex-1 overflow-hidden">
           <ActiveDeliveryView
-            delivery={activeDelivery as any}
+            delivery={primary as any}
             onPickedUp={() => updateStatus("en_camino")}
             onDelivered={() => updateStatus("entregado")}
+            allDeliveries={activeDeliveries as any}
           />
         </div>
       </div>
     );
   }
 
-  // ── Pantalla principal ────────────────────────────────────────────────────
+  const goalDeliveriesPct = Math.min(100, (deliveriesToday / DAILY_GOAL_DELIVERIES) * 100);
+  const goalEarningsPct = Math.min(100, (earningsWeek / WEEKLY_GOAL_EARNINGS) * 100);
+  const hasStreakBonus = deliveryStreak > 0 && deliveryStreak % STREAK_BONUS_THRESHOLD === 0;
+
   return (
     <div className="fixed inset-0 bg-slate-950 flex flex-col overflow-hidden">
 
       {/* ── HEADER ── */}
       <header className="bg-slate-900/60 backdrop-blur-2xl border-b border-white/5 px-5 pt-5 pb-4 space-y-4 z-40">
 
-        {/* Fila: avatar + nombre + earnings + logout */}
+        {/* Fila superior */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="relative">
@@ -320,6 +343,13 @@ const DriverApp = () => {
             </div>
           </div>
           <div className="flex items-center gap-3">
+            <button
+              onClick={() => setBatterySaver(!batterySaver)}
+              className={`h-8 w-8 rounded-xl flex items-center justify-center transition-all ${batterySaver ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/5 text-white/30'}`}
+              title={batterySaver ? "Modo ahorro activo" : "Modo ahorro desactivado"}
+            >
+              {batterySaver ? <BatteryCharging className="h-4 w-4" /> : <Battery className="h-4 w-4" />}
+            </button>
             <div className="text-right">
               <p className="text-[9px] text-white/30 uppercase tracking-widest">Hoy</p>
               <p className="text-sm font-black text-emerald-400">{fmt(earningsToday)}</p>
@@ -357,20 +387,52 @@ const DriverApp = () => {
           />
         </div>
 
-        {/* Stats */}
+        {/* Stats + Goals */}
         {driverProfile && (
-          <div className="grid grid-cols-3 gap-2">
-            {[
-              { label: "Entregas", value: driverProfile.total_deliveries ?? 0, color: "text-white" },
-              { label: "Rating",   value: `⭐ ${driverProfile.rating ?? "—"}`, color: "text-amber-400" },
-              { label: "Aceptación", value: `${driverProfile.acceptance_rate ?? 0}%`, color: "text-indigo-400" },
-            ].map(s => (
-              <div key={s.label} className="bg-white/5 rounded-2xl p-2.5 text-center border border-white/5">
-                <p className={`text-lg font-black leading-none ${s.color}`}>{s.value}</p>
-                <p className="text-[9px] text-white/30 uppercase tracking-wider mt-1">{s.label}</p>
+          <>
+            <div className="grid grid-cols-3 gap-2">
+              {[
+                { label: "Entregas", value: driverProfile.total_deliveries ?? 0, color: "text-white" },
+                { label: "Rating",   value: `⭐ ${driverProfile.rating ?? "—"}`, color: "text-amber-400" },
+                { label: "Aceptación", value: `${driverProfile.acceptance_rate ?? 0}%`, color: "text-indigo-400" },
+              ].map(s => (
+                <div key={s.label} className="bg-white/5 rounded-2xl p-2.5 text-center border border-white/5">
+                  <p className={`text-lg font-black leading-none ${s.color}`}>{s.value}</p>
+                  <p className="text-[9px] text-white/30 uppercase tracking-wider mt-1">{s.label}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Goals */}
+            <div className="space-y-2">
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[9px] font-bold text-white/40 uppercase tracking-wider flex items-center gap-1"><Trophy className="h-3 w-3 text-amber-400" /> Meta diaria</span>
+                  <span className="text-[10px] font-bold text-white/70">{deliveriesToday}/{DAILY_GOAL_DELIVERIES}</span>
+                </div>
+                <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
+                  <div className="h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full transition-all duration-500" style={{ width: `${goalDeliveriesPct}%` }} />
+                </div>
               </div>
-            ))}
-          </div>
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[9px] font-bold text-white/40 uppercase tracking-wider flex items-center gap-1"><Zap className="h-3 w-3 text-indigo-400" /> Meta semanal</span>
+                  <span className="text-[10px] font-bold text-white/70">{fmt(earningsWeek)}/{fmt(WEEKLY_GOAL_EARNINGS)}</span>
+                </div>
+                <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
+                  <div className="h-full bg-gradient-to-r from-indigo-500 to-violet-500 rounded-full transition-all duration-500" style={{ width: `${goalEarningsPct}%` }} />
+                </div>
+              </div>
+              {/* Streak */}
+              {deliveryStreak > 0 && (
+                <div className="flex items-center gap-2 bg-white/5 rounded-xl px-3 py-2 border border-white/5">
+                  <Flame className={`h-4 w-4 ${hasStreakBonus ? 'text-orange-400' : 'text-white/40'}`} />
+                  <span className="text-xs font-bold text-white/70">{deliveryStreak} entregas consecutivas</span>
+                  {hasStreakBonus && <span className="text-[9px] font-black text-orange-400 uppercase tracking-wider ml-auto">🔥 BONO ACTIVO</span>}
+                </div>
+              )}
+            </div>
+          </>
         )}
 
         {/* Feed / Mapa switcher */}
@@ -397,7 +459,6 @@ const DriverApp = () => {
           {activeTab === "orders" ? (
             <motion.div key={viewMode} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full w-full">
 
-              {/* MAPA */}
               {viewMode === "map" && (
                 <div className="h-full w-full">
                   <NearbyOrdersMap
@@ -411,7 +472,6 @@ const DriverApp = () => {
                 </div>
               )}
 
-              {/* FEED */}
               {viewMode === "feed" && (
                 <div className="h-full overflow-y-auto px-5 pt-5 pb-32 space-y-4">
                   <div className="flex items-center justify-between">
@@ -515,7 +575,6 @@ const DriverApp = () => {
             <span className="text-[9px] font-black uppercase tracking-widest">Panel</span>
           </button>
 
-          {/* Botón central de disponibilidad */}
           <div
             onClick={toggleAvailability}
             className={`h-16 w-16 -mt-10 rounded-[30%] flex items-center justify-center shadow-2xl transition-all active:scale-90 cursor-pointer border-4 border-slate-950 ${
@@ -535,7 +594,6 @@ const DriverApp = () => {
         </div>
       </nav>
 
-      {/* ── ALERTA DE NUEVO PEDIDO ── */}
       <NewOrderAlert
         order={alertOrder}
         timeoutSeconds={30}

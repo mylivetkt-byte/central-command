@@ -34,6 +34,14 @@ export default defineConfig(({ mode }) => ({
               expiration: { maxEntries: 500, maxAgeSeconds: 60 * 60 * 24 * 30 },
             },
           },
+          {
+            urlPattern: /^https:\/\/router\.project-osrm\.org\/.*/i,
+            handler: "StaleWhileRevalidate",
+            options: {
+              cacheName: "osrm-routes",
+              expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 },
+            },
+          },
         ],
       },
       includeAssets: ["favicon.ico", "apple-touch-icon.png"],

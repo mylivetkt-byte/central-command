@@ -5,14 +5,24 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { Button } from "@/components/ui/button";
 import {
   Phone, Navigation, ArrowUpRight, Target,
-  XCircle, ChevronDown, User, Bike
+  XCircle, ChevronDown, User, Bike, Camera, WifiOff
 } from "lucide-react";
 import { motion, AnimatePresence } from 'framer-motion';
 import { useDriverLocation } from "@/hooks/useDriverLocation";
+import { useOffline } from "@/hooks/useOffline";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import ChatBubble from "@/components/ChatBubble";
+
+interface Stop {
+  type: 'pickup' | 'delivery';
+  label: string;
+  address: string;
+  lat: number | null;
+  lng: number | null;
+  completed?: boolean;
+}
 
 interface Delivery {
   id: string;
@@ -30,7 +40,17 @@ interface Delivery {
   pickup_lat?: number | null;
   pickup_lng?: number | null;
   created_at?: string;
+  stops?: Stop[];
 }
+
+const CANCEL_REASONS = [
+  "Cliente no responde",
+  "Dirección errónea",
+  "Paquete dañado",
+  "Ubicación incorrecta",
+  "Cliente canceló",
+  "Otro",
+];
 
 const distMeters = (a: [number, number], b: [number, number]): number => {
   const R = 6371000;
@@ -52,34 +72,55 @@ interface ActiveDeliveryViewProps {
   delivery: Delivery;
   onPickedUp: () => void;
   onDelivered: () => void;
+  allDeliveries?: Delivery[];
 }
 
 const fmt = (v: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(v);
 
-const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPickedUp, onDelivered }) => {
+const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPickedUp, onDelivered, allDeliveries = [] }) => {
   const { user } = useAuth();
   const { currentLocation } = useDriverLocation();
+  const { isOffline, cacheData, getCachedData } = useOffline();
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<maplibregl.Map | null>(null);
   const [isMapReady, setIsMapReady] = useState(false);
   const driverMarkerRef = useRef<maplibregl.Marker | null>(null);
-  const pickupMarkerRef = useRef<maplibregl.Marker | null>(null);
-  const deliveryMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const stopMarkerRefs = useRef<maplibregl.Marker[]>([]);
   const [followMode, setFollowMode] = useState(true);
   const [isExpanded, setIsExpanded] = useState(false);
   const [routeInfo, setRouteInfo] = useState<{ distance: string; duration: string; nextStreet: string; nextManeuver: string } | null>(null);
   const [showCancel, setShowCancel] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
+  const [cancelPhotos, setCancelPhotos] = useState<string[]>([]);
   const [wakeLock, setWakeLock] = useState<WakeLockSentinel | null>(null);
   const [speedKmh, setSpeedKmh] = useState<number | null>(null);
   const [traveledCoords, setTraveledCoords] = useState<[number, number][]>([]);
   const prevPosRef = useRef<{ lat: number; lng: number; t: number } | null>(null);
   const [etaProgress, setEtaProgress] = useState(1);
   const { current: mapStyle, setStyle } = useMapStyle("dark");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isPickingUp = delivery.status === "aceptado";
+
+  const stops: Stop[] = delivery.stops ?? [
+    { type: 'pickup', label: 'Recoger', address: delivery.pickup_address || '', lat: delivery.pickup_lat, lng: delivery.pickup_lng, completed: !isPickingUp },
+    { type: 'delivery', label: 'Entregar', address: delivery.delivery_address, lat: delivery.delivery_lat, lng: delivery.delivery_lng, completed: false },
+  ];
+
+  // Add all deliveries as additional stops for multi-stop view
+  const multiStops: Stop[] = React.useMemo(() => {
+    if (allDeliveries.length <= 1) return stops;
+    const all: Stop[] = [];
+    allDeliveries.forEach((d, i) => {
+      all.push({ type: 'pickup', label: `Recoger #${i + 1}`, address: d.pickup_address || '', lat: d.pickup_lat, lng: d.pickup_lng });
+      all.push({ type: 'delivery', label: `Entregar #${i + 1}`, address: d.delivery_address, lat: d.delivery_lat, lng: d.delivery_lng });
+    });
+    return all;
+  }, [allDeliveries, stops]);
+
+  const routeCacheKey = `route-${delivery.id}`;
 
   // Wake Lock
   useEffect(() => {
@@ -130,21 +171,31 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPic
     return () => { mapInstance.current?.remove(); mapInstance.current = null; };
   }, []);
 
-  // Fetch Route
+  // Fetch Route (with offline fallback)
   const fetchRouteDetails = useCallback(async () => {
     if (!isMapReady || !mapInstance.current || !currentLocation) return;
     const map = mapInstance.current;
 
-    let points = `${currentLocation.lng},${currentLocation.lat};`;
-    if (delivery.status === 'aceptado') {
-      points += `${delivery.pickup_lng},${delivery.pickup_lat};${delivery.delivery_lng},${delivery.delivery_lat}`;
-    } else {
-      points += `${delivery.delivery_lng},${delivery.delivery_lat}`;
-    }
+    // Build waypoints: current location + all stops
+    let waypoints = `${currentLocation.lng},${currentLocation.lat}`;
+    const allS = allDeliveries.length > 1 ? multiStops : stops;
+    allS.forEach(s => {
+      if (s.lat && s.lng) waypoints += `;${s.lng},${s.lat}`;
+    });
+
+    if (waypoints === `${currentLocation.lng},${currentLocation.lat}`) return;
 
     try {
-      const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${points}?overview=full&geometries=geojson&steps=true`);
-      const data = await response.json();
+      let data;
+      if (isOffline) {
+        const cached = getCachedData<any>(routeCacheKey);
+        if (cached) data = cached;
+        else return;
+      } else {
+        const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${waypoints}?overview=full&geometries=geojson&steps=true`);
+        data = await response.json();
+        cacheData(routeCacheKey, data);
+      }
 
       if (data.routes?.[0]) {
         const route = data.routes[0];
@@ -175,7 +226,7 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPic
         });
       }
     } catch {}
-  }, [isMapReady, currentLocation, delivery]);
+  }, [isMapReady, currentLocation, isOffline, routeCacheKey, stops, multiStops, allDeliveries]);
 
   useEffect(() => {
     fetchRouteDetails();
@@ -188,7 +239,7 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPic
     if (!isMapReady || !mapInstance.current || !currentLocation) return;
     const map = mapInstance.current;
 
-    // Driver marker - clean navigation arrow
+    // Driver marker
     if (!driverMarkerRef.current) {
       const el = document.createElement('div');
       el.className = 'driver-nav-dot';
@@ -212,24 +263,30 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPic
       if (arrow) arrow.style.transform = `rotate(${currentLocation.heading || 0}deg)`;
     }
 
-    // Destination markers
-    const addDestMarker = (ref: React.MutableRefObject<maplibregl.Marker | null>, lat: any, lng: any, color: string, emoji: string) => {
-      if (!lat || !lng) return;
-      if (!ref.current) {
-        const el = document.createElement('div');
-        el.innerHTML = `
-          <div style="display:flex;flex-direction:column;align-items:center;filter:drop-shadow(0 4px 12px rgba(0,0,0,0.25))">
-            <div style="width:44px;height:44px;border-radius:14px;background:${color};display:flex;align-items:center;justify-content:center;font-size:20px;border:3px solid white">${emoji}</div>
-            <div style="width:3px;height:8px;background:${color};border-radius:0 0 2px 2px"></div>
+    // Clear old stop markers
+    stopMarkerRefs.current.forEach(m => m.remove());
+    stopMarkerRefs.current = [];
+
+    // Stop markers (support multi-stop)
+    const displayStops = allDeliveries.length > 1 ? multiStops : stops;
+    displayStops.forEach((s, i) => {
+      if (!s.lat || !s.lng) return;
+      const color = s.type === 'pickup' ? '#10b981' : '#4F46E5';
+      const emoji = s.type === 'pickup' ? '📦' : '🏠';
+      const label = `${i + 1}`;
+      const el = document.createElement('div');
+      el.innerHTML = `
+        <div style="display:flex;flex-direction:column;align-items:center;filter:drop-shadow(0 4px 12px rgba(0,0,0,0.25))">
+          <div style="width:40px;height:40px;border-radius:12px;background:${color};display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:900;color:white;border:3px solid white;position:relative">
+            ${label}
+            ${s.completed ? '<div style="position:absolute;top:-4px;right:-4px;width:14px;height:14px;border-radius:50%;background:#22c55e;border:2px solid white;display:flex;align-items:center;justify-content:center;font-size:8px;color:white">✓</div>' : ''}
           </div>
-        `;
-        ref.current = new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([lng, lat]).addTo(map);
-      } else {
-        ref.current.setLngLat([lng, lat]);
-      }
-    };
-    addDestMarker(pickupMarkerRef, delivery.pickup_lat, delivery.pickup_lng, '#10b981', '📦');
-    addDestMarker(deliveryMarkerRef, delivery.delivery_lat, delivery.delivery_lng, '#4F46E5', '🏠');
+          <div style="width:3px;height:6px;background:${color};border-radius:0 0 2px 2px"></div>
+        </div>
+      `;
+      const marker = new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([s.lng, s.lat]).addTo(map);
+      stopMarkerRefs.current.push(marker);
+    });
 
     if (followMode) {
       map.easeTo({ center: [currentLocation.lng, currentLocation.lat], bearing: currentLocation.heading || 0, duration: 800 });
@@ -244,7 +301,7 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPic
     const spd = calcSpeedKmh(prevPosRef.current, curr);
     if (spd !== null) setSpeedKmh(spd);
     prevPosRef.current = curr;
-  }, [currentLocation, followMode, isMapReady, delivery]);
+  }, [currentLocation, followMode, isMapReady, stops, multiStops, allDeliveries]);
 
   // Update breadcrumb
   useEffect(() => {
@@ -263,13 +320,33 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPic
     }
   };
 
-  const handleCancelDelivery = async () => {
-    if (!user || !cancelReason.trim()) { toast.error("Describe el problema antes de cancelar"); return; }
+  const handlePhotoCapture = () => fileInputRef.current?.click();
+
+  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+    Array.from(files).forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        if (ev.target?.result) setCancelPhotos(prev => [...prev, ev.target!.result as string]);
+      };
+      reader.readAsDataURL(file);
+    });
+    e.target.value = '';
+  };
+
+  const handleCancelDelivery = async (reason: string) => {
+    if (!user) { toast.error("Debes iniciar sesión"); return; }
     setCancelling(true);
     try {
       const { error } = await (supabase.from("deliveries") as any).update({ status: "cancelado", driver_id: null, cancelled_at: new Date().toISOString() }).eq("id", delivery.id);
       if (error) throw error;
-      await (supabase.from("delivery_audit_log") as any).insert({ delivery_id: delivery.id, event: "Entrega cancelada por mensajero", details: cancelReason, performed_by: user.id });
+      await (supabase.from("delivery_audit_log") as any).insert({
+        delivery_id: delivery.id,
+        event: "Entrega cancelada por mensajero",
+        details: `Motivo: ${reason}${cancelPhotos.length > 0 ? ` (${cancelPhotos.length} foto(s) adjunta(s))` : ''}`,
+        performed_by: user.id
+      });
       toast.success("Entrega cancelada. El pedido volvió a estar disponible.");
       setShowCancel(false);
       window.location.reload();
@@ -279,10 +356,20 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPic
 
   return (
     <div className="h-full w-full overflow-hidden relative font-sans bg-white">
+      {/* Offline banner */}
+      <AnimatePresence>
+        {isOffline && (
+          <motion.div initial={{ y: -40 }} animate={{ y: 0 }} className="absolute top-0 inset-x-0 z-[1003] bg-amber-500/90 backdrop-blur-md px-4 py-2 flex items-center gap-2">
+            <WifiOff className="h-4 w-4 text-white shrink-0" />
+            <span className="text-xs font-bold text-white">Sin conexión — mostrando datos en caché</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Navigation Banner */}
       <AnimatePresence>
         {routeInfo && (
-          <motion.div initial={{ y: -80, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="absolute top-0 inset-x-0 z-[1001] safe-top">
+          <motion.div initial={{ y: -80, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className={`absolute top-0 inset-x-0 z-[1001] safe-top ${isOffline ? 'mt-10' : ''}`}>
             <div className="bg-indigo-600 mx-3 mt-3 rounded-2xl p-4 shadow-xl flex items-center gap-4">
               <div className="bg-white/20 p-3 rounded-xl">
                 <ArrowUpRight className="h-7 w-7 text-white" />
@@ -358,30 +445,63 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPic
             <div className="h-full bg-indigo-600 rounded-full transition-all duration-1000" style={{ width: `${Math.max(2, (1 - etaProgress) * 100)}%` }} />
           </div>
 
+          {/* Multi-stop list */}
+          {allDeliveries.length > 1 && (
+            <div className="mb-3 space-y-1.5">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Paradas ({multiStops.length})</p>
+              {multiStops.map((s, i) => (
+                <div key={i} className="flex items-center gap-2 py-1">
+                  <div className={`h-5 w-5 rounded-full flex items-center justify-center text-[9px] font-black text-white ${s.type === 'pickup' ? 'bg-emerald-500' : 'bg-indigo-600'}`}>
+                    {i + 1}
+                  </div>
+                  <span className="text-[11px] font-semibold text-slate-700 truncate">{s.address}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Addresses */}
-          <div className="space-y-3 mb-5">
-            <div className={`p-4 rounded-2xl border-2 ${isPickingUp ? 'border-indigo-500 bg-indigo-50/30' : 'border-slate-100 bg-slate-50'}`}>
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-xl bg-emerald-500 flex items-center justify-center text-lg">📦</div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider mb-0.5">Recoger</p>
-                  <p className="text-xs font-bold text-slate-800 truncate">{delivery.pickup_address}</p>
+          <div className="space-y-3 mb-4">
+            {allDeliveries.length <= 1 ? (
+              <>
+                <div className={`p-3 rounded-2xl border-2 ${isPickingUp ? 'border-indigo-500 bg-indigo-50/30' : 'border-slate-100 bg-slate-50'}`}>
+                  <div className="flex items-center gap-3">
+                    <div className="h-8 w-8 rounded-xl bg-emerald-500 flex items-center justify-center text-sm">📦</div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[9px] font-bold text-emerald-600 uppercase tracking-wider mb-0.5">Recoger</p>
+                      <p className="text-xs font-bold text-slate-800 truncate">{delivery.pickup_address}</p>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
-            <div className={`p-4 rounded-2xl border-2 ${!isPickingUp ? 'border-indigo-500 bg-indigo-50/30' : 'border-slate-100 bg-slate-50'}`}>
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-xl bg-indigo-600 flex items-center justify-center text-lg">🏠</div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider mb-0.5">Entregar</p>
-                  <p className="text-xs font-bold text-slate-800 truncate">{delivery.delivery_address}</p>
+                <div className={`p-3 rounded-2xl border-2 ${!isPickingUp ? 'border-indigo-500 bg-indigo-50/30' : 'border-slate-100 bg-slate-50'}`}>
+                  <div className="flex items-center gap-3">
+                    <div className="h-8 w-8 rounded-xl bg-indigo-600 flex items-center justify-center text-sm">🏠</div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[9px] font-bold text-indigo-600 uppercase tracking-wider mb-0.5">Entregar</p>
+                      <p className="text-xs font-bold text-slate-800 truncate">{delivery.delivery_address}</p>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
+              </>
+            ) : (
+              multiStops.map((s, i) => (
+                <div key={i} className="p-2.5 rounded-xl bg-slate-50 border border-slate-100">
+                  <div className="flex items-center gap-2.5">
+                    <div className={`h-7 w-7 rounded-lg flex items-center justify-center text-[10px] font-black text-white ${s.type === 'pickup' ? 'bg-emerald-500' : 'bg-indigo-600'}`}>
+                      {s.completed ? '✓' : i + 1}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">{s.label}</p>
+                      <p className="text-[11px] font-semibold text-slate-700 truncate">{s.address}</p>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
           </div>
 
-          {/* Customer */}
-          <div className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl mb-4">
+          {/* Customer info */}
+          <div className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl mb-3">
             <div className="flex items-center gap-3">
               <div className="h-9 w-9 rounded-full bg-slate-200 flex items-center justify-center"><User className="h-4 w-4 text-slate-500" /></div>
               <div>
@@ -402,7 +522,7 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPic
             </div>
           </div>
 
-          {/* Cancel */}
+          {/* Cancel / Report */}
           {!showCancel ? (
             <button onClick={() => setShowCancel(true)} className="flex items-center justify-center gap-2 text-slate-400 hover:text-red-500 transition-colors py-2">
               <XCircle className="h-4 w-4" />
@@ -410,10 +530,43 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPic
             </button>
           ) : (
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-2 pb-3">
-              <textarea value={cancelReason} onChange={e => setCancelReason(e.target.value)} placeholder="Describe el problema..." className="w-full rounded-xl bg-slate-50 border border-slate-200 p-3 text-sm focus:border-indigo-500 focus:outline-none" rows={2} />
+              <p className="text-xs font-bold text-slate-700">Selecciona el motivo:</p>
+              <div className="flex flex-wrap gap-1.5">
+                {CANCEL_REASONS.map(reason => (
+                  <button
+                    key={reason}
+                    onClick={() => setCancelReason(reason)}
+                    className={`px-3 py-1.5 rounded-full text-[10px] font-bold border transition-all ${
+                      cancelReason === reason
+                        ? 'bg-red-500 text-white border-red-500'
+                        : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
+                    }`}
+                  >
+                    {reason}
+                  </button>
+                ))}
+              </div>
+              {/* Optional photo */}
+              <div className="flex items-center gap-2">
+                <button onClick={handlePhotoCapture} className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 bg-slate-100 px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-200 transition-colors">
+                  <Camera className="h-3.5 w-3.5" />
+                  {cancelPhotos.length > 0 ? `${cancelPhotos.length} foto(s)` : 'Agregar foto'}
+                </button>
+                {cancelPhotos.length > 0 && (
+                  <div className="flex gap-1">
+                    {cancelPhotos.map((photo, i) => (
+                      <div key={i} className="relative">
+                        <img src={photo} alt="evidence" className="h-10 w-10 rounded-lg object-cover border border-slate-200" />
+                        <button onClick={() => setCancelPhotos(prev => prev.filter((_, j) => j !== i))} className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-red-500 text-white flex items-center justify-center text-[8px] font-bold">×</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <input ref={fileInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhotoChange} />
               <div className="flex gap-2">
-                <Button variant="outline" onClick={() => setShowCancel(false)} className="flex-1 h-10 rounded-xl text-xs font-bold">Cerrar</Button>
-                <Button variant="destructive" onClick={handleCancelDelivery} disabled={cancelling || !cancelReason.trim()} className="flex-[2] h-10 rounded-xl text-xs font-bold">
+                <Button variant="outline" onClick={() => { setShowCancel(false); setCancelReason(""); setCancelPhotos([]); }} className="flex-1 h-10 rounded-xl text-xs font-bold">Cerrar</Button>
+                <Button variant="destructive" onClick={() => handleCancelDelivery(cancelReason)} disabled={cancelling || !cancelReason.trim()} className="flex-[2] h-10 rounded-xl text-xs font-bold">
                   {cancelling ? "Cancelando..." : "Liberar Pedido"}
                 </Button>
               </div>
@@ -421,7 +574,7 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPic
           )}
 
           {/* Chat */}
-          <div className="mb-3">
+          <div className="mb-2">
             {delivery.id && user && <ChatBubble deliveryId={delivery.id} currentUserId={user.id} isDriverView={true} />}
           </div>
 

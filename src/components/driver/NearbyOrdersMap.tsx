@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { MapStyleSwitcher, useMapStyle, MapStyle } from '@/components/MapStyleSwitcher';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { Target } from "lucide-react";
+import { Target, TrendingUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 interface Order {
@@ -15,19 +15,36 @@ interface Order {
   commission: number;
 }
 
+interface HotZone {
+  name: string;
+  lat: number;
+  lng: number;
+  intensity: number; // 0-1
+  orderCount: number;
+}
+
 interface NearbyOrdersMapProps {
   orders: Order[];
   currentLocation: { lat: number; lng: number; heading?: number | null } | null;
   onAcceptOrder: (id: string) => void;
+  hotZones?: HotZone[];
 }
 
+const DEFAULT_HOT_ZONES: HotZone[] = [
+  { name: "Norte", lat: 4.68, lng: -74.06, intensity: 0.8, orderCount: 12 },
+  { name: "Centro", lat: 4.6, lng: -74.08, intensity: 0.6, orderCount: 8 },
+  { name: "Occidente", lat: 4.64, lng: -74.12, intensity: 0.4, orderCount: 5 },
+  { name: "Sur", lat: 4.54, lng: -74.1, intensity: 0.7, orderCount: 10 },
+];
 
-const NearbyOrdersMap: React.FC<NearbyOrdersMapProps> = ({ orders, currentLocation, onAcceptOrder }) => {
+const NearbyOrdersMap: React.FC<NearbyOrdersMapProps> = ({ orders, currentLocation, onAcceptOrder, hotZones = DEFAULT_HOT_ZONES }) => {
   const { current: mapStyle, setStyle } = useMapStyle("dark");
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);
   const driverMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const [showHotZones, setShowHotZones] = useState(true);
+  const heatLayerRef = useRef<any>(null);
 
   const recenter = () => {
     if (!mapInstance.current || !currentLocation) return;
@@ -73,15 +90,43 @@ const NearbyOrdersMap: React.FC<NearbyOrdersMapProps> = ({ orders, currentLocati
     return () => { mapInstance.current?.remove(); mapInstance.current = null; };
   }, []);
 
+  // Hot zones overlay
+  useEffect(() => {
+    if (!mapInstance.current || !showHotZones) return;
+    const map = mapInstance.current;
+
+    // Remove old hot zone markers
+    if (heatLayerRef.current) {
+      heatLayerRef.current.forEach((m: maplibregl.Marker) => m.remove());
+    }
+    heatLayerRef.current = [];
+
+    hotZones.forEach((zone) => {
+      const el = document.createElement('div');
+      const size = 60 + zone.intensity * 60;
+      el.innerHTML = `
+        <div style="position:relative;width:${size}px;height:${size}px;display:flex;align-items:center;justify-content:center;pointer-events:none">
+          <div style="position:absolute;width:100%;height:100%;border-radius:50%;background:rgba(244,63,94,${0.12 + zone.intensity * 0.18});animation:hotPulse ${2.5 - zone.intensity * 1.2}s ease-in-out infinite"></div>
+          <div style="position:absolute;width:65%;height:65%;border-radius:50%;background:rgba(244,63,94,${0.2 + zone.intensity * 0.25});backdrop-filter:blur(2px);display:flex;flex-direction:column;align-items:center;justify-content:center;border:2px solid rgba(244,63,94,0.5)">
+            <span style="font-size:${10 + zone.intensity * 4}px;font-weight:900;color:white;line-height:1;text-shadow:0 1px 4px rgba(0,0,0,0.5)">${zone.orderCount}</span>
+            <span style="font-size:6px;font-weight:700;color:rgba(255,255,255,0.7);text-transform:uppercase;letter-spacing:0.5px">pedidos</span>
+          </div>
+        </div>
+      `;
+      const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
+        .setLngLat([zone.lng, zone.lat])
+        .addTo(map);
+      heatLayerRef.current.push(marker);
+    });
+  }, [hotZones, showHotZones]);
+
   useEffect(() => {
     if (!mapInstance.current) return;
     const map = mapInstance.current;
 
-    // Clear order markers (not driver)
     markersRef.current.forEach(m => m.remove());
     markersRef.current = [];
 
-    // Driver marker - clean GPS navigation arrow
     if (currentLocation) {
       const heading = currentLocation.heading || 0;
       if (!driverMarkerRef.current) {
@@ -109,7 +154,6 @@ const NearbyOrdersMap: React.FC<NearbyOrdersMapProps> = ({ orders, currentLocati
       }
     }
 
-    // Order pickup markers
     orders.forEach(order => {
       if (!order.pickup_lat || !order.pickup_lng) return;
       const el = document.createElement('div');
@@ -141,13 +185,24 @@ const NearbyOrdersMap: React.FC<NearbyOrdersMapProps> = ({ orders, currentLocati
     <div className="relative w-full h-full overflow-hidden">
       <div ref={mapContainer} className="w-full h-full" />
 
-      {/* Style Switcher */}
       <MapStyleSwitcher 
         current={mapStyle} 
         onSelect={handleStyleChange} 
         position="top-right"
         dark={mapStyle.id === 'dark'}
       />
+
+      {/* Hot zones toggle */}
+      <div className="absolute right-4 bottom-40 z-[1001]">
+        <Button
+          variant="secondary"
+          size="icon"
+          className={`h-12 w-12 rounded-full shadow-lg border active:scale-90 transition-all ${showHotZones ? 'bg-rose-600 text-white border-rose-600' : 'bg-white text-slate-700 border-slate-200'}`}
+          onClick={() => setShowHotZones(!showHotZones)}
+        >
+          <TrendingUp className="h-5 w-5" />
+        </Button>
+      </div>
 
       {/* Recenter */}
       <div className="absolute right-4 bottom-28 z-[1001]">
@@ -205,6 +260,11 @@ const NearbyOrdersMap: React.FC<NearbyOrdersMapProps> = ({ orders, currentLocati
         @keyframes driverPulse {
           0% { transform: scale(0.8); opacity: 1; }
           100% { transform: scale(2.2); opacity: 0; }
+        }
+        @keyframes hotPulse {
+          0% { transform: scale(0.85); opacity: 0.6; }
+          50% { transform: scale(1.15); opacity: 1; }
+          100% { transform: scale(0.85); opacity: 0.6; }
         }
 
         .order-marker-pin {

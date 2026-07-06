@@ -17,26 +17,30 @@ interface UseDriverLocationReturn {
   startTracking: () => void;
   stopTracking: () => void;
   error: string | null;
+  batterySaver: boolean;
+  setBatterySaver: (v: boolean) => void;
 }
 
 // Throttle: solo enviamos ubicación a Supabase cada 15s como máximo.
 // Sin esto, en moto con GPS activo puede llegar a 60+ writes/min.
 const LOCATION_THROTTLE_MS = 15_000;
+const BATTERY_SAVER_THROTTLE_MS = 60_000;
 
 export const useDriverLocation = (): UseDriverLocationReturn => {
   const { user, role } = useAuth();
   const [isTracking, setIsTracking]           = useState(false);
   const [currentLocation, setCurrentLocation] = useState<LocationData | null>(null);
   const [error, setError]                     = useState<string | null>(null);
+  const [batterySaver, setBatterySaver]       = useState(() => localStorage.getItem("battery-saver") === "true");
   const watchIdRef     = useRef<number | null>(null);
   const lastSentRef    = useRef<number>(0);
 
   const updateLocation = useCallback(async (location: LocationData) => {
     if (!user || role !== 'driver') return;
 
-    // Throttle — no enviar más de una vez cada 15s
+    const throttleMs = batterySaver ? BATTERY_SAVER_THROTTLE_MS : LOCATION_THROTTLE_MS;
     const now = Date.now();
-    if (now - lastSentRef.current < LOCATION_THROTTLE_MS) return;
+    if (now - lastSentRef.current < throttleMs) return;
     lastSentRef.current = now;
 
     try {
@@ -67,6 +71,10 @@ export const useDriverLocation = (): UseDriverLocationReturn => {
     setIsTracking(true);
     setError(null);
 
+    const gpsOptions: PositionOptions = batterySaver
+      ? { enableHighAccuracy: false, timeout: 30000, maximumAge: 30000 }
+      : { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 };
+
     const id = navigator.geolocation.watchPosition(
       (pos) => {
         const loc: LocationData = {
@@ -89,7 +97,7 @@ export const useDriverLocation = (): UseDriverLocationReturn => {
         setError(msg);
         toast.error(msg);
       },
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 5000 }
+      gpsOptions
     );
 
     watchIdRef.current = id;
@@ -112,7 +120,12 @@ export const useDriverLocation = (): UseDriverLocationReturn => {
     };
   }, []);
 
-  return { isTracking, currentLocation, startTracking, stopTracking, error };
+  const toggleBatterySaver = useCallback((v: boolean) => {
+    setBatterySaver(v);
+    localStorage.setItem("battery-saver", String(v));
+  }, []);
+
+  return { isTracking, currentLocation, startTracking, stopTracking, error, batterySaver, setBatterySaver: toggleBatterySaver };
 };
 
 // ── Hook para ver ubicación de un driver específico (admin side) ──────────────
