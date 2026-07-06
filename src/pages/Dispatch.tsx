@@ -243,6 +243,17 @@ const Dispatch = () => {
                                         </div>
                                     </div>
 
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">📝 Nota para el mensajero (opcional)</label>
+                                        <textarea
+                                          value={form.notes}
+                                          onChange={(e) => handleFormChange("notes", e.target.value)}
+                                          placeholder="Instrucciones especiales: apartamento, referencia, indicaciones de entrega, etc."
+                                          rows={3}
+                                          className="w-full rounded-2xl bg-slate-50 border-transparent focus:bg-white focus:ring-4 focus:ring-indigo-100 transition-all px-6 py-4 text-sm font-medium text-slate-800 resize-none"
+                                        />
+                                    </div>
+
                                     <button type="submit" disabled={createDelivery.isPending} className="w-full h-16 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-black transition-all shadow-xl shadow-indigo-100 flex items-center justify-center gap-3">
                                         <Send /> {createDelivery.isPending ? "PROCESANDO..." : "PUBLICAR SERVICIO AHORA"}
                                     </button>
