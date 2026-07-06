@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Download, Smartphone, CheckCircle } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 const InstallApp = () => {
+  const navigate = useNavigate();
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isInstalled, setIsInstalled] = useState(false);
 
@@ -54,7 +56,7 @@ const InstallApp = () => {
             </div>
             <Button
               className="w-full h-12 text-base bg-blue-600 hover:bg-blue-500"
-              onClick={() => window.location.href = "/driver-login"}
+              onClick={() => navigate("/driver-login")}
             >
               Abrir App del Conductor
             </Button>
@@ -79,7 +81,7 @@ const InstallApp = () => {
             <Button
               variant="outline"
               className="w-full h-12 text-base border-white/20 text-white hover:bg-white/10"
-              onClick={() => window.location.href = "/driver-login"}
+              onClick={() => navigate("/driver-login")}
             >
               Continuar en navegador
             </Button>

@@ -33,7 +33,7 @@ const DriverLogin = () => {
     setSubmitting(true);
     setError("");
     const { error: err } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/driver-login`,
+      redirectTo: `${window.location.origin}/#/driver-login`,
     });
     if (err) setError(err.message);
     else { setResetSent(true); toast.success("Correo enviado. Revisa tu bandeja."); }

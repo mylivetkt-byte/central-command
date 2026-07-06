@@ -33,7 +33,7 @@ const AdminLogin = () => {
     setSubmitting(true);
     setError("");
     const { error: err } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/admin-login`,
+      redirectTo: `${window.location.origin}/#/admin-login`,
     });
     if (err) setError(err.message);
     else { setResetSent(true); toast.success("Correo enviado. Revisa tu bandeja."); }
