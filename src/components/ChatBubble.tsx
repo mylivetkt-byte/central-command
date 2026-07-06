@@ -3,6 +3,26 @@ import { supabase } from "@/integrations/supabase/client";
 import { AnimatePresence, motion } from "framer-motion";
 import { Send, MessageCircle, X, Check, CheckCheck } from "lucide-react";
 
+function playChatAlert() {
+  try {
+    if ("vibrate" in navigator) navigator.vibrate(200);
+    const AC = (window as any).AudioContext || (window as any).webkitAudioContext;
+    if (!AC) return;
+    const ctx = new AC();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = 660;
+    gain.gain.setValueAtTime(0, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(0.2, ctx.currentTime + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.25);
+    osc.connect(gain).connect(ctx.destination);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 0.3);
+    ctx.close().catch(() => {});
+  } catch {}
+}
+
 interface ChatMessage {
   id: string;
   sender_id: string;
@@ -70,6 +90,7 @@ const ChatBubble = ({
         },
         ({ new: n }: any) => {
           setMessages((prev) => [...prev, n as ChatMessage]);
+          if (n.sender_id !== currentUserId) playChatAlert();
         }
       )
       .subscribe();

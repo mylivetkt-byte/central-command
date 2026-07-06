@@ -541,6 +541,14 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPic
             </div>
           </div>
 
+          {/* Notes from Dispatch */}
+          {delivery.notes && (
+            <div className="mb-3 p-3 rounded-2xl bg-amber-50 border border-amber-200">
+              <p className="text-[9px] font-bold text-amber-600 uppercase tracking-wider mb-1">Nota del despachador</p>
+              <p className="text-xs font-medium text-amber-900 leading-relaxed">{delivery.notes}</p>
+            </div>
+          )}
+
           {/* Cancel / Report */}
           {!showCancel ? (
             <button onClick={() => setShowCancel(true)} className="flex items-center justify-center gap-2 text-slate-400 hover:text-red-500 transition-colors py-2">
