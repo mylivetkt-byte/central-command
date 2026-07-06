@@ -77,6 +77,13 @@ export type Database = {
             referencedRelation: "deliveries"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "chat_messages_delivery_id_fkey"
+            columns: ["delivery_id"]
+            isOneToOne: false
+            referencedRelation: "pending_delivery_offers"
+            referencedColumns: ["id"]
+          },
         ]
       }
       deliveries: {
@@ -199,6 +206,13 @@ export type Database = {
             columns: ["delivery_id"]
             isOneToOne: false
             referencedRelation: "deliveries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "delivery_audit_log_delivery_id_fkey"
+            columns: ["delivery_id"]
+            isOneToOne: false
+            referencedRelation: "pending_delivery_offers"
             referencedColumns: ["id"]
           },
         ]
@@ -344,7 +358,57 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      pending_delivery_offers: {
+        Row: {
+          amount: number | null
+          commission: number | null
+          created_at: string | null
+          delivery_address: string | null
+          delivery_lat: number | null
+          delivery_lng: number | null
+          estimated_time: number | null
+          id: string | null
+          order_id: string | null
+          pickup_address: string | null
+          pickup_lat: number | null
+          pickup_lng: number | null
+          status: Database["public"]["Enums"]["delivery_status"] | null
+          zone: string | null
+        }
+        Insert: {
+          amount?: number | null
+          commission?: number | null
+          created_at?: string | null
+          delivery_address?: string | null
+          delivery_lat?: number | null
+          delivery_lng?: number | null
+          estimated_time?: number | null
+          id?: string | null
+          order_id?: string | null
+          pickup_address?: string | null
+          pickup_lat?: number | null
+          pickup_lng?: number | null
+          status?: Database["public"]["Enums"]["delivery_status"] | null
+          zone?: string | null
+        }
+        Update: {
+          amount?: number | null
+          commission?: number | null
+          created_at?: string | null
+          delivery_address?: string | null
+          delivery_lat?: number | null
+          delivery_lng?: number | null
+          estimated_time?: number | null
+          id?: string | null
+          order_id?: string | null
+          pickup_address?: string | null
+          pickup_lat?: number | null
+          pickup_lng?: number | null
+          status?: Database["public"]["Enums"]["delivery_status"] | null
+          zone?: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       get_driver_stats: { Args: { p_driver_id?: string }; Returns: Json }
