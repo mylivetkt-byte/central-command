@@ -84,7 +84,7 @@ const App = () => (
           </Routes>
           </CompanyProvider>
         </AuthProvider>
-      </BrowserRouter>
+        </HashRouter>
     </TooltipProvider>
   </QueryClientProvider>
 );
