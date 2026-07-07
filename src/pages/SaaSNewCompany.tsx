@@ -12,7 +12,7 @@ const SaaSNewCompany = () => {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (role !== null && role !== "super_admin") navigate("/", { replace: true });
+    if (role !== null && role !== "super_admin") navigate("/saas/login", { replace: true });
   }, [role, navigate]);
   const [form, setForm] = useState({
     name: "",

@@ -27,7 +27,7 @@ const SaaSCompanies = () => {
   const [search, setSearch] = useState("");
 
   useEffect(() => {
-    if (role !== null && role !== "super_admin") navigate("/", { replace: true });
+    if (role !== null && role !== "super_admin") navigate("/saas/login", { replace: true });
   }, [role, navigate]);
 
   const { data: companies = [], isLoading } = useQuery({

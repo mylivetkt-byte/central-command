@@ -8,6 +8,7 @@ import { AuthProvider } from "@/hooks/useAuth";
 import { CompanyProvider } from "@/hooks/useCompany";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { useAuth } from "@/hooks/useAuth";
+import { SaasRoute } from "@/components/SaasRoute";
 import Dashboard from "./pages/Dashboard";
 import Analytics from "./pages/Analytics";
 import Operations from "./pages/Operations";
@@ -28,6 +29,7 @@ import NotFound from "./pages/NotFound";
 import SaaSCompanies from "./pages/SaaSCompanies";
 import SaaSCompanyDetail from "./pages/SaaSCompanyDetail";
 import SaaSNewCompany from "./pages/SaaSNewCompany";
+import SaasLogin from "./pages/SaasLogin";
 
 const queryClient = new QueryClient();
 
@@ -65,6 +67,7 @@ const App = () => (
             {/* Auth */}
             <Route path="/admin-login" element={<AdminLogin />} />
             <Route path="/driver-login" element={<DriverLogin />} />
+            <Route path="/saas/login" element={<SaasLogin />} />
 
             {/* Public pages */}
             <Route path="/track/:orderId" element={<CustomerTracking />} />
@@ -84,9 +87,9 @@ const App = () => (
             <Route path="/map-tracking" element={<AdminRoute><MapTracking /></AdminRoute>} />
 
             {/* SaaS */}
-            <Route path="/saas/companies" element={<AdminRoute><SaaSCompanies /></AdminRoute>} />
-            <Route path="/saas/companies/new" element={<AdminRoute><SaaSNewCompany /></AdminRoute>} />
-            <Route path="/saas/companies/:id" element={<AdminRoute><SaaSCompanyDetail /></AdminRoute>} />
+            <Route path="/saas/companies" element={<SaasRoute><SaaSCompanies /></SaasRoute>} />
+            <Route path="/saas/companies/new" element={<SaasRoute><SaaSNewCompany /></SaasRoute>} />
+            <Route path="/saas/companies/:id" element={<SaasRoute><SaaSCompanyDetail /></SaasRoute>} />
 
             {/* Driver App */}
             <Route path="/driver" element={<DriverRoute><DriverApp /></DriverRoute>} />
