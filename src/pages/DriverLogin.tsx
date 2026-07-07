@@ -18,9 +18,23 @@ const DriverLogin = () => {
   const [resetSent, setResetSent]               = useState(false);
   const [fullName, setFullName]                 = useState("");
   const [phone, setPhone]                       = useState("");
+  const [companies, setCompanies]               = useState<any[]>([]);
+  const [selectedCompanyId, setSelectedCompanyId] = useState("");
 
   const navigate   = useNavigate();
   const { user, role, loading: authLoading } = useAuth();
+
+  useEffect(() => {
+    if (isSignUp) {
+      supabase
+        .from("saas_companies")
+        .select("id, name")
+        .eq("status", "activa")
+        .then(({ data }) => {
+          if (data) setCompanies(data);
+        });
+    }
+  }, [isSignUp]);
 
   useEffect(() => {
     if (!authLoading && user && role === "driver") {
@@ -47,10 +61,20 @@ const DriverLogin = () => {
 
     try {
       if (isSignUp) {
+        if (!selectedCompanyId) {
+          setError("Debes seleccionar una empresa para registrarte.");
+          setSubmitting(false);
+          return;
+        }
         const { data, error: err } = await supabase.auth.signUp({
           email, password,
           options: {
-            data: { full_name: fullName, phone, role: "driver" },
+            data: { 
+              full_name: fullName, 
+              phone, 
+              role: "driver",
+              company_id: selectedCompanyId
+            },
             emailRedirectTo: window.location.origin,
           },
         });
@@ -159,6 +183,23 @@ const DriverLogin = () => {
                       <Input id="phone" value={phone}
                         onChange={e => setPhone(e.target.value)}
                         placeholder="+57 300 000 0000" required />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="companySelect">Empresa a la que te registras *</Label>
+                      <select
+                        id="companySelect"
+                        value={selectedCompanyId}
+                        onChange={(e) => setSelectedCompanyId(e.target.value)}
+                        required
+                        className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-accent/50 font-bold"
+                      >
+                        <option value="">-- Selecciona una empresa --</option>
+                        {companies.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   </>
                 )}
