@@ -102,11 +102,12 @@ export const AppSidebar = () => {
         {navItems
           .filter((item) => {
             if (role === "super_admin") {
-              // Si es super_admin y no está inspeccionando, solo muestra "Empresas"
+              // Si es super_admin y no está inspeccionando, solo muestra "Empresas" y "Dashboard" del SaaS
               if (!selectedCompanyId) {
                 return (item as any).adminOnly;
               }
-              return true;
+              // Si está inspeccionando, oculta los accesos de SaaS
+              return !(item as any).adminOnly;
             }
             // Para administradores de empresa, oculta "Empresas"
             return !(item as any).adminOnly;
@@ -131,22 +132,7 @@ export const AppSidebar = () => {
       </nav>
 
       <div className="border-t border-border p-3 space-y-2">
-        {!collapsed && role === "super_admin" && selectedCompanyId && (
-          <div className="rounded-sm bg-primary/10 p-2.5 border border-primary/20 text-center space-y-1.5 mb-2">
-            <p className="text-[10px] font-bold text-primary uppercase tracking-wider">
-              Viendo: {company?.name || "Empresa"}
-            </p>
-            <button
-              onClick={async () => {
-                await switchCompany(null);
-                navigate("/saas/companies");
-              }}
-              className="flex items-center justify-center gap-1.5 w-full rounded-sm bg-primary py-1 text-[10px] font-black text-primary-foreground uppercase tracking-wider hover:opacity-90 transition-opacity"
-            >
-              <ArrowLeft className="h-3 w-3 shrink-0" /> Volver a SaaS
-            </button>
-          </div>
-        )}
+
 
         {!collapsed && (
           <div className="rounded-sm bg-muted/30 p-3 border border-border/50">
