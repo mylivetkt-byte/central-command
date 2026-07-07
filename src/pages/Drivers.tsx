@@ -6,6 +6,7 @@ import { useState } from "react";
 import { Search, UserCheck, UserX, Star, Phone, Package, RefreshCw, Plus, Edit2, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { createClient } from "@supabase/supabase-js";
+import { useCompany } from "@/hooks/useCompany";
 
 const statusColors: Record<string, string> = {
   activo: "bg-accent/10 text-accent",
@@ -31,6 +32,7 @@ const Drivers = () => {
     zone: "",
   });
   
+  const { selectedCompanyId } = useCompany();
   const queryClient = useQueryClient();
 
   // Cargar repartidores reales desde Supabase
@@ -110,7 +112,12 @@ const Drivers = () => {
           email: data.email,
           password: data.password,
           options: {
-            data: { full_name: data.full_name, phone: data.phone, role: "driver" },
+            data: { 
+              full_name: data.full_name, 
+              phone: data.phone, 
+              role: "driver",
+              company_id: selectedCompanyId 
+            },
           },
         });
 

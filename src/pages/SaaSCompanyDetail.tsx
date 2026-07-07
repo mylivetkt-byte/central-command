@@ -4,8 +4,10 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Building2, Users, Package, DollarSign, ArrowLeft, Edit2, Power, Trash2, AlertTriangle, RefreshCw, Mail, Phone, Calendar, MapPin } from "lucide-react";
+import { Building2, Users, Package, DollarSign, ArrowLeft, Edit2, Power, Trash2, AlertTriangle, RefreshCw, Mail, Phone, Calendar, MapPin, Check, Plus, Shield } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
+import { useCompany } from "@/hooks/useCompany";
+import { createClient } from "@supabase/supabase-js";
 import { toast } from "sonner";
 
 const formatCurrency = (v: number) =>
@@ -21,8 +23,16 @@ const SaaSCompanyDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const { role } = useAuth();
+  const { switchCompany } = useCompany();
   const queryClient = useQueryClient();
   const [showReset, setShowReset] = useState(false);
+  const [showAddAdmin, setShowAddAdmin] = useState(false);
+  const [adminForm, setAdminForm] = useState({
+    fullName: "",
+    email: "",
+    password: "",
+    phone: "",
+  });
 
   useEffect(() => {
     if (role !== null && role !== "super_admin") navigate("/saas/login", { replace: true });
@@ -78,20 +88,65 @@ const SaaSCompanyDetail = () => {
     },
   });
 
-  const updatePlan = useMutation({
-    mutationFn: async ({ plan }: { plan: string }) => {
+  const updateCompany = useMutation({
+    mutationFn: async (fields: any) => {
       const { error } = await supabase
         .from("saas_companies")
-        .update({ plan, updated_at: new Date().toISOString() })
+        .update({ ...fields, updated_at: new Date().toISOString() })
         .eq("id", id!);
       if (error) throw error;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["saas-company", id] });
-      toast.success("Plan actualizado");
+      toast.success("Datos de empresa actualizados");
     },
-    onError: () => toast.error("Error al actualizar plan"),
+    onError: (err: any) => toast.error("Error al actualizar: " + err.message),
   });
+  const [creatingAdmin, setCreatingAdmin] = useState(false);
+  const handleAddAdmin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adminForm.email.trim() || !adminForm.password.trim() || !adminForm.fullName.trim()) {
+      toast.error("El nombre, correo y contraseña son obligatorios.");
+      return;
+    }
+    setCreatingAdmin(true);
+    try {
+      const tempClient = createClient(
+        import.meta.env.VITE_SUPABASE_URL,
+        import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+        { auth: { persistSession: false, autoRefreshToken: false } }
+      );
+
+      const { data: signUpData, error: signUpError } = await tempClient.auth.signUp({
+        email: adminForm.email.trim(),
+        password: adminForm.password.trim(),
+        options: {
+          data: {
+            full_name: adminForm.fullName.trim(),
+            phone: adminForm.phone.trim() || null,
+            role: "admin",
+            company_id: id!,
+          },
+        },
+      });
+
+      if (signUpError) throw signUpError;
+
+      const needsConfirmation = signUpData?.user && signUpData.user.identities?.length === 0;
+      if (needsConfirmation) {
+        throw new Error("El correo ya está registrado o requiere confirmación.");
+      }
+
+      toast.success("Administrador creado correctamente.");
+      setShowAddAdmin(false);
+      setAdminForm({ fullName: "", email: "", password: "", phone: "" });
+      queryClient.invalidateQueries({ queryKey: ["saas-company-users", id] });
+    } catch (err: any) {
+      toast.error(err.message || "Error al crear administrador");
+    } finally {
+      setCreatingAdmin(false);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -125,6 +180,25 @@ const SaaSCompanyDetail = () => {
           <ArrowLeft className="h-4 w-4" /> Volver a empresas
         </button>
 
+        {company.status === "pendiente" && (
+          <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="rounded-xl border border-yellow-500/30 bg-yellow-500/5 p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-yellow-500 mt-0.5" />
+              <div>
+                <h4 className="text-sm font-bold text-foreground">Empresa Pendiente de Autorización</h4>
+                <p className="text-xs text-muted-foreground mt-0.5">Esta empresa se registró de manera autónoma y requiere aprobación.</p>
+              </div>
+            </div>
+            <button
+              onClick={() => updateCompany.mutate({ status: "activa" })}
+              disabled={updateCompany.isPending}
+              className="flex items-center gap-2 rounded-lg bg-yellow-500 px-4 py-2 text-xs font-bold text-black hover:bg-yellow-400 transition-colors disabled:opacity-50"
+            >
+              <Check className="h-3.5 w-3.5" /> Autorizar y Activar
+            </button>
+          </motion.div>
+        )}
+
         <div className="flex items-start justify-between">
           <div className="flex items-center gap-4">
             <div className="flex h-14 w-14 items-center justify-center rounded-xl bg-primary/10">
@@ -136,7 +210,17 @@ const SaaSCompanyDetail = () => {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={async () => {
+                await switchCompany(company.id);
+                navigate("/");
+              }}
+              className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-xs font-bold text-primary-foreground hover:opacity-90 transition-opacity mr-2"
+            >
+              <Shield className="h-3.5 w-3.5" /> Ver Central
+            </button>
             <span className={`rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wider ${
+              company.status === "pendiente" ? "bg-yellow-500/10 text-yellow-500" :
               company.status === "activa" ? "bg-accent/10 text-accent" :
               company.status === "inactiva" ? "bg-muted text-muted-foreground" :
               "bg-destructive/10 text-destructive"
@@ -184,48 +268,149 @@ const SaaSCompanyDetail = () => {
             </div>
           </motion.div>
 
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="rounded-xl border border-border bg-card p-5">
-            <h3 className="text-sm font-bold text-foreground mb-4">Plan</h3>
-            <div className="flex gap-2">
-              {["basico", "profesional", "enterprise"].map((p) => (
-                <button
-                  key={p}
-                  onClick={() => updatePlan.mutate({ plan: p })}
-                  disabled={updatePlan.isPending}
-                  className={`flex-1 rounded-lg border px-4 py-3 text-sm font-bold transition-all ${
-                    company.plan === p
-                      ? "border-primary bg-primary/10 text-primary"
-                      : "border-border bg-muted/30 text-muted-foreground hover:border-primary/30"
-                  }`}
-                >
-                  {planLabels[p]}
-                </button>
-              ))}
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="rounded-xl border border-border bg-card p-5 space-y-4">
+            <h3 className="text-sm font-bold text-foreground mb-1">Configuración del Plan</h3>
+            <div>
+              <p className="text-xs text-muted-foreground mb-2">Tipo de Plan</p>
+              <div className="flex gap-2">
+                {["basico", "profesional", "enterprise"].map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => updateCompany.mutate({ plan: p })}
+                    disabled={updateCompany.isPending}
+                    className={`flex-1 rounded-lg border px-3 py-2 text-xs font-bold transition-all ${
+                      company.plan === p
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border bg-muted/30 text-muted-foreground hover:border-primary/30"
+                    }`}
+                  >
+                    {planLabels[p]}
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="mt-4">
-              <p className="text-xs text-muted-foreground mb-2">Límite de repartidores</p>
-              <input
-                type="number"
-                defaultValue={company.max_drivers}
-                onBlur={async (e) => {
-                  const val = parseInt(e.target.value);
-                  if (val > 0) {
-                    await supabase
-                      .from("saas_companies")
-                      .update({ max_drivers: val, updated_at: new Date().toISOString() })
-                      .eq("id", id!);
-                    queryClient.invalidateQueries({ queryKey: ["saas-company", id] });
-                    toast.success("Límite actualizado");
-                  }
-                }}
-                className="w-24 rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-              />
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-xs text-muted-foreground mb-2">Valor del Plan (COP)</p>
+                <input
+                  type="number"
+                  defaultValue={company.plan_value || 0}
+                  onBlur={(e) => {
+                    const val = parseFloat(e.target.value);
+                    if (!isNaN(val) && val >= 0) {
+                      updateCompany.mutate({ plan_value: val });
+                    }
+                  }}
+                  className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 font-bold text-emerald-500"
+                />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-2">Límite de repartidores</p>
+                <input
+                  type="number"
+                  defaultValue={company.max_drivers}
+                  onBlur={(e) => {
+                    const val = parseInt(e.target.value);
+                    if (val > 0) {
+                      updateCompany.mutate({ max_drivers: val });
+                    }
+                  }}
+                  className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 font-bold"
+                />
+              </div>
+            </div>
+
+            <div>
+              <p className="text-xs text-muted-foreground mb-2">Estado de la Empresa</p>
+              <select
+                value={company.status}
+                onChange={(e) => updateCompany.mutate({ status: e.target.value })}
+                disabled={updateCompany.isPending}
+                className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 font-bold capitalize"
+              >
+                <option value="pendiente">Pendiente</option>
+                <option value="activa">Activa</option>
+                <option value="inactiva">Inactiva</option>
+                <option value="suspendida">Suspendida</option>
+              </select>
             </div>
           </motion.div>
         </div>
 
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="rounded-xl border border-border bg-card p-5">
-          <h3 className="text-sm font-bold text-foreground mb-4">Usuarios de la empresa</h3>
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="rounded-xl border border-border bg-card p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-bold text-foreground">Usuarios de la empresa</h3>
+            <button
+              onClick={() => setShowAddAdmin(true)}
+              className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-bold text-primary-foreground hover:opacity-90 transition-opacity"
+            >
+              <Plus className="h-3.5 w-3.5" /> Agregar Administrador
+            </button>
+          </div>
+
+          {showAddAdmin && (
+            <form onSubmit={handleAddAdmin} className="border border-border/50 rounded-xl p-4 bg-muted/20 space-y-3">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Nuevo Administrador de Empresa</h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] text-muted-foreground font-bold uppercase">Nombre Completo *</label>
+                  <input
+                    required
+                    value={adminForm.fullName}
+                    onChange={(e) => setAdminForm({ ...adminForm, fullName: e.target.value })}
+                    className="w-full rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] text-muted-foreground font-bold uppercase">Teléfono</label>
+                  <input
+                    value={adminForm.phone}
+                    onChange={(e) => setAdminForm({ ...adminForm, phone: e.target.value })}
+                    className="w-full rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] text-muted-foreground font-bold uppercase">Email *</label>
+                  <input
+                    type="email"
+                    required
+                    value={adminForm.email}
+                    onChange={(e) => setAdminForm({ ...adminForm, email: e.target.value })}
+                    className="w-full rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] text-muted-foreground font-bold uppercase">Contraseña *</label>
+                  <input
+                    type="password"
+                    required
+                    minLength={6}
+                    value={adminForm.password}
+                    onChange={(e) => setAdminForm({ ...adminForm, password: e.target.value })}
+                    className="w-full rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddAdmin(false)}
+                  className="rounded-lg bg-muted px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-muted/80 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={creatingAdmin}
+                  className="rounded-lg bg-primary px-3 py-1.5 text-xs font-bold text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
+                >
+                  {creatingAdmin ? "Creando..." : "Crear Admin"}
+                </button>
+              </div>
+            </form>
+          )}
+
           {users.length === 0 ? (
             <p className="text-sm text-muted-foreground">Sin usuarios registrados</p>
           ) : (

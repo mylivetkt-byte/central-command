@@ -5,7 +5,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/hooks/useAuth";
-import { CompanyProvider } from "@/hooks/useCompany";
+import { CompanyProvider, useCompany } from "@/hooks/useCompany";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { useAuth } from "@/hooks/useAuth";
 import { SaasRoute } from "@/components/SaasRoute";
@@ -33,11 +33,12 @@ import SaasLogin from "./pages/SaasLogin";
 
 const queryClient = new QueryClient();
 
-// Redirige al super_admin fuera de rutas operativas hacia el panel SaaS.
+// Redirige al super_admin fuera de rutas operativas hacia el panel SaaS si no tiene una empresa seleccionada para inspección.
 const SuperAdminGuard = ({ children }: { children: ReactNode }) => {
   const { role } = useAuth();
+  const { selectedCompanyId } = useCompany();
   const location = useLocation();
-  if (role === "super_admin" && !location.pathname.startsWith("/saas")) {
+  if (role === "super_admin" && !location.pathname.startsWith("/saas") && !selectedCompanyId) {
     return <Navigate to="/saas/companies" replace />;
   }
   return <>{children}</>;

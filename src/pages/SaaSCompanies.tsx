@@ -8,6 +8,9 @@ import { Building2, Users, Package, Plus, Search, RefreshCw, Power, Eye } from "
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 
+const formatCurrency = (v: number) =>
+  new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(v);
+
 const planColors: Record<string, string> = {
   basico: "bg-zinc-500/10 text-zinc-400",
   profesional: "bg-blue-500/10 text-blue-400",
@@ -15,6 +18,7 @@ const planColors: Record<string, string> = {
 };
 
 const statusColors: Record<string, string> = {
+  pendiente: "bg-yellow-500/10 text-yellow-500",
   activa: "bg-accent/10 text-accent",
   inactiva: "bg-muted text-muted-foreground",
   suspendida: "bg-destructive/10 text-destructive",
@@ -114,10 +118,15 @@ const SaaSCompanies = () => {
                 </span>
               </div>
 
-              <div className="flex items-center gap-4 text-xs text-muted-foreground">
-                <span className={`rounded-full px-2 py-0.5 font-medium ${planColors[c.plan] || ""}`}>
-                  {c.plan}
-                </span>
+               <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <div className="flex items-center gap-2">
+                  <span className={`rounded-full px-2 py-0.5 font-medium ${planColors[c.plan] || ""}`}>
+                    {c.plan}
+                  </span>
+                  <span className="font-bold text-foreground">
+                    {formatCurrency(c.plan_value || 0)}
+                  </span>
+                </div>
                 <span className="flex items-center gap-1">
                   <Users className="h-3 w-3" /> {c.max_drivers} max
                 </span>

@@ -1,11 +1,12 @@
-import { NavLink as RouterNavLink, useLocation } from "react-router-dom";
+import { NavLink as RouterNavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, BarChart3, Truck, Users, DollarSign,
   AlertTriangle, ClipboardList, Map, Zap, ChevronLeft, ChevronRight, LogOut, MapPin,
-  Building2
+  Building2, ArrowLeft
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useSidebar } from "./SidebarContext";
+import { useCompany } from "@/hooks/useCompany";
 
 const navItems = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -24,7 +25,9 @@ const navItems = [
 export const AppSidebar = () => {
   const { collapsed, setCollapsed } = useSidebar();
   const location = useLocation();
+  const navigate = useNavigate();
   const { signOut, user, role } = useAuth();
+  const { company, switchCompany, selectedCompanyId } = useCompany();
 
   return (
     <aside
@@ -68,10 +71,29 @@ export const AppSidebar = () => {
       </nav>
 
       <div className="border-t border-border p-3 space-y-2">
+        {!collapsed && role === "super_admin" && selectedCompanyId && (
+          <div className="rounded-sm bg-primary/10 p-2.5 border border-primary/20 text-center space-y-1.5 mb-2">
+            <p className="text-[10px] font-bold text-primary uppercase tracking-wider">
+              Viendo: {company?.name || "Empresa"}
+            </p>
+            <button
+              onClick={async () => {
+                await switchCompany(null);
+                navigate("/saas/companies");
+              }}
+              className="flex items-center justify-center gap-1.5 w-full rounded-sm bg-primary py-1 text-[10px] font-black text-primary-foreground uppercase tracking-wider hover:opacity-90 transition-opacity"
+            >
+              <ArrowLeft className="h-3 w-3 shrink-0" /> Volver a SaaS
+            </button>
+          </div>
+        )}
+
         {!collapsed && (
           <div className="rounded-sm bg-muted/30 p-3 border border-border/50">
-            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">{user?.email}</p>
-            <p className="text-[10px] text-white font-black bg-black px-1.5 py-0.5 inline-block mt-1">ADMINISTRADOR</p>
+            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider truncate">{user?.email}</p>
+            <p className="text-[10px] text-white font-black bg-black px-1.5 py-0.5 inline-block mt-1">
+              {role === "super_admin" ? "SUPER ADMIN" : "ADMINISTRADOR"}
+            </p>
           </div>
         )}
         <button

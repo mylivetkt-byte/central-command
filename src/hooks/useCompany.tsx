@@ -17,7 +17,7 @@ interface CompanyContextType {
   company: Company | null;
   companies: Company[];
   loading: boolean;
-  switchCompany: (id: string) => void;
+  switchCompany: (id: string | null) => void;
   selectedCompanyId: string | null;
 }
 
@@ -81,8 +81,12 @@ export const CompanyProvider = ({ children }: { children: ReactNode }) => {
     load();
   }, [user, role]);
 
-  const switchCompany = async (id: string) => {
+  const switchCompany = async (id: string | null) => {
     setSelectedCompanyId(id);
+    if (!id) {
+      setCompany(null);
+      return;
+    }
     const { data } = await supabase
       .from("saas_companies")
       .select("*")

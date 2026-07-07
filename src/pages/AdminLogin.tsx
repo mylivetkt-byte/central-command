@@ -17,6 +17,7 @@ const AdminLogin = () => {
   const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [resetSent, setResetSent]           = useState(false);
   const [fullName, setFullName]             = useState("");
+  const [companyName, setCompanyName]       = useState("");
 
   const navigate   = useNavigate();
   const { user, role, loading: authLoading } = useAuth();
@@ -48,15 +49,27 @@ const AdminLogin = () => {
 
     try {
       if (isSignUp) {
+        if (!companyName.trim()) {
+          setError("El nombre de la empresa es obligatorio.");
+          setSubmitting(false);
+          return;
+        }
         const { error: err } = await supabase.auth.signUp({
           email, password,
           options: {
-            data: { full_name: fullName, role: "admin" },
+            data: { 
+              full_name: fullName, 
+              role: "admin", 
+              company_name: companyName.trim() 
+            },
             emailRedirectTo: window.location.origin,
           },
         });
         if (err) setError(err.message);
-        else { toast.success("Cuenta creada. Ya puedes iniciar sesión."); setIsSignUp(false); }
+        else { 
+          toast.success("Cuenta creada y empresa registrada. Está pendiente de activación."); 
+          setIsSignUp(false); 
+        }
       } else {
         const { error: err } = await supabase.auth.signInWithPassword({ email, password });
         if (err) {
@@ -144,12 +157,20 @@ const AdminLogin = () => {
             <>
               <form onSubmit={handleSubmit} className="space-y-4">
                 {isSignUp && (
-                  <div className="space-y-2">
-                    <Label htmlFor="fullName">Nombre completo</Label>
-                    <Input id="fullName" value={fullName}
-                      onChange={e => setFullName(e.target.value)}
-                      placeholder="Tu nombre" required />
-                  </div>
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="fullName">Nombre completo</Label>
+                      <Input id="fullName" value={fullName}
+                        onChange={e => setFullName(e.target.value)}
+                        placeholder="Tu nombre" required />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="companyName">Nombre de tu Empresa *</Label>
+                      <Input id="companyName" value={companyName}
+                        onChange={e => setCompanyName(e.target.value)}
+                        placeholder="Ej: Transportes Express S.A.S." required />
+                    </div>
+                  </>
                 )}
                 <div className="space-y-2">
                   <Label htmlFor="email">Correo electrónico</Label>
