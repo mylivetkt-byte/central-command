@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import { Building2, Users, Package, DollarSign, ArrowLeft, Edit2, Power, Trash2, AlertTriangle, RefreshCw, Mail, Phone, Calendar, MapPin, Check, Plus, Shield } from "lucide-react";
+import { Building2, Users, Package, DollarSign, ArrowLeft, Edit2, Power, Trash2, AlertTriangle, RefreshCw, Mail, Phone, Calendar, MapPin, Check, Plus, Shield, Upload } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useCompany } from "@/hooks/useCompany";
 import { createClient } from "@supabase/supabase-js";
@@ -212,6 +212,30 @@ const SaaSCompanyDetail = () => {
     }
   };
 
+  const [uploadingLogo, setUploadingLogo] = useState(false);
+  const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingLogo(true);
+    try {
+      const fileExt = file.name.split(".").pop();
+      const filePath = `${id}/${Date.now()}.${fileExt}`;
+      const { error: uploadError } = await supabase.storage
+        .from("logos")
+        .upload(filePath, file, { upsert: true });
+      if (uploadError) throw uploadError;
+      const { data: { publicUrl } } = supabase.storage
+        .from("logos")
+        .getPublicUrl(filePath);
+      await updateCompany.mutateAsync({ logo_url: publicUrl });
+      toast.success("Logotipo subido y actualizado con éxito");
+    } catch (err: any) {
+      toast.error("Error al subir logotipo: " + err.message);
+    } finally {
+      setUploadingLogo(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <DashboardLayout>
@@ -409,14 +433,30 @@ const SaaSCompanyDetail = () => {
             <h3 className="text-sm font-bold text-foreground mb-1">Personalización de Marca</h3>
             <div className="space-y-3">
               <div>
-                <label className="text-xs text-muted-foreground block mb-1">URL del Logotipo (PNG/JPG)</label>
-                <input
-                  type="text"
-                  placeholder="https://ejemplo.com/logo.png"
-                  defaultValue={company.logo_url || ""}
-                  onBlur={(e) => updateCompany.mutate({ logo_url: e.target.value.trim() || null })}
-                  className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                />
+                <label className="text-xs text-muted-foreground block mb-1">Logotipo de la Empresa</label>
+                <div className="flex items-center gap-4 p-3 rounded-lg border border-border bg-muted/15">
+                  <div className="h-16 w-16 rounded bg-muted flex items-center justify-center overflow-hidden border border-border">
+                    {company.logo_url ? (
+                      <img src={company.logo_url} alt="Logo preview" className="h-full w-full object-cover" />
+                    ) : (
+                      <Building2 className="h-8 w-8 text-muted-foreground" />
+                    )}
+                  </div>
+                  <div className="flex-1">
+                    <label className="cursor-pointer inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-bold text-primary-foreground hover:opacity-90 transition-opacity">
+                      <Upload className="h-3.5 w-3.5" />
+                      {uploadingLogo ? "Subiendo..." : "Subir Logotipo"}
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleLogoUpload}
+                        disabled={uploadingLogo}
+                        className="hidden"
+                      />
+                    </label>
+                    <p className="text-[10px] text-muted-foreground mt-1">Soporta PNG, JPG. Tamaño recomendado 256x256.</p>
+                  </div>
+                </div>
               </div>
               <div>
                 <label className="text-xs text-muted-foreground block mb-1">Color de Marca (Primario)</label>
