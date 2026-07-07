@@ -51,6 +51,13 @@ const DriverApp = () => {
   const [deliveryStreak, setDeliveryStreak]   = useState(0);
   const [alertOrder, setAlertOrder]           = useState<any>(null);
   const shownAlertIds                          = useRef<Set<string>>(new Set());
+  const [selectedActiveIdx, setSelectedActiveIdx] = useState(0);
+
+  useEffect(() => {
+    if (selectedActiveIdx >= activeDeliveries.length) {
+      setSelectedActiveIdx(0);
+    }
+  }, [activeDeliveries.length, selectedActiveIdx]);
 
   const { isTracking, currentLocation, startTracking, stopTracking, batterySaver, setBatterySaver } = useDriverLocation();
   const prevCount   = useRef(0);
@@ -368,7 +375,7 @@ const DriverApp = () => {
 
   // Active delivery view (supports multi-stop)
   if (activeDeliveries.length > 0) {
-    const primary = activeDeliveries[0];
+    const selectedDelivery = activeDeliveries[selectedActiveIdx] || activeDeliveries[0];
     return (
       <div className="fixed inset-0 bg-slate-950 flex flex-col">
         <header className="bg-slate-900/90 backdrop-blur-xl border-b border-white/5 px-4 py-2 flex items-center justify-between z-50">
@@ -376,7 +383,9 @@ const DriverApp = () => {
             <Bike className="h-5 w-5 text-indigo-400" />
             <span className="text-sm font-bold text-white">Servicio activo</span>
             {activeDeliveries.length > 1 && (
-              <span className="text-[10px] font-black text-indigo-400 bg-indigo-500/20 px-2 py-0.5 rounded-full">{activeDeliveries.length} pedidos</span>
+              <span className="text-[10px] font-black text-indigo-400 bg-indigo-500/20 px-2 py-0.5 rounded-full">
+                {activeDeliveries.length} pedidos
+              </span>
             )}
           </div>
           <div className="flex items-center gap-1.5">
@@ -384,9 +393,29 @@ const DriverApp = () => {
             <span className="text-[10px] text-white/40">{isTracking ? "GPS activo" : "Sin GPS"}</span>
           </div>
         </header>
+
+        {/* Selector de Pedido Activo 1 y 2 */}
+        {activeDeliveries.length > 1 && (
+          <div className="bg-slate-900 border-b border-white/5 p-2 flex gap-2 z-40">
+            {activeDeliveries.map((deliv, idx) => (
+              <button
+                key={deliv.id}
+                onClick={() => setSelectedActiveIdx(idx)}
+                className={`flex-1 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
+                  selectedActiveIdx === idx
+                    ? "bg-indigo-600 text-white shadow-lg shadow-indigo-600/20"
+                    : "bg-white/5 text-white/40 hover:text-white/60"
+                }`}
+              >
+                Pedido {idx + 1} ({deliv.order_id.slice(-4).toUpperCase()})
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="flex-1 overflow-hidden">
           <ActiveDeliveryView
-            delivery={primary as any}
+            delivery={selectedDelivery as any}
             onPickedUp={(id) => updateStatus(id, "en_camino")}
             onDelivered={(id) => updateStatus(id, "entregado")}
             allDeliveries={activeDeliveries as any}

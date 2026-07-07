@@ -463,7 +463,7 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
           {/* Si hay múltiples pedidos, mostrar pestañas para seleccionar cuál ver/actualizar */}
           {allDeliveries.length > 1 && (
             <div className="flex gap-2 mb-4 bg-slate-100 p-1 rounded-xl">
-              {allDeliveries.map((d) => (
+              {allDeliveries.map((d, idx) => (
                 <button
                   key={d.id}
                   onClick={() => setFocusedDeliveryId(d.id)}
@@ -473,7 +473,7 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
                       : "text-slate-500 hover:text-slate-800"
                   }`}
                 >
-                  Ped #{d.order_id.slice(-4).toUpperCase()} ({d.status === "aceptado" ? "Recoger" : "Entregar"})
+                  Pedido {idx + 1} ({d.status === "aceptado" ? "Recoger" : "Entregar"})
                 </button>
               ))}
             </div>
@@ -511,7 +511,7 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
 
           {/* Addresses */}
           <div className="space-y-3 mb-4">
-            {allDeliveries.length <= 1 ? (
+            {true ? (
               <>
                 <div className={`p-3 rounded-2xl border-2 ${isPickingUp ? 'border-indigo-500 bg-indigo-50/30' : 'border-slate-100 bg-slate-50'}`}>
                   <div className="flex items-center gap-3">
