@@ -18,6 +18,8 @@ const AdminLogin = () => {
   const [resetSent, setResetSent]           = useState(false);
   const [fullName, setFullName]             = useState("");
   const [companyName, setCompanyName]       = useState("");
+  const [phone, setPhone]                   = useState("");
+  const [nit, setNit]                       = useState("");
 
   const navigate   = useNavigate();
   const { user, role, loading: authLoading } = useAuth();
@@ -54,13 +56,25 @@ const AdminLogin = () => {
           setSubmitting(false);
           return;
         }
+        if (!nit.trim()) {
+          setError("El NIT de la empresa es obligatorio.");
+          setSubmitting(false);
+          return;
+        }
+        if (!phone.trim()) {
+          setError("El teléfono de contacto es obligatorio.");
+          setSubmitting(false);
+          return;
+        }
         const { error: err } = await supabase.auth.signUp({
           email, password,
           options: {
             data: { 
               full_name: fullName, 
               role: "admin", 
-              company_name: companyName.trim() 
+              company_name: companyName.trim(),
+              company_nit: nit.trim(),
+              phone: phone.trim()
             },
             emailRedirectTo: window.location.origin,
           },
@@ -169,6 +183,18 @@ const AdminLogin = () => {
                       <Input id="companyName" value={companyName}
                         onChange={e => setCompanyName(e.target.value)}
                         placeholder="Ej: Transportes Express S.A.S." required />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="companyNit">NIT de tu Empresa *</Label>
+                      <Input id="companyNit" value={nit}
+                        onChange={e => setNit(e.target.value)}
+                        placeholder="Ej: 900.123.456-7" required />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="phone">Teléfono de contacto *</Label>
+                      <Input id="phone" value={phone}
+                        onChange={e => setPhone(e.target.value)}
+                        placeholder="Ej: +57 300 123 4567" required />
                     </div>
                   </>
                 )}
