@@ -232,27 +232,39 @@ const DriverApp = () => {
     }
   }, [user, isAvailable, activeDeliveries.length, alertOrder]);
 
+  const fetchDataRef = useRef(fetchData);
   useEffect(() => {
-    fetchData();
+    fetchDataRef.current = fetchData;
+  }, [fetchData]);
 
-    const ch1 = supabase.channel("driver-db")
-      .on("postgres_changes", { event: "*", schema: "public", table: "deliveries" }, fetchData)
-      .subscribe();
+  useEffect(() => {
+    if (!user) return;
 
-    const ch2 = supabase.channel("dispatch-notifications")
-      .on("broadcast", { event: "new-order" }, () => {
-        fetchData();
+    // Carga inicial
+    fetchDataRef.current();
+
+    const ch1 = supabase.channel(`driver-db-${user.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "deliveries" }, () => {
+        fetchDataRef.current();
       })
       .subscribe();
 
-    const interval = setInterval(fetchData, 15000);
+    const ch2 = supabase.channel(`dispatch-notifications-${user.id}`)
+      .on("broadcast", { event: "new-order" }, () => {
+        fetchDataRef.current();
+      })
+      .subscribe();
+
+    const interval = setInterval(() => {
+      fetchDataRef.current();
+    }, 10000);
 
     return () => {
       supabase.removeChannel(ch1);
       supabase.removeChannel(ch2);
       clearInterval(interval);
     };
-  }, [fetchData, isAvailable]);
+  }, [user?.id]);
 
   const toggleAvailability = async () => {
     if (!user || toggling) return;
