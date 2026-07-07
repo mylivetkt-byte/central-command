@@ -216,19 +216,11 @@ const AdminLogin = () => {
                   {isSignUp ? "¿Ya tienes cuenta? Inicia sesión" : "¿No tienes cuenta? Regístrate"}
                 </button>
               </div>
-              <div className="text-center space-y-1 mt-2">
-                <div>
-                  <button type="button" onClick={() => navigate("/driver-login")}
-                    className="text-xs text-muted-foreground hover:text-foreground">
-                    ¿Eres mensajero? Entra aquí
-                  </button>
-                </div>
-                <div>
-                  <button type="button" onClick={() => navigate("/saas/login")}
-                    className="text-[10px] text-muted-foreground/60 hover:text-foreground">
-                    Portal SaaS (Super Admin)
-                  </button>
-                </div>
+              <div className="text-center mt-2">
+                <button type="button" onClick={() => navigate("/driver-login")}
+                  className="text-xs text-muted-foreground hover:text-foreground">
+                  ¿Eres mensajero? Entra aquí
+                </button>
               </div>
             </>
           )}
