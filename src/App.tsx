@@ -1,12 +1,13 @@
 import React, { ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { HashRouter, Route, Routes } from "react-router-dom";
+import { HashRouter, Route, Routes, Navigate, useLocation } from "react-router-dom";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider } from "@/hooks/useAuth";
 import { CompanyProvider } from "@/hooks/useCompany";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
+import { useAuth } from "@/hooks/useAuth";
 import Dashboard from "./pages/Dashboard";
 import Analytics from "./pages/Analytics";
 import Operations from "./pages/Operations";
@@ -30,9 +31,19 @@ import SaaSNewCompany from "./pages/SaaSNewCompany";
 
 const queryClient = new QueryClient();
 
+// Redirige al super_admin fuera de rutas operativas hacia el panel SaaS.
+const SuperAdminGuard = ({ children }: { children: ReactNode }) => {
+  const { role } = useAuth();
+  const location = useLocation();
+  if (role === "super_admin" && !location.pathname.startsWith("/saas")) {
+    return <Navigate to="/saas/companies" replace />;
+  }
+  return <>{children}</>;
+};
+
 const AdminRoute = ({ children }: { children: ReactNode }) => (
   <ProtectedRoute requiredRole="admin" redirectTo="/admin-login">
-    {children}
+    <SuperAdminGuard>{children}</SuperAdminGuard>
   </ProtectedRoute>
 );
 
