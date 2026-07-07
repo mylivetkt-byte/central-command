@@ -441,6 +441,7 @@ export type Database = {
           nit: string | null
           phone: string | null
           plan: string
+          plan_value: number
           status: string
           updated_at: string
         }
@@ -453,6 +454,7 @@ export type Database = {
           nit?: string | null
           phone?: string | null
           plan?: string
+          plan_value?: number
           status?: string
           updated_at?: string
         }
@@ -465,6 +467,7 @@ export type Database = {
           nit?: string | null
           phone?: string | null
           plan?: string
+          plan_value?: number
           status?: string
           updated_at?: string
         }
