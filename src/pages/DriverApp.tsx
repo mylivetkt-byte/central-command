@@ -211,7 +211,7 @@ const DriverApp = () => {
         delivery_lng: d.delivery_lng ?? null,
       }));
 
-      if (isAvailable && activeDeliveries.length < 2) {
+      if (isCurrentlyAvailable && (active || []).length < 2) {
         const fresh = orders.find(o => !shownAlertIds.current.has(o.id));
         if (fresh && !alertOrder) {
           shownAlertIds.current.add(fresh.id);
