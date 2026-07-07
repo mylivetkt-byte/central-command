@@ -208,9 +208,10 @@ const DriverLogin = () => {
                 </button>
               </div>
               <div className="text-center">
-                <a href="/admin-login" className="text-xs text-muted-foreground hover:text-foreground">
+                <button type="button" onClick={() => navigate("/admin-login")}
+                  className="text-xs text-muted-foreground hover:text-foreground">
                   ¿Eres administrador? Entra aquí
-                </a>
+                </button>
               </div>
             </>
           )}

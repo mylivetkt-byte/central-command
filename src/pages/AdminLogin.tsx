@@ -23,7 +23,7 @@ const AdminLogin = () => {
 
   // Redirige automáticamente si la sesión ya está activa
   useEffect(() => {
-    if (!authLoading && user && role === "admin") {
+    if (!authLoading && user && (role === "admin" || role === "super_admin")) {
       navigate("/", { replace: true });
     }
   }, [user, role, authLoading, navigate]);
@@ -195,9 +195,10 @@ const AdminLogin = () => {
                 </button>
               </div>
               <div className="text-center">
-                <a href="/driver-login" className="text-xs text-muted-foreground hover:text-foreground">
+                <button type="button" onClick={() => navigate("/driver-login")}
+                  className="text-xs text-muted-foreground hover:text-foreground">
                   ¿Eres mensajero? Entra aquí
-                </a>
+                </button>
               </div>
             </>
           )}
