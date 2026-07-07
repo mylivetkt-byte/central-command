@@ -56,6 +56,45 @@ const DriverApp = () => {
   const prevCount   = useRef(0);
   const gpsStarted  = useRef(false);
 
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [showInstallBanner, setShowInstallBanner] = useState(false);
+  const [isIOS, setIsIOS] = useState(false);
+  const [showIOSPrompt, setShowIOSPrompt] = useState(false);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone;
+      if (!isStandalone) {
+        setShowInstallBanner(true);
+      }
+    };
+
+    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+
+    const isIOSDevice = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+    setIsIOS(isIOSDevice);
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone;
+    if (isIOSDevice && !isStandalone) {
+      setShowInstallBanner(true);
+    }
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    };
+  }, []);
+
+  const handleInstallPWA = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === "accepted") {
+      setShowInstallBanner(false);
+      setDeferredPrompt(null);
+    }
+  };
+
   useEffect(() => {
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = ""; };
@@ -419,6 +458,31 @@ const DriverApp = () => {
           </div>
         )}
 
+        {/* Banner de instalación PWA (para Android/iOS) */}
+        {showInstallBanner && driverProfile?.status === "activo" && (
+          <div className="flex items-center justify-between gap-3 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 p-3.5 text-indigo-400">
+            <div className="flex items-start gap-2.5">
+              <Bike className="h-5 w-5 shrink-0 mt-0.5 animate-bounce" />
+              <div>
+                <p className="text-xs font-bold text-white">Instala la App en tu Celular</p>
+                <p className="text-[10px] text-white/60">Ten acceso directo y recibe notificaciones más rápido.</p>
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                if (isIOS) {
+                  setShowIOSPrompt(true);
+                } else {
+                  handleInstallPWA();
+                }
+              }}
+              className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-black text-white hover:bg-indigo-500 transition-colors shrink-0"
+            >
+              Instalar
+            </button>
+          </div>
+        )}
+
         {/* Toggle disponibilidad */}
         <div
           onClick={toggleAvailability}
@@ -659,6 +723,28 @@ const DriverApp = () => {
         onAccept={acceptFromAlert}
         onReject={rejectFromAlert}
       />
+
+      {/* Modal instruccional para instalar en iOS */}
+      {showIOSPrompt && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/90 backdrop-blur-sm p-4">
+          <div className="glass-card w-full max-w-sm p-6 relative bg-slate-900 border border-white/10 text-center space-y-4 rounded-3xl shadow-2xl">
+            <Bike className="h-10 w-10 text-indigo-400 mx-auto animate-pulse" />
+            <h3 className="text-sm font-bold text-white">Instalar en tu iPhone / iPad</h3>
+            <p className="text-xs text-white/60">Sigue estos sencillos pasos para añadir la app a tu pantalla de inicio:</p>
+            <div className="text-left space-y-2.5 text-xs text-white/80 bg-white/5 p-4 rounded-2xl">
+              <p>1. Pulsa el botón de <strong>Compartir</strong> (icono de cuadrado con flecha hacia arriba) en la barra de Safari.</p>
+              <p>2. Busca y selecciona la opción <strong>"Añadir a la pantalla de inicio"</strong>.</p>
+              <p>3. Pulsa <strong>Añadir</strong> en la esquina superior derecha.</p>
+            </div>
+            <button
+              onClick={() => setShowIOSPrompt(false)}
+              className="w-full rounded-xl bg-white/10 py-2.5 text-xs font-bold text-white hover:bg-white/15 transition-colors"
+            >
+              Entendido
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
