@@ -70,15 +70,15 @@ const calcSpeedKmh = (prev: { lat: number; lng: number; t: number } | null, curr
 
 interface ActiveDeliveryViewProps {
   delivery: Delivery;
-  onPickedUp: () => void;
-  onDelivered: () => void;
+  onPickedUp: (deliveryId: string) => void;
+  onDelivered: (deliveryId: string) => void;
   allDeliveries?: Delivery[];
 }
 
 const fmt = (v: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(v);
 
-const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPickedUp, onDelivered, allDeliveries = [] }) => {
+const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initialDelivery, onPickedUp, onDelivered, allDeliveries = [] }) => {
   const { user } = useAuth();
   const { currentLocation } = useDriverLocation();
   const { isOffline, cacheData, getCachedData } = useOffline();
@@ -102,6 +102,16 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPic
   const { current: mapStyle, setStyle } = useMapStyle("dark");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [focusedDeliveryId, setFocusedDeliveryId] = useState(initialDelivery.id);
+
+  useEffect(() => {
+    if (initialDelivery?.id) {
+      setFocusedDeliveryId(initialDelivery.id);
+    }
+  }, [initialDelivery?.id]);
+
+  const delivery = allDeliveries.find(d => d.id === focusedDeliveryId) || initialDelivery;
+
   const isPickingUp = delivery.status === "aceptado";
 
   const stops: Stop[] = delivery.stops ?? [
@@ -114,8 +124,9 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPic
     if (allDeliveries.length <= 1) return stops;
     const all: Stop[] = [];
     allDeliveries.forEach((d, i) => {
-      all.push({ type: 'pickup', label: `Recoger #${i + 1}`, address: d.pickup_address || '', lat: d.pickup_lat, lng: d.pickup_lng });
-      all.push({ type: 'delivery', label: `Entregar #${i + 1}`, address: d.delivery_address, lat: d.delivery_lat, lng: d.delivery_lng });
+      const isPickComplete = d.status !== "aceptado";
+      all.push({ type: 'pickup', label: `Recoger #${i + 1}`, address: d.pickup_address || '', lat: d.pickup_lat, lng: d.pickup_lng, completed: isPickComplete });
+      all.push({ type: 'delivery', label: `Entregar #${i + 1}`, address: d.delivery_address, lat: d.delivery_lat, lng: d.delivery_lng, completed: d.status === "entregado" });
     });
     return all;
   }, [allDeliveries, stops]);
@@ -449,6 +460,25 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPic
         </div>
 
         <div className="px-6 pt-3 flex-1 flex flex-col overflow-y-auto">
+          {/* Si hay múltiples pedidos, mostrar pestañas para seleccionar cuál ver/actualizar */}
+          {allDeliveries.length > 1 && (
+            <div className="flex gap-2 mb-4 bg-slate-100 p-1 rounded-xl">
+              {allDeliveries.map((d) => (
+                <button
+                  key={d.id}
+                  onClick={() => setFocusedDeliveryId(d.id)}
+                  className={`flex-1 py-2 text-center rounded-lg text-[10px] font-black uppercase transition-all ${
+                    focusedDeliveryId === d.id
+                      ? "bg-indigo-600 text-white shadow-sm"
+                      : "text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  Ped #{d.order_id.slice(-4).toUpperCase()} ({d.status === "aceptado" ? "Recoger" : "Entregar"})
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* ETA bar */}
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-baseline gap-2">
@@ -608,11 +638,11 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPic
           {/* Action Button */}
           <div className="mt-auto pb-8">
             {isPickingUp ? (
-              <Button onClick={onPickedUp} className="w-full h-16 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xl shadow-xl active:scale-[0.98] transition-all">
+              <Button onClick={() => onPickedUp(delivery.id)} className="w-full h-16 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xl shadow-xl active:scale-[0.98] transition-all">
                 YA RECOGÍ EL PEDIDO
               </Button>
             ) : (
-              <Button onClick={onDelivered} className="w-full h-16 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xl shadow-xl active:scale-[0.98] transition-all">
+              <Button onClick={() => onDelivered(delivery.id)} className="w-full h-16 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xl shadow-xl active:scale-[0.98] transition-all">
                 PEDIDO ENTREGADO ✓
               </Button>
             )}

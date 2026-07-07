@@ -160,7 +160,7 @@ const DriverApp = () => {
         delivery_lng: d.delivery_lng ?? null,
       }));
 
-      if (isAvailable && activeDeliveries.length === 0) {
+      if (isAvailable && activeDeliveries.length < 2) {
         const fresh = orders.find(o => !shownAlertIds.current.has(o.id));
         if (fresh && !alertOrder) {
           shownAlertIds.current.add(fresh.id);
@@ -278,9 +278,10 @@ const DriverApp = () => {
     setAlertOrder(null);
   };
 
-  const updateStatus = async (s: string) => {
-    if (activeDeliveries.length === 0 || !user) return;
-    const delivery = activeDeliveries[0];
+  const updateStatus = async (deliveryId: string, s: string) => {
+    if (!user) return;
+    const delivery = activeDeliveries.find(d => d.id === deliveryId);
+    if (!delivery) return;
     const updates: any = { status: s, updated_at: new Date().toISOString() };
     if (s === "en_camino")  updates.picked_up_at   = new Date().toISOString();
     if (s === "entregado")  updates.delivered_at   = new Date().toISOString();
@@ -294,8 +295,8 @@ const DriverApp = () => {
       toast.success(streak > 0 && streak % STREAK_BONUS_THRESHOLD === 0 ? `🔥 ¡${streak} entregas consecutivas! Bono activado` : "¡Entrega completada! 🎉");
     } else {
       toast.success("Estado actualizado");
-      fetchData();
     }
+    fetchData();
     await supabase.from("delivery_audit_log" as any).insert({
       delivery_id: delivery.id,
       event: s === "en_camino" ? "En camino" : "Entregado",
@@ -327,8 +328,8 @@ const DriverApp = () => {
         <div className="flex-1 overflow-hidden">
           <ActiveDeliveryView
             delivery={primary as any}
-            onPickedUp={() => updateStatus("en_camino")}
-            onDelivered={() => updateStatus("entregado")}
+            onPickedUp={(id) => updateStatus(id, "en_camino")}
+            onDelivered={(id) => updateStatus(id, "entregado")}
             allDeliveries={activeDeliveries as any}
           />
         </div>
