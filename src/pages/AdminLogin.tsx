@@ -30,6 +30,10 @@ const AdminLogin = () => {
     if (authLoading || !user) return;
     if (role === "super_admin") navigate("/saas/companies", { replace: true });
     else if (role === "admin") navigate("/", { replace: true });
+    else if (role === "bloqueado") {
+      setError("Tu empresa se encuentra inactiva, suspendida o pendiente de activación. Por favor, comunícate con soporte.");
+      supabase.auth.signOut();
+    }
   }, [user, role, authLoading, navigate]);
 
   const handleForgotPassword = async (e: React.FormEvent) => {

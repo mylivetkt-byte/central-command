@@ -81,6 +81,33 @@ const SaaSCompanyDetail = () => {
     onError: (err: any) => toast.error("Error al actualizar contraseña: " + err.message),
   });
 
+  const [isEditingInfo, setIsEditingInfo] = useState(false);
+  const [infoForm, setInfoForm] = useState({ name: "", nit: "", email: "", phone: "" });
+
+  useEffect(() => {
+    if (company) {
+      setInfoForm({
+        name: company.name || "",
+        nit: company.nit || "",
+        email: company.email || "",
+        phone: company.phone || "",
+      });
+    }
+  }, [company]);
+
+  const [showDelete, setShowDelete] = useState(false);
+  const deleteCompany = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.rpc("delete_company_completely", { p_company_id: id! });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Empresa eliminada por completo con todos sus datos");
+      navigate("/saas/companies");
+    },
+    onError: (err: any) => toast.error("Error al eliminar empresa: " + err.message),
+  });
+
   const { data: stats = { deliveries: 0, drivers: 0, revenue: 0 } } = useQuery({
     queryKey: ["saas-company-stats", id],
     enabled: !!id,
@@ -334,26 +361,110 @@ const SaaSCompanyDetail = () => {
         </div>
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="rounded-xl border border-border bg-card p-5">
-            <h3 className="text-sm font-bold text-foreground mb-4">Información</h3>
-            <div className="space-y-3">
-              <div className="flex items-center gap-3 text-sm">
-                <Mail className="h-4 w-4 text-muted-foreground" />
-                <span>{company.email || "Sin email"}</span>
-              </div>
-              <div className="flex items-center gap-3 text-sm">
-                <Phone className="h-4 w-4 text-muted-foreground" />
-                <span>{company.phone || "Sin teléfono"}</span>
-              </div>
-              <div className="flex items-center gap-3 text-sm">
-                <Calendar className="h-4 w-4 text-muted-foreground" />
-                <span>Creada: {new Date(company.created_at).toLocaleDateString("es-CO")}</span>
-              </div>
-              <div className="flex items-center gap-3 text-sm">
-                <Package className="h-4 w-4 text-muted-foreground" />
-                <span>Plan: {planLabels[company.plan] || company.plan}</span>
-              </div>
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="rounded-xl border border-border bg-card p-5 relative">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm font-bold text-foreground">Información</h3>
+              {!isEditingInfo ? (
+                <button
+                  onClick={() => setIsEditingInfo(true)}
+                  className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                >
+                  <Edit2 className="h-3 w-3" /> Editar
+                </button>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      updateCompany.mutate(infoForm, {
+                        onSuccess: () => setIsEditingInfo(false)
+                      });
+                    }}
+                    disabled={updateCompany.isPending}
+                    className="rounded bg-primary px-2.5 py-1 text-[10px] font-bold text-primary-foreground hover:opacity-90 transition-opacity"
+                  >
+                    Guardar
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsEditingInfo(false);
+                      setInfoForm({
+                        name: company.name || "",
+                        nit: company.nit || "",
+                        email: company.email || "",
+                        phone: company.phone || "",
+                      });
+                    }}
+                    className="rounded bg-muted px-2.5 py-1 text-[10px] font-bold text-foreground hover:bg-muted/80 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              )}
             </div>
+
+            {!isEditingInfo ? (
+              <div className="space-y-3">
+                <div className="flex items-center gap-3 text-sm">
+                  <Building2 className="h-4 w-4 text-muted-foreground" />
+                  <span>{company.name}</span>
+                </div>
+                <div className="flex items-center gap-3 text-sm">
+                  <Shield className="h-4 w-4 text-muted-foreground" />
+                  <span>NIT: {company.nit || "Sin NIT"}</span>
+                </div>
+                <div className="flex items-center gap-3 text-sm">
+                  <Mail className="h-4 w-4 text-muted-foreground" />
+                  <span>{company.email || "Sin email"}</span>
+                </div>
+                <div className="flex items-center gap-3 text-sm">
+                  <Phone className="h-4 w-4 text-muted-foreground" />
+                  <span>{company.phone || "Sin teléfono"}</span>
+                </div>
+                <div className="flex items-center gap-3 text-sm">
+                  <Calendar className="h-4 w-4 text-muted-foreground" />
+                  <span>Creada: {new Date(company.created_at).toLocaleDateString("es-CO")}</span>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] text-muted-foreground font-bold uppercase">Nombre de la Empresa</label>
+                  <input
+                    type="text"
+                    value={infoForm.name}
+                    onChange={(e) => setInfoForm({ ...infoForm, name: e.target.value })}
+                    className="w-full rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] text-muted-foreground font-bold uppercase">NIT</label>
+                  <input
+                    type="text"
+                    value={infoForm.nit}
+                    onChange={(e) => setInfoForm({ ...infoForm, nit: e.target.value })}
+                    className="w-full rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] text-muted-foreground font-bold uppercase">Email de Contacto</label>
+                  <input
+                    type="email"
+                    value={infoForm.email}
+                    onChange={(e) => setInfoForm({ ...infoForm, email: e.target.value })}
+                    className="w-full rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] text-muted-foreground font-bold uppercase">Teléfono de Contacto</label>
+                  <input
+                    type="text"
+                    value={infoForm.phone}
+                    onChange={(e) => setInfoForm({ ...infoForm, phone: e.target.value })}
+                    className="w-full rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                  />
+                </div>
+              </div>
+            )}
           </motion.div>
 
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="rounded-xl border border-border bg-card p-5 space-y-4">
@@ -753,26 +864,42 @@ const SaaSCompanyDetail = () => {
           )}
         </motion.div>
 
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="rounded-xl border border-destructive/30 bg-destructive/5 p-5">
-          <div className="flex items-start justify-between">
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="rounded-xl border border-destructive/30 bg-destructive/5 p-5 space-y-6">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-destructive/20 pb-4">
             <div className="flex items-start gap-3">
               <AlertTriangle className="h-5 w-5 text-destructive mt-0.5" />
               <div>
-                <h3 className="text-sm font-bold text-foreground">Zona de Peligro</h3>
-                <p className="text-xs text-muted-foreground mt-1">Resetear todos los datos de esta empresa. Esta acción no se puede deshacer.</p>
+                <h3 className="text-sm font-bold text-foreground">Restablecer Datos</h3>
+                <p className="text-xs text-muted-foreground mt-1">Borra todos los pedidos, chats, logs y ubicaciones, pero conserva los usuarios.</p>
               </div>
             </div>
             <button
-              onClick={() => setShowReset(true)}
-              className="rounded-lg bg-destructive px-4 py-2 text-xs font-bold text-destructive-foreground hover:bg-destructive/90 transition-colors"
+              onClick={() => { setShowReset(true); setShowDelete(false); }}
+              className="rounded-lg bg-destructive/15 border border-destructive/30 px-4 py-2 text-xs font-bold text-destructive hover:bg-destructive/20 transition-colors"
             >
               Resetear Datos
             </button>
           </div>
 
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="h-5 w-5 text-destructive mt-0.5" />
+              <div>
+                <h3 className="text-sm font-bold text-foreground">Eliminar Empresa Definitivamente</h3>
+                <p className="text-xs text-muted-foreground mt-1">Borra la empresa, todos sus datos operativos y todas las cuentas de usuario asociadas.</p>
+              </div>
+            </div>
+            <button
+              onClick={() => { setShowDelete(true); setShowReset(false); }}
+              className="rounded-lg bg-destructive px-4 py-2 text-xs font-bold text-destructive-foreground hover:bg-destructive/95 transition-colors"
+            >
+              Eliminar Empresa
+            </button>
+          </div>
+
           {showReset && (
-            <div className="mt-4 rounded-lg bg-destructive/10 border border-destructive/30 p-4">
-              <p className="text-sm font-medium text-foreground mb-3">¿Estás seguro? Se eliminarán todos los pedidos, ubicaciones, mensajes y logs de esta empresa.</p>
+            <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-4">
+              <p className="text-sm font-medium text-foreground mb-3">¿Estás seguro? Se eliminarán todos los pedidos, ubicaciones, mensajes y logs de esta empresa de forma irreversible.</p>
               <div className="flex gap-2">
                 <button
                   onClick={async () => {
@@ -791,6 +918,27 @@ const SaaSCompanyDetail = () => {
                 </button>
                 <button
                   onClick={() => setShowReset(false)}
+                  className="rounded-lg bg-muted px-4 py-2 text-xs font-bold text-foreground hover:bg-muted/80 transition-colors"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          )}
+
+          {showDelete && (
+            <div className="rounded-lg bg-destructive/10 border border-destructive/30 p-4">
+              <p className="text-sm font-medium text-foreground mb-3">¿Estás ABSOLUTAMENTE seguro? Se eliminará la empresa, todos sus datos y TODAS las cuentas de administradores y repartidores asociados. Esta acción no se puede deshacer.</p>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => deleteCompany.mutate()}
+                  disabled={deleteCompany.isPending}
+                  className="rounded-lg bg-destructive px-4 py-2 text-xs font-bold text-destructive-foreground hover:bg-destructive/90 transition-colors disabled:opacity-50"
+                >
+                  {deleteCompany.isPending ? "Eliminando..." : "Sí, eliminar empresa y todos sus datos"}
+                </button>
+                <button
+                  onClick={() => setShowDelete(false)}
                   className="rounded-lg bg-muted px-4 py-2 text-xs font-bold text-foreground hover:bg-muted/80 transition-colors"
                 >
                   Cancelar

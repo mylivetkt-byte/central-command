@@ -37,8 +37,11 @@ const DriverLogin = () => {
   }, [isSignUp]);
 
   useEffect(() => {
-    if (!authLoading && user && role === "driver") {
-      navigate("/driver", { replace: true });
+    if (authLoading || !user) return;
+    if (role === "driver") navigate("/driver", { replace: true });
+    else if (role === "bloqueado") {
+      setError("Tu empresa se encuentra inactiva, suspendida o pendiente de activación. Por favor, comunícate con la empresa.");
+      supabase.auth.signOut();
     }
   }, [user, role, authLoading, navigate]);
 
