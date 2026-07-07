@@ -21,11 +21,12 @@ const AdminLogin = () => {
   const navigate   = useNavigate();
   const { user, role, loading: authLoading } = useAuth();
 
-  // Redirige automáticamente si la sesión ya está activa
+  // Redirige automáticamente si la sesión ya está activa.
+  // El super_admin va al panel SaaS; el admin de empresa al dashboard operativo.
   useEffect(() => {
-    if (!authLoading && user && (role === "admin" || role === "super_admin")) {
-      navigate("/", { replace: true });
-    }
+    if (authLoading || !user) return;
+    if (role === "super_admin") navigate("/saas/companies", { replace: true });
+    else if (role === "admin") navigate("/", { replace: true });
   }, [user, role, authLoading, navigate]);
 
   const handleForgotPassword = async (e: React.FormEvent) => {

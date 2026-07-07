@@ -1,4 +1,5 @@
 import { useAuth } from "@/hooks/useAuth";
+import { useCompany } from "@/hooks/useCompany";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import AddressAutocomplete from "@/components/ui/AddressAutocomplete";
 import ChatBubble from "@/components/ChatBubble";
@@ -42,6 +43,7 @@ const emptyForm: NewDeliveryForm = {
 
 const Dispatch = () => {
   const { user } = useAuth();
+  const { selectedCompanyId } = useCompany();
   const [showNewForm, setShowNewForm] = useState(false);
   const [form, setForm] = useState<NewDeliveryForm>(emptyForm);
   const [selectedOrder, setSelectedOrder] = useState<string | null>(null);
@@ -98,6 +100,7 @@ const Dispatch = () => {
       
       const { data: inserted, error } = await (supabase.from("deliveries") as any).insert({
         order_id: orderId,
+        company_id: selectedCompanyId ?? undefined,
         customer_name: formData.customer_name,
         customer_phone: formData.customer_phone || null,
         pickup_address: formData.pickup_address,

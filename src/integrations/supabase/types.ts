@@ -494,6 +494,7 @@ export type Database = {
         Row: {
           amount: number | null
           commission: number | null
+          company_id: string | null
           created_at: string | null
           delivery_address: string | null
           delivery_lat: number | null
@@ -510,6 +511,7 @@ export type Database = {
         Insert: {
           amount?: number | null
           commission?: number | null
+          company_id?: string | null
           created_at?: string | null
           delivery_address?: string | null
           delivery_lat?: number | null
@@ -526,6 +528,7 @@ export type Database = {
         Update: {
           amount?: number | null
           commission?: number | null
+          company_id?: string | null
           created_at?: string | null
           delivery_address?: string | null
           delivery_lat?: number | null
@@ -539,7 +542,15 @@ export type Database = {
           status?: Database["public"]["Enums"]["delivery_status"] | null
           zone?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "deliveries_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "saas_companies"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Functions: {
