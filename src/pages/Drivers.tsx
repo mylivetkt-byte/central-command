@@ -13,6 +13,7 @@ const statusColors: Record<string, string> = {
   en_ruta: "bg-primary/10 text-primary",
   inactivo: "bg-muted text-muted-foreground",
   suspendido: "bg-destructive/10 text-destructive",
+  pendiente: "bg-yellow-500/10 text-yellow-500 border border-yellow-500/20",
 };
 
 const formatCurrency = (v: number) =>
@@ -116,7 +117,8 @@ const Drivers = () => {
               full_name: data.full_name, 
               phone: data.phone, 
               role: "driver",
-              company_id: selectedCompanyId 
+              company_id: selectedCompanyId,
+              is_approved: true
             },
           },
         });

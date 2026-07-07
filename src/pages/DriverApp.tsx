@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Switch } from "@/components/ui/switch";
-import { Package, History, Power, LogOut, Bike, LayoutGrid, Battery, BatteryCharging, Flame, Trophy, Zap } from "lucide-react";
+import { Package, History, Power, LogOut, Bike, LayoutGrid, Battery, BatteryCharging, Flame, Trophy, Zap, AlertTriangle, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import { AnimatePresence, motion } from "framer-motion";
 import { useDriverLocation } from "@/hooks/useDriverLocation";
@@ -130,6 +130,15 @@ const DriverApp = () => {
   const fetchData = useCallback(async () => {
     if (!user) return;
 
+    const { data: profile } = await supabase
+      .from("driver_profiles")
+      .select("*")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (profile) {
+      setDriverProfile(profile);
+    }
+
     const { data: active } = await supabase
       .from("deliveries")
       .select("*")
@@ -138,7 +147,10 @@ const DriverApp = () => {
       .order("created_at", { ascending: true });
     setActiveDeliveries((active || []) as any);
 
-    if (isAvailable) {
+    const isCurrentlyAvailable = profile ? (profile.status === "activo" || profile.status === "en_ruta") : isAvailable;
+    setIsAvailable(isCurrentlyAvailable);
+
+    if (isCurrentlyAvailable) {
       const { data: pending } = await supabase
         .from("pending_delivery_offers" as any)
         .select("*");
@@ -198,6 +210,14 @@ const DriverApp = () => {
 
   const toggleAvailability = async () => {
     if (!user || toggling) return;
+    if (driverProfile?.status === "pendiente") {
+      toast.error("Tu cuenta está pendiente de aprobación por la empresa.");
+      return;
+    }
+    if (driverProfile?.status === "suspendido") {
+      toast.error("Tu cuenta está suspendida. Contacta con la empresa.");
+      return;
+    }
     setToggling(true);
     const newStatus = isAvailable ? "inactivo" : "activo";
     const { error } = await supabase.from("driver_profiles")
@@ -378,6 +398,26 @@ const DriverApp = () => {
             </button>
           </div>
         </div>
+
+        {/* Banners de Estado */}
+        {driverProfile?.status === "pendiente" && (
+          <div className="flex items-center gap-2.5 rounded-2xl bg-yellow-500/10 border border-yellow-500/20 p-3.5 text-yellow-400">
+            <AlertTriangle className="h-5 w-5 shrink-0" />
+            <div>
+              <p className="text-xs font-bold">Cuenta pendiente de aprobación</p>
+              <p className="text-[10px] text-yellow-500/80">La empresa de mensajería debe autorizar tu cuenta para recibir pedidos.</p>
+            </div>
+          </div>
+        )}
+        {driverProfile?.status === "suspendido" && (
+          <div className="flex items-center gap-2.5 rounded-2xl bg-red-500/10 border border-red-500/20 p-3.5 text-red-400">
+            <AlertCircle className="h-5 w-5 shrink-0" />
+            <div>
+              <p className="text-xs font-bold">Cuenta suspendida</p>
+              <p className="text-[10px] text-red-500/80">Tu cuenta ha sido suspendida. Comunícate con tu empresa de mensajería.</p>
+            </div>
+          </div>
+        )}
 
         {/* Toggle disponibilidad */}
         <div
