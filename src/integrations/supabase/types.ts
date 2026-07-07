@@ -16,6 +16,7 @@ export type Database = {
     Tables: {
       alerts: {
         Row: {
+          company_id: string | null
           created_at: string
           id: string
           message: string
@@ -24,6 +25,7 @@ export type Database = {
           type: string
         }
         Insert: {
+          company_id?: string | null
           created_at?: string
           id?: string
           message: string
@@ -32,6 +34,7 @@ export type Database = {
           type: string
         }
         Update: {
+          company_id?: string | null
           created_at?: string
           id?: string
           message?: string
@@ -39,10 +42,19 @@ export type Database = {
           severity?: string
           type?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "alerts_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "saas_companies"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       chat_messages: {
         Row: {
+          company_id: string | null
           created_at: string
           delivery_id: string
           id: string
@@ -52,6 +64,7 @@ export type Database = {
           sender_role: string
         }
         Insert: {
+          company_id?: string | null
           created_at?: string
           delivery_id: string
           id?: string
@@ -61,6 +74,7 @@ export type Database = {
           sender_role: string
         }
         Update: {
+          company_id?: string | null
           created_at?: string
           delivery_id?: string
           id?: string
@@ -70,6 +84,13 @@ export type Database = {
           sender_role?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "chat_messages_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "saas_companies"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "chat_messages_delivery_id_fkey"
             columns: ["delivery_id"]
@@ -86,12 +107,45 @@ export type Database = {
           },
         ]
       }
+      company_users: {
+        Row: {
+          company_id: string
+          created_at: string
+          id: string
+          role: string
+          user_id: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          id?: string
+          role?: string
+          user_id: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          id?: string
+          role?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "company_users_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "saas_companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       deliveries: {
         Row: {
           accepted_at: string | null
           amount: number
           cancelled_at: string | null
           commission: number
+          company_id: string | null
           created_at: string
           customer_name: string
           customer_phone: string | null
@@ -118,6 +172,7 @@ export type Database = {
           amount?: number
           cancelled_at?: string | null
           commission?: number
+          company_id?: string | null
           created_at?: string
           customer_name: string
           customer_phone?: string | null
@@ -144,6 +199,7 @@ export type Database = {
           amount?: number
           cancelled_at?: string | null
           commission?: number
+          company_id?: string | null
           created_at?: string
           customer_name?: string
           customer_phone?: string | null
@@ -167,6 +223,13 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "deliveries_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "saas_companies"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "deliveries_driver_id_fkey"
             columns: ["driver_id"]
             isOneToOne: false
@@ -177,6 +240,7 @@ export type Database = {
       }
       delivery_audit_log: {
         Row: {
+          company_id: string | null
           created_at: string
           delivery_id: string
           details: string | null
@@ -185,6 +249,7 @@ export type Database = {
           performed_by: string | null
         }
         Insert: {
+          company_id?: string | null
           created_at?: string
           delivery_id: string
           details?: string | null
@@ -193,6 +258,7 @@ export type Database = {
           performed_by?: string | null
         }
         Update: {
+          company_id?: string | null
           created_at?: string
           delivery_id?: string
           details?: string | null
@@ -201,6 +267,13 @@ export type Database = {
           performed_by?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "delivery_audit_log_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "saas_companies"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "delivery_audit_log_delivery_id_fkey"
             columns: ["delivery_id"]
@@ -219,6 +292,7 @@ export type Database = {
       }
       driver_locations: {
         Row: {
+          company_id: string | null
           driver_id: string
           heading: number | null
           id: string
@@ -228,6 +302,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          company_id?: string | null
           driver_id: string
           heading?: number | null
           id?: string
@@ -237,6 +312,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          company_id?: string | null
           driver_id?: string
           heading?: number | null
           id?: string
@@ -246,6 +322,13 @@ export type Database = {
           updated_at?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "driver_locations_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "saas_companies"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "driver_locations_driver_id_fkey"
             columns: ["driver_id"]
@@ -260,6 +343,7 @@ export type Database = {
           acceptance_rate: number | null
           avg_delivery_time: number | null
           cancellation_rate: number | null
+          company_id: string | null
           created_at: string
           current_load: number
           id: string
@@ -274,6 +358,7 @@ export type Database = {
           acceptance_rate?: number | null
           avg_delivery_time?: number | null
           cancellation_rate?: number | null
+          company_id?: string | null
           created_at?: string
           current_load?: number
           id: string
@@ -288,6 +373,7 @@ export type Database = {
           acceptance_rate?: number | null
           avg_delivery_time?: number | null
           cancellation_rate?: number | null
+          company_id?: string | null
           created_at?: string
           current_load?: number
           id?: string
@@ -299,6 +385,13 @@ export type Database = {
           zone?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "driver_profiles_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "saas_companies"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "driver_profiles_id_fkey"
             columns: ["id"]
@@ -334,6 +427,45 @@ export type Database = {
           full_name?: string
           id?: string
           phone?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      saas_companies: {
+        Row: {
+          created_at: string
+          email: string | null
+          id: string
+          max_drivers: number
+          name: string
+          nit: string | null
+          phone: string | null
+          plan: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          email?: string | null
+          id?: string
+          max_drivers?: number
+          name: string
+          nit?: string | null
+          phone?: string | null
+          plan?: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          email?: string | null
+          id?: string
+          max_drivers?: number
+          name?: string
+          nit?: string | null
+          phone?: string | null
+          plan?: string
+          status?: string
           updated_at?: string
         }
         Relationships: []
@@ -413,6 +545,7 @@ export type Database = {
     Functions: {
       get_driver_stats: { Args: { p_driver_id?: string }; Returns: Json }
       get_my_role: { Args: never; Returns: string }
+      get_user_company_id: { Args: never; Returns: string }
       has_role: {
         Args: {
           _role: Database["public"]["Enums"]["app_role"]
@@ -424,9 +557,15 @@ export type Database = {
         Args: { p_delivery_id: string; p_details?: string; p_event: string }
         Returns: undefined
       }
+      is_super_admin: { Args: { uid: string }; Returns: boolean }
+      reset_company_data: { Args: { p_company_id: string }; Returns: string }
+      user_can_access_company: {
+        Args: { record_company_id: string }
+        Returns: boolean
+      }
     }
     Enums: {
-      app_role: "admin" | "driver"
+      app_role: "admin" | "driver" | "super_admin"
       delivery_status:
         | "pendiente"
         | "aceptado"
@@ -561,7 +700,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["admin", "driver"],
+      app_role: ["admin", "driver", "super_admin"],
       delivery_status: [
         "pendiente",
         "aceptado",
