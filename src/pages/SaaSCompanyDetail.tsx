@@ -52,18 +52,33 @@ const SaaSCompanyDetail = () => {
     },
   });
 
-  const { data: users = [] } = useQuery({
-    queryKey: ["saas-company-users", id],
+  const [changingPasswordUser, setChangingPasswordUser] = useState<{ id: string; email: string } | null>(null);
+  const [newPasswordVal, setNewPasswordVal] = useState("");
+
+  const { data: users = [], refetch: refetchUsers } = useQuery({
+    queryKey: ["saas-company-users-detailed", id],
     enabled: !!id,
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("company_users")
-        .select("*, auth:user_id(email)")
-        .eq("company_id", id!)
-        .order("created_at", { ascending: false });
+      const { data, error } = await supabase.rpc("get_company_users_list", { p_company_id: id! });
       if (error) throw error;
       return data || [];
     },
+  });
+
+  const changePassword = useMutation({
+    mutationFn: async ({ userId, newPassword }: { userId: string; newPassword: string }) => {
+      const { error } = await supabase.rpc("set_user_password", {
+        p_user_id: userId,
+        p_new_password: newPassword,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Contraseña actualizada con éxito");
+      setChangingPasswordUser(null);
+      setNewPasswordVal("");
+    },
+    onError: (err: any) => toast.error("Error al actualizar contraseña: " + err.message),
   });
 
   const { data: stats = { deliveries: 0, drivers: 0, revenue: 0 } } = useQuery({
@@ -618,18 +633,82 @@ const SaaSCompanyDetail = () => {
           {users.length === 0 ? (
             <p className="text-sm text-muted-foreground">Sin usuarios registrados</p>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-3">
               {users.map((u: any) => (
-                <div key={u.id} className="flex items-center justify-between rounded-lg bg-muted/30 p-3">
+                <div key={u.user_id} className="flex items-center justify-between rounded-lg bg-muted/20 border border-border/40 p-4">
                   <div>
-                    <p className="text-sm font-medium text-foreground">{u.auth?.email || "Sin email"}</p>
-                    <p className="text-xs text-muted-foreground">Rol: {u.role}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-bold text-foreground">{u.full_name || "Sin nombre"}</p>
+                      <span className={`px-2 py-0.5 rounded text-[9px] font-black uppercase ${
+                        u.role === "admin" ? "bg-primary/20 text-primary" : "bg-cyan-500/20 text-cyan-400"
+                      }`}>
+                        {u.role}
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-0.5">{u.email}</p>
+                    <p className="text-[10px] text-muted-foreground/60 mt-1">
+                      Registrado: {new Date(u.created_at).toLocaleDateString("es-CO")}
+                    </p>
                   </div>
-                  <span className="text-xs text-muted-foreground">
-                    {new Date(u.created_at).toLocaleDateString("es-CO")}
-                  </span>
+                  <div>
+                    <button
+                      onClick={() => setChangingPasswordUser({ id: u.user_id, email: u.email })}
+                      className="rounded bg-muted px-3 py-1.5 text-xs font-bold text-foreground hover:bg-muted/80 transition-colors"
+                    >
+                      Nueva Contraseña
+                    </button>
+                  </div>
                 </div>
               ))}
+            </div>
+          )}
+
+          {changingPasswordUser && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4">
+              <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="glass-card w-full max-w-sm p-6 relative bg-card border border-border">
+                <h3 className="text-sm font-bold text-foreground mb-1">Actualizar Contraseña</h3>
+                <p className="text-xs text-muted-foreground mb-4">Para: <span className="text-white font-bold">{changingPasswordUser.email}</span></p>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (newPasswordVal.length < 6) {
+                      toast.error("La contraseña debe tener al menos 6 caracteres.");
+                      return;
+                    }
+                    changePassword.mutate({ userId: changingPasswordUser.id, newPassword: newPasswordVal });
+                  }}
+                  className="space-y-4"
+                >
+                  <div className="space-y-1">
+                    <label className="text-[10px] text-muted-foreground font-bold uppercase">Nueva contraseña</label>
+                    <input
+                      type="password"
+                      required
+                      minLength={6}
+                      value={newPasswordVal}
+                      onChange={(e) => setNewPasswordVal(e.target.value)}
+                      placeholder="Mínimo 6 caracteres"
+                      className="w-full rounded-lg border border-border bg-muted/20 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { setChangingPasswordUser(null); setNewPasswordVal(""); }}
+                      className="rounded-lg bg-muted px-4 py-2 text-xs font-semibold text-foreground hover:bg-muted/80 transition-colors"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={changePassword.isPending}
+                      className="rounded-lg bg-primary px-4 py-2 text-xs font-bold text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
+                    >
+                      {changePassword.isPending ? "Guardando..." : "Guardar Contraseña"}
+                    </button>
+                  </div>
+                </form>
+              </motion.div>
             </div>
           )}
         </motion.div>
