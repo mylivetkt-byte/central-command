@@ -30,6 +30,7 @@ import SaaSCompanies from "./pages/SaaSCompanies";
 import SaaSCompanyDetail from "./pages/SaaSCompanyDetail";
 import SaaSNewCompany from "./pages/SaaSNewCompany";
 import SaasLogin from "./pages/SaasLogin";
+import SaaSDashboard from "./pages/SaaSDashboard";
 
 const queryClient = new QueryClient();
 
@@ -39,7 +40,7 @@ const SuperAdminGuard = ({ children }: { children: ReactNode }) => {
   const { selectedCompanyId } = useCompany();
   const location = useLocation();
   if (role === "super_admin" && !location.pathname.startsWith("/saas") && !selectedCompanyId) {
-    return <Navigate to="/saas/companies" replace />;
+    return <Navigate to="/saas/dashboard" replace />;
   }
   return <>{children}</>;
 };
@@ -88,6 +89,7 @@ const App = () => (
             <Route path="/map-tracking" element={<AdminRoute><MapTracking /></AdminRoute>} />
 
             {/* SaaS */}
+            <Route path="/saas/dashboard" element={<SaasRoute><SaaSDashboard /></SaasRoute>} />
             <Route path="/saas/companies" element={<SaasRoute><SaaSCompanies /></SaasRoute>} />
             <Route path="/saas/companies/new" element={<SaasRoute><SaaSNewCompany /></SaasRoute>} />
             <Route path="/saas/companies/:id" element={<SaasRoute><SaaSCompanyDetail /></SaasRoute>} />

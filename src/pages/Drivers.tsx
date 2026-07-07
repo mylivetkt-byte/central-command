@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { useState } from "react";
-import { Search, UserCheck, UserX, Star, Phone, Package, RefreshCw, Plus, Edit2, Trash2, X } from "lucide-react";
+import { Search, UserCheck, UserX, Star, Phone, Package, RefreshCw, Plus, Edit2, Trash2, X, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 import { createClient } from "@supabase/supabase-js";
 import { useCompany } from "@/hooks/useCompany";
@@ -32,7 +32,7 @@ const Drivers = () => {
     zone: "",
   });
   
-  const { selectedCompanyId } = useCompany();
+  const { company, selectedCompanyId } = useCompany();
   const queryClient = useQueryClient();
 
   // Cargar repartidores reales desde Supabase
@@ -180,6 +180,8 @@ const Drivers = () => {
   const getInitials = (name: string) =>
     name?.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2) || "??";
 
+  const isLimitReached = company && drivers.length >= (company.max_drivers || 5);
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -199,16 +201,34 @@ const Drivers = () => {
               <RefreshCw className="h-3.5 w-3.5" /> Actualizar
             </button>
             <button
-              onClick={() => { setFormData({ full_name: "", email: "", password: "", phone: "", zone: "" });
+              onClick={() => {
+                if (isLimitReached) {
+                  toast.error(`Has alcanzado el límite de repartidores de tu plan (${company.max_drivers})`);
+                  return;
+                }
+                setFormData({ full_name: "", email: "", password: "", phone: "", zone: "" });
                 setIsEditing(false);
                 setShowForm(true);
               }}
-              className="flex items-center gap-2 rounded-lg bg-gradient-primary px-4 py-2 text-xs font-semibold text-primary-foreground hover:opacity-90 transition-opacity"
+              disabled={isLimitReached}
+              className="flex items-center gap-2 rounded-lg bg-gradient-primary px-4 py-2 text-xs font-semibold text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Plus className="h-4 w-4" /> Nuevo Repartidor
+              <Plus className="h-4 w-4" /> Nuevo Repartidor {isLimitReached && `(Límite alcanzado)`}
             </button>
           </div>
         </div>
+
+        {isLimitReached && (
+          <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="rounded-lg border border-destructive/20 bg-destructive/5 p-4 text-xs text-destructive flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span>
+                <strong>Límite del Plan alcanzado:</strong> Tienes <strong>{drivers.length}</strong> de <strong>{company.max_drivers}</strong> repartidores permitidos.
+              </span>
+            </div>
+            <span className="text-[10px] text-muted-foreground">Solicita una ampliación al administrador de la plataforma.</span>
+          </motion.div>
+        )}
 
         {/* Modal / Formulario Flotante */}
         {showForm && (

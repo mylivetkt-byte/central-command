@@ -19,8 +19,29 @@ const navItems = [
   { to: "/alerts", label: "Alertas", icon: AlertTriangle },
   { to: "/audit", label: "Auditoría", icon: ClipboardList },
   { to: "/reports", label: "Reportes", icon: Truck },
+  { to: "/saas/dashboard", label: "Dashboard", icon: LayoutDashboard, adminOnly: true },
   { to: "/saas/companies", label: "Empresas", icon: Building2, adminOnly: true },
 ];
+
+const hexToHsl = (hex: string) => {
+  if (!hex || !hex.startsWith("#")) return "0 0% 100%";
+  const r = parseInt(hex.slice(1, 3), 16) / 255;
+  const g = parseInt(hex.slice(3, 5), 16) / 255;
+  const b = parseInt(hex.slice(5, 7), 16) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let h = 0, s = 0, l = (max + min) / 2;
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+      case g: h = (b - r) / d + 2; break;
+      case b: h = (r - g) / d + 4; break;
+    }
+    h /= 6;
+  }
+  return `${Math.round(h * 360)} ${Math.round(s * 100)}% ${Math.round(l * 100)}%`;
+};
 
 export const AppSidebar = () => {
   const { collapsed, setCollapsed } = useSidebar();
@@ -29,17 +50,44 @@ export const AppSidebar = () => {
   const { signOut, user, role } = useAuth();
   const { company, switchCompany, selectedCompanyId } = useCompany();
 
+  const brandColorHsl = company?.primary_color ? hexToHsl(company.primary_color) : null;
+
   return (
     <aside
       className={`fixed left-0 top-0 z-40 flex h-screen flex-col border-r border-border bg-sidebar transition-all duration-300 ${collapsed ? "w-16" : "w-60"}`}
     >
+      {brandColorHsl && company?.primary_color && (
+        <style>{`
+          :root {
+            --primary: ${brandColorHsl} !important;
+            --gradient-primary: linear-gradient(to right, ${company.primary_color}, ${company.primary_color}dd) !important;
+            --ring: ${brandColorHsl} !important;
+          }
+          .bg-primary {
+            background-color: ${company.primary_color} !important;
+          }
+          .text-primary {
+            color: ${company.primary_color} !important;
+          }
+          .border-primary {
+            border-color: ${company.primary_color} !important;
+          }
+        `}</style>
+      )}
+
       <div className="flex h-16 items-center justify-between px-4 border-b border-border">
         {!collapsed && (
-          <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-sm bg-primary flex items-center justify-center">
-              <Truck className="h-4 w-4 text-primary-foreground" />
+          <div className="flex items-center gap-2 font-black">
+            <div className="h-8 w-8 rounded-sm flex items-center justify-center overflow-hidden bg-muted">
+              {company?.logo_url ? (
+                <img src={company.logo_url} alt="Logo" className="h-full w-full object-cover" />
+              ) : (
+                <Truck className="h-4 w-4 text-primary-foreground" />
+              )}
             </div>
-            <span className="text-sm font-black text-foreground uppercase tracking-tight">GoMoto Command</span>
+            <span className="text-sm font-black text-foreground uppercase tracking-tight truncate max-w-[130px]">
+              {company?.name || "GoMoto Command"}
+            </span>
           </div>
         )}
         <button

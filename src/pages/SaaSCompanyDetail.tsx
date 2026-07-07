@@ -88,6 +88,55 @@ const SaaSCompanyDetail = () => {
     },
   });
 
+  const [showAddPayment, setShowAddPayment] = useState(false);
+  const [paymentForm, setPaymentForm] = useState({
+    amount: "",
+    period_start: "",
+    period_end: "",
+    status: "pagado",
+    notes: "",
+  });
+
+  const { data: payments = [] } = useQuery({
+    queryKey: ["saas-company-payments", id],
+    enabled: !!id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("saas_payments")
+        .select("*")
+        .eq("company_id", id!)
+        .order("payment_date", { ascending: false });
+      if (error) throw error;
+      return data || [];
+    },
+  });
+
+  const createPayment = useMutation({
+    mutationFn: async (fields: any) => {
+      const { error } = await supabase
+        .from("saas_payments")
+        .insert({
+          ...fields,
+          amount: parseFloat(fields.amount),
+          company_id: id!,
+        });
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["saas-company-payments", id] });
+      toast.success("Pago registrado con éxito");
+      setShowAddPayment(false);
+      setPaymentForm({
+        amount: "",
+        period_start: "",
+        period_end: "",
+        status: "pagado",
+        notes: "",
+      });
+    },
+    onError: (err: any) => toast.error("Error al registrar pago: " + err.message),
+  });
+
   const updateCompany = useMutation({
     mutationFn: async (fields: any) => {
       const { error } = await supabase
@@ -335,6 +384,161 @@ const SaaSCompanyDetail = () => {
                 <option value="suspendida">Suspendida</option>
               </select>
             </div>
+          </motion.div>
+        </div>
+
+        {/* Personalización de Marca y Facturación */}
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          {/* Marca */}
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="rounded-xl border border-border bg-card p-5 space-y-4">
+            <h3 className="text-sm font-bold text-foreground mb-1">Personalización de Marca</h3>
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">URL del Logotipo (PNG/JPG)</label>
+                <input
+                  type="text"
+                  placeholder="https://ejemplo.com/logo.png"
+                  defaultValue={company.logo_url || ""}
+                  onBlur={(e) => updateCompany.mutate({ logo_url: e.target.value.trim() || null })}
+                  className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">Color de Marca (Primario)</label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="color"
+                    defaultValue={company.primary_color || "#8B5CF6"}
+                    onBlur={(e) => updateCompany.mutate({ primary_color: e.target.value })}
+                    className="h-9 w-12 rounded border border-border bg-card p-0.5 cursor-pointer"
+                  />
+                  <span className="text-xs font-mono uppercase font-bold text-foreground">{company.primary_color || "#8B5CF6"}</span>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+
+          {/* Facturación */}
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="rounded-xl border border-border bg-card p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-foreground">Historial de Facturación</h3>
+              <button
+                onClick={() => setShowAddPayment(true)}
+                className="flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-xs font-bold text-primary-foreground hover:opacity-90 transition-opacity"
+              >
+                <Plus className="h-3.5 w-3.5" /> Registrar Pago
+              </button>
+            </div>
+
+            {showAddPayment && (
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  if (!paymentForm.amount || !paymentForm.period_start || !paymentForm.period_end) {
+                    toast.error("Monto y periodos son obligatorios.");
+                    return;
+                  }
+                  createPayment.mutate(paymentForm);
+                }}
+                className="border border-border/50 rounded-xl p-4 bg-muted/20 space-y-3"
+              >
+                <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">Nuevo Registro de Pago</h4>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-[10px] text-muted-foreground font-bold uppercase">Monto (COP) *</label>
+                    <input
+                      type="number"
+                      required
+                      value={paymentForm.amount}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, amount: e.target.value })}
+                      className="w-full rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] text-muted-foreground font-bold uppercase">Estado *</label>
+                    <select
+                      value={paymentForm.status}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, status: e.target.value })}
+                      className="w-full rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 font-bold"
+                    >
+                      <option value="pagado">Pagado</option>
+                      <option value="pendiente">Pendiente</option>
+                      <option value="vencido">Vencido</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] text-muted-foreground font-bold uppercase">Inicio Periodo *</label>
+                    <input
+                      type="date"
+                      required
+                      value={paymentForm.period_start}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, period_start: e.target.value })}
+                      className="w-full rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-foreground focus:outline-none"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] text-muted-foreground font-bold uppercase">Fin Periodo *</label>
+                    <input
+                      type="date"
+                      required
+                      value={paymentForm.period_end}
+                      onChange={(e) => setPaymentForm({ ...paymentForm, period_end: e.target.value })}
+                      className="w-full rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-foreground focus:outline-none"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] text-muted-foreground font-bold uppercase">Notas / Observación</label>
+                  <input
+                    value={paymentForm.notes}
+                    onChange={(e) => setPaymentForm({ ...paymentForm, notes: e.target.value })}
+                    placeholder="Ej: Transferencia Bancaria N° 1234"
+                    className="w-full rounded-lg border border-border bg-card px-3 py-1.5 text-xs text-foreground focus:outline-none"
+                  />
+                </div>
+                <div className="flex justify-end gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowAddPayment(false)}
+                    className="rounded-lg bg-muted px-3 py-1.5 text-xs font-semibold text-foreground hover:bg-muted/80 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={createPayment.isPending}
+                    className="rounded-lg bg-primary px-3 py-1.5 text-xs font-bold text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50"
+                  >
+                    {createPayment.isPending ? "Registrando..." : "Registrar"}
+                  </button>
+                </div>
+              </form>
+            )}
+
+            {payments.length === 0 ? (
+              <p className="text-xs text-muted-foreground py-2">No se han registrado pagos aún.</p>
+            ) : (
+              <div className="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+                {payments.map((p: any) => (
+                  <div key={p.id} className="flex items-center justify-between rounded-lg bg-muted/20 border border-border/40 p-3 text-xs">
+                    <div>
+                      <p className="font-bold text-foreground">{formatCurrency(p.amount)}</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">Periodo: {new Date(p.period_start).toLocaleDateString("es-CO")} al {new Date(p.period_end).toLocaleDateString("es-CO")}</p>
+                      {p.notes && <p className="text-[9px] text-muted-foreground/60 italic mt-0.5">{p.notes}</p>}
+                    </div>
+                    <div className="text-right">
+                      <span className={`inline-block rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${
+                        p.status === "pagado" ? "bg-emerald-500/10 text-emerald-500" :
+                        p.status === "pendiente" ? "bg-amber-500/10 text-amber-500" : "bg-red-500/10 text-red-500"
+                      }`}>
+                        {p.status}
+                      </span>
+                      <p className="text-[9px] text-muted-foreground mt-1">{new Date(p.payment_date).toLocaleDateString("es-CO")}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </motion.div>
         </div>
 
