@@ -51,23 +51,35 @@ export const AppSidebar = () => {
       </div>
 
       <nav className="flex-1 space-y-1 px-2 py-4 overflow-y-auto">
-        {navItems.filter(item => !(item as any).adminOnly || role === "super_admin").map(({ to, label, icon: Icon }) => {
-          const active = location.pathname === to;
-          return (
-            <RouterNavLink
-              key={to}
-              to={to}
-              className={`flex items-center gap-3 rounded-sm px-3 py-2.5 text-sm font-bold transition-all ${
-                active
-                  ? "bg-white text-black shadow-lg"
-                  : "text-sidebar-foreground hover:bg-muted hover:text-foreground"
-              }`}
-            >
-              <Icon className="h-4 w-4 shrink-0" />
-              {!collapsed && <span>{label}</span>}
-            </RouterNavLink>
-          );
-        })}
+        {navItems
+          .filter((item) => {
+            if (role === "super_admin") {
+              // Si es super_admin y no está inspeccionando, solo muestra "Empresas"
+              if (!selectedCompanyId) {
+                return (item as any).adminOnly;
+              }
+              return true;
+            }
+            // Para administradores de empresa, oculta "Empresas"
+            return !(item as any).adminOnly;
+          })
+          .map(({ to, label, icon: Icon }) => {
+            const active = location.pathname === to;
+            return (
+              <RouterNavLink
+                key={to}
+                to={to}
+                className={`flex items-center gap-3 rounded-sm px-3 py-2.5 text-sm font-bold transition-all ${
+                  active
+                    ? "bg-white text-black shadow-lg"
+                    : "text-sidebar-foreground hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                <Icon className="h-4 w-4 shrink-0" />
+                {!collapsed && <span>{label}</span>}
+              </RouterNavLink>
+            );
+          })}
       </nav>
 
       <div className="border-t border-border p-3 space-y-2">
