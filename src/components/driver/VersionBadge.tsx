@@ -3,41 +3,55 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { APP_VERSION } from "@/constants/appVersion";
 import { Info } from "lucide-react";
 
-// Simple static changelog (can be extended later)
-const CHANGELOG = `
-Version 0.1.0
-- Initial release of driver app
-- Added local‑date handling for "Hoy" stats
-- Improved UI contrast in Delivery History
-- Added version badge (this component)
-`;
+const CHANGELOG = [
+  {
+    version: "0.1.0",
+    changes: [
+      "Lanzamiento inicial de la app del conductor",
+      "Estadísticas del día usando hora local",
+      "Mejora de contraste en Historial de entregas",
+      "Agregado badge de versión con registro de cambios",
+    ],
+  },
+];
 
 export const VersionBadge = () => {
   const [open, setOpen] = useState(false);
 
   return (
     <>
-      {/* Badge placed in bottom‑right corner */}
       <button
         onClick={() => setOpen(true)}
-        className="fixed bottom-4 right-4 flex items-center gap-1 bg-slate-800/80 text-white text-xs font-medium py-1 px-2 rounded-full hover:bg-slate-700 transition-colors"
+        className="w-full flex items-center justify-center gap-2 bg-slate-100 rounded-2xl border border-slate-200 p-3 text-slate-500 text-xs font-medium hover:bg-slate-200 transition-colors active:scale-95"
         aria-label="Versión de la aplicación"
       >
-        <Info className="h-3 w-3" /> v{APP_VERSION}
+        <Info className="h-3.5 w-3.5" />
+        Versión {APP_VERSION} — Ver cambios
       </button>
 
-      {/* Modal */}
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Versión {APP_VERSION}</DialogTitle>
-            <DialogDescription>Registro de cambios</DialogDescription>
+            <DialogTitle>Registro de cambios</DialogTitle>
+            <DialogDescription>Historial de actualizaciones de la app</DialogDescription>
           </DialogHeader>
-          <pre className="whitespace-pre-wrap text-sm mt-2">
-            {CHANGELOG}
-          </pre>
+          <div className="space-y-4 mt-2 max-h-72 overflow-y-auto pr-1">
+            {CHANGELOG.map((entry) => (
+              <div key={entry.version}>
+                <p className="text-xs font-black text-slate-800 mb-1">v{entry.version}</p>
+                <ul className="space-y-1">
+                  {entry.changes.map((c) => (
+                    <li key={c} className="text-xs text-slate-600 flex items-start gap-1.5">
+                      <span className="mt-0.5 h-1.5 w-1.5 rounded-full bg-green-500 flex-shrink-0" />
+                      {c}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
           <DialogClose asChild>
-            <button className="mt-4 w-full py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors">
+            <button className="mt-4 w-full py-2 bg-indigo-600 text-white rounded-lg text-sm font-bold hover:bg-indigo-700 transition-colors">
               Cerrar
             </button>
           </DialogClose>

@@ -694,6 +694,9 @@ const DriverApp = () => {
                   >
                     <LogOut className="h-4 w-4" /> Cerrar sesión
                   </button>
+
+                  {/* Versión de la app */}
+                  <VersionBadge />
                 </>
               )}
             </motion.div>
@@ -743,8 +746,6 @@ const DriverApp = () => {
           })}
         </div>
       </nav>
-
-      <VersionBadge />
 
       <NewOrderAlert
         order={alertOrder}
