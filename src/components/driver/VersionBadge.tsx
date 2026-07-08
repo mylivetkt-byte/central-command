@@ -5,6 +5,15 @@ import { Info } from "lucide-react";
 
 const CHANGELOG = [
   {
+    version: "0.2.0",
+    changes: [
+      "Despacho dirigido: asignar pedido directamente a un mensajero específico",
+      "Badge de versión visible en la pestaña Cuenta",
+      "Corrección de estadísticas del día usando hora local",
+      "Mejora de contraste en Historial de entregas",
+    ],
+  },
+  {
     version: "0.1.0",
     changes: [
       "Lanzamiento inicial de la app del conductor",
