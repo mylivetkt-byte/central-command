@@ -93,7 +93,7 @@ function useVibration(active: boolean) {
 const NewOrderAlert = ({ order, timeoutSeconds = 30, onAccept, onReject, onTimeout }: Props) => {
   const active = !!order;
   const [remaining, setRemaining] = useState(timeoutSeconds);
-  const [showReasons, setShowReasons] = useState(false);
+  const [showReasons] = useState(false);
 
   useAlertSound(active);
   useVibration(active);
@@ -101,7 +101,6 @@ const NewOrderAlert = ({ order, timeoutSeconds = 30, onAccept, onReject, onTimeo
   useEffect(() => {
     if (!active) return;
     setRemaining(timeoutSeconds);
-    setShowReasons(false);
     const start = Date.now();
     const id = window.setInterval(() => {
       const left = Math.max(0, timeoutSeconds - Math.floor((Date.now() - start) / 1000));
@@ -118,7 +117,7 @@ const NewOrderAlert = ({ order, timeoutSeconds = 30, onAccept, onReject, onTimeo
   const R = 46;
   const C = 2 * Math.PI * R;
 
-  const handleRejectClick = () => setShowReasons(true);
+  const handleRejectClick = () => onReject();
   const handleReasonSelect = (reason: string) => onReject(reason);
 
   return (
