@@ -119,7 +119,15 @@ export const ProtectedRoute = ({ children, requiredRole, redirectTo }: Props) =>
   // Rol incorrecto para esta ruta → login del rol correcto
   // super_admin también puede acceder a rutas de admin
   const hasAccess = role === requiredRole || (requiredRole === "admin" && role === "super_admin");
-  if (!hasAccess) return <Navigate to={redirectTo} replace />;
+  if (!hasAccess) {
+    // Si ya tiene un rol válido pero intentó entrar a una ruta equivocada, lo mandamos a su inicio
+    if (role === "driver") return <Navigate to="/driver" replace />;
+    if (role === "admin") return <Navigate to="/" replace />;
+    if (role === "super_admin") return <Navigate to="/saas/dashboard" replace />;
+    
+    // Si por alguna razón no coincide, lo mandamos a la ruta de login especificada
+    return <Navigate to={redirectTo} replace />;
+  }
 
   return <>{children}</>;
 };

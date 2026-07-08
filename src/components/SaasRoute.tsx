@@ -27,7 +27,11 @@ export const SaasRoute = ({ children }: { children: ReactNode }) => {
     );
   }
 
-  if (role !== "super_admin") return <Navigate to="/saas/login" replace />;
+  if (role !== "super_admin") {
+    if (role === "driver") return <Navigate to="/driver" replace />;
+    if (role === "admin") return <Navigate to="/" replace />;
+    return <Navigate to="/saas/login" replace />;
+  }
 
   return <>{children}</>;
 };

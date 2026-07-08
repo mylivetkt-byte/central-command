@@ -9,6 +9,7 @@ import { CompanyProvider, useCompany } from "@/hooks/useCompany";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import { useAuth } from "@/hooks/useAuth";
 import { SaasRoute } from "@/components/SaasRoute";
+import { ReloadPrompt } from "@/components/ReloadPrompt";
 import Dashboard from "./pages/Dashboard";
 import Analytics from "./pages/Analytics";
 import Operations from "./pages/Operations";
@@ -62,6 +63,7 @@ const App = () => (
     <TooltipProvider>
       <Toaster />
       <Sonner />
+      <ReloadPrompt />
       <HashRouter>
         <AuthProvider>
           <CompanyProvider>
