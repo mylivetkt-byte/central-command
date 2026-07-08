@@ -224,23 +224,23 @@ const Dispatch = () => {
       <div className="max-w-[1200px] mx-auto space-y-8 animate-in fade-in duration-700">
         
         {/* Cabecera Admin Premium */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 p-8 bg-card border border-white/5 rounded-[32px] shadow-2xl">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 p-8 bg-white border border-slate-200 rounded-[32px] shadow-lg">
           <div>
             <div className="flex items-center gap-3 mb-2">
-                <div className="p-2 bg-indigo-500/20 rounded-xl">
-                    <Navigation className="h-6 w-6 text-indigo-500" />
+                <div className="p-2 bg-emerald-100 rounded-xl">
+                    <Navigation className="h-6 w-6 text-emerald-600" />
                 </div>
-                <h1 className="text-3xl font-black tracking-tight text-white">Central de Despacho</h1>
+                <h1 className="text-3xl font-black tracking-tight text-slate-900">Central de Despacho</h1>
             </div>
-            <p className="text-sm text-white/40 font-medium">Gestiona la logística de tu flota en tiempo real.</p>
+            <p className="text-sm text-slate-500 font-medium">Gestiona la logística de tu flota en tiempo real.</p>
           </div>
           
           <button
             onClick={() => setShowNewForm(true)}
-            className="group relative flex items-center gap-3 rounded-2xl bg-indigo-600 px-8 py-4 text-sm font-black text-white hover:bg-indigo-500 transition-all shadow-xl shadow-indigo-600/20 active:scale-95"
+            className="group relative flex items-center gap-3 rounded-2xl bg-emerald-600 px-8 py-4 text-sm font-black text-white hover:bg-emerald-500 transition-all shadow-xl shadow-emerald-600/20 active:scale-95"
           >
             <Plus className="h-5 w-5" /> PUBLICAR NUEVO ENVÍO
-            <div className="absolute -top-1 -right-1 h-4 w-4 bg-emerald-500 rounded-full animate-ping pointer-events-none" />
+            <div className="absolute -top-1 -right-1 h-4 w-4 bg-green-400 rounded-full animate-ping pointer-events-none" />
           </button>
         </div>
 
@@ -262,11 +262,11 @@ const Dispatch = () => {
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                         <div className="space-y-2">
                                             <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Cliente Receptor</label>
-                                            <input value={form.customer_name} onChange={(e) => handleFormChange("customer_name", e.target.value)} placeholder="Nombre completo" required className="w-full h-14 rounded-2xl bg-slate-50 border-transparent focus:bg-white focus:ring-4 focus:ring-indigo-100 transition-all px-6 text-sm font-bold text-slate-800" />
+                                            <input value={form.customer_name} onChange={(e) => handleFormChange("customer_name", e.target.value)} placeholder="Nombre completo" required className="w-full h-14 rounded-2xl bg-slate-50 border-transparent focus:bg-white focus:ring-4 focus:ring-emerald-100 transition-all px-6 text-sm font-bold text-slate-800" />
                                         </div>
                                         <div className="space-y-2">
                                             <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Teléfono Contacto</label>
-                                            <input value={form.customer_phone} onChange={(e) => handleFormChange("customer_phone", e.target.value)} placeholder="+57 3..." className="w-full h-14 rounded-2xl bg-slate-50 border-transparent focus:bg-white focus:ring-4 focus:ring-indigo-100 transition-all px-6 text-sm font-bold text-slate-800" />
+                                            <input value={form.customer_phone} onChange={(e) => handleFormChange("customer_phone", e.target.value)} placeholder="+57 3..." className="w-full h-14 rounded-2xl bg-slate-50 border-transparent focus:bg-white focus:ring-4 focus:ring-emerald-100 transition-all px-6 text-sm font-bold text-slate-800" />
                                         </div>
                                     </div>
 
@@ -308,7 +308,7 @@ const Dispatch = () => {
                                           onChange={(e) => handleFormChange("notes", e.target.value)}
                                           placeholder="Instrucciones especiales: apartamento, referencia, indicaciones de entrega, etc."
                                           rows={3}
-                                          className="w-full rounded-2xl bg-slate-50 border-transparent focus:bg-white focus:ring-4 focus:ring-indigo-100 transition-all px-6 py-4 text-sm font-medium text-slate-800 resize-none"
+                                          className="w-full rounded-2xl bg-slate-50 border-transparent focus:bg-white focus:ring-4 focus:ring-emerald-100 transition-all px-6 py-4 text-sm font-medium text-slate-800 resize-none"
                                         />
                                     </div>
 
@@ -321,7 +321,7 @@ const Dispatch = () => {
                                           onClick={() => { setDispatchMode("todos"); setTargetDriverId(null); }}
                                           className={`flex items-center gap-2 p-4 rounded-2xl border-2 transition-all text-sm font-black ${
                                             dispatchMode === "todos"
-                                              ? "border-indigo-500 bg-indigo-50 text-indigo-700"
+                                              ? "border-emerald-500 bg-emerald-50 text-emerald-700"
                                               : "border-slate-200 bg-slate-50 text-slate-500 hover:border-slate-300"
                                           }`}
                                         >
@@ -382,7 +382,7 @@ const Dispatch = () => {
                                     <button
                                       type="submit"
                                       disabled={createDelivery.isPending || (dispatchMode === "especifico" && !targetDriverId)}
-                                      className="w-full h-16 rounded-2xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-black transition-all shadow-xl shadow-indigo-100 flex items-center justify-center gap-3"
+                                      className="w-full h-16 rounded-2xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-black transition-all shadow-xl shadow-emerald-100 flex items-center justify-center gap-3"
                                     >
                                       <Send /> {createDelivery.isPending ? "PROCESANDO..." : dispatchMode === "especifico" && targetDriverId ? "ASIGNAR AL MENSAJERO" : "PUBLICAR SERVICIO AHORA"}
                                     </button>
@@ -392,49 +392,49 @@ const Dispatch = () => {
                     )}
                 </AnimatePresence>
 
-                <div className="bg-card border border-white/5 rounded-[32px] p-6 space-y-4 shadow-xl">
+                <div className="bg-white border border-slate-200 rounded-[32px] p-6 space-y-4 shadow-lg">
                     <div className="flex items-center justify-between px-4 pb-2">
-                        <h3 className="text-sm font-black text-white/30 uppercase tracking-widest">Envíos en Curso</h3>
+                        <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">Envíos en Curso</h3>
                         <div className="flex items-center gap-2">
-                            <RefreshCw className={`h-3.5 w-3.5 text-white/20 ${loadingPending ? 'animate-spin' : ''}`} />
-                            <span className="text-xs font-black text-white/20">{pending.length}</span>
+                            <RefreshCw className={`h-3.5 w-3.5 text-slate-400 ${loadingPending ? 'animate-spin' : ''}`} />
+                            <span className="text-xs font-black text-slate-400">{pending.length}</span>
                         </div>
                     </div>
                     
                     <div className="space-y-3 max-h-[600px] overflow-y-auto custom-scrollbar pr-2">
                         {pending.map((d: any) => (
-                            <motion.div key={d.id} className={`p-5 rounded-3xl border transition-all cursor-pointer ${selectedOrder === d.id ? 'bg-indigo-500/10 border-indigo-500 shadow-xl' : 'bg-white/5 border-transparent hover:bg-white/10'}`} onClick={() => setSelectedOrder(selectedOrder === d.id ? null : d.id)}>
+                            <motion.div key={d.id} className={`p-5 rounded-3xl border transition-all cursor-pointer ${selectedOrder === d.id ? 'bg-emerald-50 border-emerald-500 shadow-md' : 'bg-slate-50 border-slate-100 hover:bg-slate-100 hover:border-slate-200'}`} onClick={() => setSelectedOrder(selectedOrder === d.id ? null : d.id)}>
                                 <div className="flex items-center justify-between mb-4">
                                     <div className="flex items-center gap-3">
-                                        <div className="h-10 w-10 rounded-xl bg-slate-800 flex items-center justify-center font-black text-white text-xs">#{d.order_id.slice(-4)}</div>
+                                        <div className="h-10 w-10 rounded-xl bg-slate-200 flex items-center justify-center font-black text-slate-700 text-xs">#{d.order_id.slice(-4)}</div>
                                         <div>
-                                            <p className="text-sm font-black text-white">{d.customer_name}</p>
-                                            <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest">{d.status}</p>
+                                            <p className="text-sm font-black text-slate-900">{d.customer_name}</p>
+                                            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{d.status}</p>
                                         </div>
                                     </div>
                                     <div className="text-right">
-                                        <p className="text-sm font-black text-emerald-400">{formatCurrency(d.commission)}</p>
-                                        <p className="text-[10px] text-white/20 font-bold">GANANCIA</p>
+                                        <p className="text-sm font-black text-emerald-600">{formatCurrency(d.commission)}</p>
+                                        <p className="text-[10px] text-slate-400 font-bold">GANANCIA</p>
                                     </div>
                                 </div>
-                                <div className="space-y-2 border-t border-white/5 pt-4">
+                                <div className="space-y-2 border-t border-slate-100 pt-4">
                                     <div className="flex items-start gap-3">
                                         <div className="h-2 w-2 rounded-full bg-emerald-500 mt-1" />
-                                        <p className="text-xs text-white/60 font-medium truncate">{d.pickup_address}</p>
+                                        <p className="text-xs text-slate-600 font-medium truncate">{d.pickup_address}</p>
                                     </div>
                                     <div className="flex items-start gap-3">
-                                        <div className="h-2 w-2 rounded-full bg-indigo-500 mt-1" />
-                                        <p className="text-xs text-white/60 font-medium truncate">{d.delivery_address}</p>
+                                        <div className="h-2 w-2 rounded-full bg-slate-400 mt-1" />
+                                        <p className="text-xs text-slate-600 font-medium truncate">{d.delivery_address}</p>
                                     </div>
                                 </div>
                                 {selectedOrder === d.id && d.status === 'pendiente' && (
-                                    <div className="border-t border-white/5 pt-4 mt-4 flex justify-end">
+                                    <div className="border-t border-slate-100 pt-4 mt-4 flex justify-end">
                                         <button
                                             onClick={(e) => {
                                                 e.stopPropagation();
                                                 handleRepublish(d.id);
                                             }}
-                                            className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 px-4 py-2 text-xs font-black text-white shadow-lg transition-all active:scale-95"
+                                            className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 px-4 py-2 text-xs font-black text-white shadow-md transition-all active:scale-95"
                                         >
                                             <Send className="h-3 w-3" /> Republicar a Mensajeros
                                         </button>
@@ -448,24 +448,24 @@ const Dispatch = () => {
 
             {/* Sidebar de Repartidores (40%) */}
             <div className="lg:col-span-4 space-y-6">
-                <div className="bg-card border border-white/5 rounded-[32px] p-6 shadow-xl h-full">
-                    <h3 className="text-sm font-black text-white/30 uppercase tracking-widest mb-6 flex items-center gap-2">
+                <div className="bg-white border border-slate-200 rounded-[32px] p-6 shadow-lg h-full">
+                    <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-6 flex items-center gap-2">
                         <UserCheck className="h-4 w-4" /> Mensajeros Online
                     </h3>
                     
                     <div className="space-y-4">
                         {availableDrivers.map((d: any) => (
-                            <div key={d.id} className="p-4 rounded-2xl bg-white/5 border border-transparent hover:border-white/10 flex items-center justify-between transition-all group">
+                            <div key={d.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-100 hover:border-slate-200 hover:bg-slate-100 flex items-center justify-between transition-all group">
                                 <div className="flex items-center gap-4">
                                     <div className="relative">
-                                        <div className="h-12 w-12 rounded-2xl bg-indigo-500/20 flex items-center justify-center font-black text-indigo-400 capitalize">
+                                        <div className="h-12 w-12 rounded-2xl bg-emerald-100 flex items-center justify-center font-black text-emerald-600 capitalize">
                                             {d.profiles?.full_name?.[0] || 'M'}
                                         </div>
-                                        <div className="absolute -bottom-1 -right-1 h-4 w-4 bg-emerald-500 rounded-full border-4 border-slate-900" />
+                                        <div className="absolute -bottom-1 -right-1 h-4 w-4 bg-emerald-500 rounded-full border-4 border-white" />
                                     </div>
                                     <div>
-                                        <p className="text-sm font-black text-white">{d.profiles?.full_name}</p>
-                                        <p className="text-[10px] text-white/30 font-bold uppercase">{d.rating || 5.0} ⭐ · {d.current_load} pedidos</p>
+                                        <p className="text-sm font-black text-slate-900">{d.profiles?.full_name}</p>
+                                        <p className="text-[10px] text-slate-500 font-bold uppercase">{d.rating || 5.0} ⭐ · {d.current_load} pedidos</p>
                                     </div>
                                 </div>
                                 
@@ -494,7 +494,7 @@ const Dispatch = () => {
                 className="overflow-hidden"
               >
                 <div className="max-w-[600px] mx-auto">
-                  <div className="bg-slate-900 rounded-[32px] border border-white/5 overflow-hidden shadow-2xl p-4">
+                  <div className="bg-white rounded-[32px] border border-slate-200 overflow-hidden shadow-lg p-4">
                     <ChatBubble
                       deliveryId={order.id}
                       currentUserId={user.id}
@@ -512,7 +512,7 @@ const Dispatch = () => {
             .dispatch-autocomplete input { height: 3.5rem !important; border-radius: 1rem !important; padding-left: 3.5rem !important; }
             .dispatch-autocomplete .absolute.left-3 { left: 1.5rem !important; }
             .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-            .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.05); border-radius: 10px; }
+            .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 10px; }
         `}} />
       </div>
     </DashboardLayout>

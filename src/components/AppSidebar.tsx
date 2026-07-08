@@ -54,7 +54,7 @@ export const AppSidebar = () => {
 
   return (
     <aside
-      className={`fixed left-0 top-0 z-40 flex h-screen flex-col border-r border-border bg-sidebar transition-all duration-300 ${collapsed ? "w-16" : "w-60"}`}
+      className={`fixed left-0 top-0 z-40 flex h-screen flex-col border-r border-slate-200 bg-white shadow-xl transition-all duration-300 ${collapsed ? "w-16" : "w-60"}`}
     >
       {brandColorHsl && company?.primary_color && (
         <style>{`
@@ -75,24 +75,24 @@ export const AppSidebar = () => {
         `}</style>
       )}
 
-      <div className="flex h-16 items-center justify-between px-4 border-b border-border">
+      <div className="flex h-16 items-center justify-between px-4 border-b border-slate-100">
         {!collapsed && (
           <div className="flex items-center gap-2 font-black">
-            <div className="h-8 w-8 rounded-sm flex items-center justify-center overflow-hidden bg-muted">
+            <div className="h-8 w-8 rounded-sm flex items-center justify-center overflow-hidden bg-slate-100">
               {company?.logo_url ? (
                 <img src={company.logo_url} alt="Logo" className="h-full w-full object-cover" />
               ) : (
-                <Truck className="h-4 w-4 text-primary-foreground" />
+                <Truck className="h-4 w-4 text-emerald-600" />
               )}
             </div>
-            <span className="text-sm font-black text-foreground uppercase tracking-tight truncate max-w-[130px]">
+            <span className="text-sm font-black text-slate-900 uppercase tracking-tight truncate max-w-[130px]">
               {company?.name || "GoMoto Command"}
             </span>
           </div>
         )}
         <button
           onClick={() => setCollapsed(!collapsed)}
-          className="rounded-sm p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+          className="rounded-sm p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-900 transition-colors"
         >
           {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
         </button>
@@ -120,8 +120,8 @@ export const AppSidebar = () => {
                 to={to}
                 className={`flex items-center gap-3 rounded-sm px-3 py-2.5 text-sm font-bold transition-all ${
                   active
-                    ? "bg-white text-black shadow-lg"
-                    : "text-sidebar-foreground hover:bg-muted hover:text-foreground"
+                    ? "bg-emerald-50 text-emerald-700 shadow-sm"
+                    : "text-slate-500 hover:bg-slate-50 hover:text-slate-900"
                 }`}
               >
                 <Icon className="h-4 w-4 shrink-0" />
@@ -131,20 +131,20 @@ export const AppSidebar = () => {
           })}
       </nav>
 
-      <div className="border-t border-border p-3 space-y-2">
+      <div className="border-t border-slate-100 p-3 space-y-2">
 
 
         {!collapsed && (
-          <div className="rounded-sm bg-muted/30 p-3 border border-border/50">
-            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider truncate">{user?.email}</p>
-            <p className="text-[10px] text-white font-black bg-black px-1.5 py-0.5 inline-block mt-1">
+          <div className="rounded-sm bg-slate-50 p-3 border border-slate-100">
+            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider truncate">{user?.email}</p>
+            <p className="text-[10px] text-white font-black bg-emerald-600 px-1.5 py-0.5 inline-block mt-1">
               {role === "super_admin" ? "SUPER ADMIN" : "ADMINISTRADOR"}
             </p>
           </div>
         )}
         <button
           onClick={signOut}
-          className="flex items-center gap-2 w-full rounded-sm px-3 py-2 text-sm font-bold text-muted-foreground hover:bg-destructive hover:text-destructive-foreground transition-colors"
+          className="flex items-center gap-2 w-full rounded-sm px-3 py-2 text-sm font-bold text-slate-500 hover:bg-red-50 hover:text-red-600 transition-colors"
         >
           <LogOut className="h-4 w-4 shrink-0" />
           {!collapsed && <span>SALIR</span>}
