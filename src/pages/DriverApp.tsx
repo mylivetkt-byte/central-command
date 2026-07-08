@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Switch } from "@/components/ui/switch";
-import { Package, History, Power, LogOut, Bike, LayoutGrid, Battery, BatteryCharging, Flame, Trophy, Zap, AlertTriangle, AlertCircle } from "lucide-react";
+import { Package, History, Power, LogOut, Bike, Home, User, Map as MapIcon, Receipt, Battery, BatteryCharging, Flame, Trophy, Zap, AlertTriangle, AlertCircle, Coins } from "lucide-react";
 import { toast } from "sonner";
 import { AnimatePresence, motion } from "framer-motion";
 import { useDriverLocation } from "@/hooks/useDriverLocation";
@@ -41,8 +41,7 @@ const DriverApp = () => {
   const { user, signOut } = useAuth();
   const [pendingOrders, setPendingOrders]     = useState<DeliveryOrder[]>([]);
   const [activeDeliveries, setActiveDeliveries] = useState<DeliveryOrder[]>([]);
-  const [activeTab, setActiveTab]             = useState<"orders" | "history">("orders");
-  const [viewMode, setViewMode]               = useState<"feed" | "map">("map");
+  const [activeTab, setActiveTab]             = useState<"inicio" | "pedidos" | "mapa" | "historial" | "cuenta">("inicio");
   const [isAvailable, setIsAvailable]         = useState(false);
   const [toggling, setToggling]               = useState(false);
   const [driverProfile, setDriverProfile]     = useState<any>(null);
@@ -456,319 +455,288 @@ const DriverApp = () => {
   const hasStreakBonus = deliveryStreak > 0 && deliveryStreak % STREAK_BONUS_THRESHOLD === 0;
 
   return (
-    <div className="fixed inset-0 bg-slate-950 flex flex-col overflow-hidden">
+    <div className="fixed inset-0 bg-[#f5f6f7] flex flex-col overflow-hidden">
 
-      {/* ── HEADER ── */}
-      <header className="bg-slate-900/60 backdrop-blur-2xl border-b border-white/5 px-5 pt-5 pb-4 space-y-4 z-40">
-
-        {/* Fila superior */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="relative">
-              <div className="h-11 w-11 rounded-2xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center font-black text-white text-sm shadow-xl shadow-indigo-500/20">
+      {/* ── HEADER CARD (siempre visible salvo en Mapa fullscreen) ── */}
+      {activeTab !== "mapa" && (
+        <header className="px-4 pt-5 pb-3">
+          <div className={`flex items-center justify-between rounded-3xl bg-white px-4 py-3 border-2 ${isAvailable ? "border-green-500 shadow-[0_0_0_4px_rgba(34,197,94,0.08)]" : "border-slate-200"}`}>
+            <div className="flex items-center gap-3 min-w-0">
+              <div className={`h-11 w-11 rounded-full flex items-center justify-center font-black text-white text-sm ${isAvailable ? "bg-slate-700 ring-2 ring-green-500 ring-offset-2 ring-offset-white" : "bg-slate-400"}`}>
                 {initials}
               </div>
-              {isAvailable && <div className="absolute -bottom-1 -right-1 h-3.5 w-3.5 bg-emerald-500 rounded-full border-2 border-slate-900 animate-pulse" />}
+              <div className="min-w-0">
+                <p className="text-base font-black text-slate-900 leading-tight truncate">{name}</p>
+                <p className="text-xs text-slate-500 flex items-center gap-1.5">
+                  <span className={`h-2 w-2 rounded-full ${isAvailable ? "bg-green-500" : "bg-slate-300"}`} />
+                  {isAvailable ? "Conectado" : "Desconectado"}
+                </p>
+              </div>
             </div>
-            <div>
-              <p className="text-sm font-bold text-white leading-tight">{name}</p>
-              <p className="text-[10px] text-white/40">{isAvailable ? "En línea" : "Desconectado"}</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setBatterySaver(!batterySaver)}
-              className={`h-8 w-8 rounded-xl flex items-center justify-center transition-all ${batterySaver ? 'bg-emerald-500/20 text-emerald-400' : 'bg-white/5 text-white/30'}`}
-              title={batterySaver ? "Modo ahorro activo" : "Modo ahorro desactivado"}
-            >
-              {batterySaver ? <BatteryCharging className="h-4 w-4" /> : <Battery className="h-4 w-4" />}
-            </button>
             <div className="text-right">
-              <p className="text-[9px] text-white/30 uppercase tracking-widest">Hoy</p>
-              <p className="text-sm font-black text-emerald-400">{fmt(earningsToday)}</p>
-            </div>
-            <button onClick={signOut} className="h-9 w-9 rounded-xl bg-white/5 flex items-center justify-center hover:bg-white/10 transition-colors">
-              <LogOut className="h-4 w-4 text-white/50" />
-            </button>
-          </div>
-        </div>
-
-        {/* Banners de Estado */}
-        {driverProfile?.status === "pendiente" && (
-          <div className="flex items-center gap-2.5 rounded-2xl bg-yellow-500/10 border border-yellow-500/20 p-3.5 text-yellow-400">
-            <AlertTriangle className="h-5 w-5 shrink-0" />
-            <div>
-              <p className="text-xs font-bold">Cuenta pendiente de aprobación</p>
-              <p className="text-[10px] text-yellow-500/80">La empresa de mensajería debe autorizar tu cuenta para recibir pedidos.</p>
-            </div>
-          </div>
-        )}
-        {driverProfile?.status === "suspendido" && (
-          <div className="flex items-center gap-2.5 rounded-2xl bg-red-500/10 border border-red-500/20 p-3.5 text-red-400">
-            <AlertCircle className="h-5 w-5 shrink-0" />
-            <div>
-              <p className="text-xs font-bold">Cuenta suspendida</p>
-              <p className="text-[10px] text-red-500/80">Tu cuenta ha sido suspendida. Comunícate con tu empresa de mensajería.</p>
-            </div>
-          </div>
-        )}
-
-        {/* Banner de instalación PWA (para Android/iOS) */}
-        {showInstallBanner && driverProfile?.status === "activo" && (
-          <div className="flex items-center justify-between gap-3 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 p-3.5 text-indigo-400">
-            <div className="flex items-start gap-2.5">
-              <Bike className="h-5 w-5 shrink-0 mt-0.5 animate-bounce" />
-              <div>
-                <p className="text-xs font-bold text-white">Instala la App en tu Celular</p>
-                <p className="text-[10px] text-white/60">Ten acceso directo y recibe notificaciones más rápido.</p>
-              </div>
-            </div>
-            <button
-              onClick={() => {
-                if (isIOS) {
-                  setShowIOSPrompt(true);
-                } else {
-                  handleInstallPWA();
-                }
-              }}
-              className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-black text-white hover:bg-indigo-500 transition-colors shrink-0"
-            >
-              Instalar
-            </button>
-          </div>
-        )}
-
-        {/* Toggle disponibilidad */}
-        <div
-          onClick={toggleAvailability}
-          className={`flex items-center justify-between p-3 rounded-2xl border cursor-pointer transition-all active:scale-[0.98] ${
-            isAvailable ? "bg-emerald-500/10 border-emerald-500/30" : "bg-white/5 border-white/5"
-          }`}
-        >
-          <div className="flex items-center gap-3">
-            <div className={`h-9 w-9 rounded-xl flex items-center justify-center ${isAvailable ? "bg-emerald-500/20" : "bg-white/5"}`}>
-              <Power className={`h-4 w-4 ${isAvailable ? "text-emerald-400" : "text-white/30"}`} />
-            </div>
-            <div>
-              <p className={`text-sm font-bold ${isAvailable ? "text-emerald-400" : "text-white/60"}`}>
-                {isAvailable ? "Estás en línea" : "Estás desconectado"}
-              </p>
-              <p className="text-[10px] text-white/30">
-                {isAvailable ? "Recibiendo pedidos · GPS activo" : "Toca para conectarte"}
+              <p className="text-xl font-black text-slate-900 leading-tight">{fmt(earningsToday)}</p>
+              <p className="text-[11px] text-slate-500 flex items-center gap-1 justify-end">
+                <Coins className="h-3 w-3" /> Hoy
               </p>
             </div>
           </div>
-          <Switch
-            checked={isAvailable}
-            disabled={toggling}
-            className="data-[state=checked]:bg-emerald-500 pointer-events-none"
-          />
-        </div>
 
-        {/* Stats + Goals */}
-        {driverProfile && (
-          <>
-            <div className="grid grid-cols-3 gap-2">
-              {[
-                { label: "Entregas", value: driverProfile.total_deliveries ?? 0, color: "text-white" },
-                { label: "Rating",   value: `⭐ ${driverProfile.rating ?? "—"}`, color: "text-amber-400" },
-                { label: "Aceptación", value: `${driverProfile.acceptance_rate ?? 0}%`, color: "text-indigo-400" },
-              ].map(s => (
-                <div key={s.label} className="bg-white/5 rounded-2xl p-2.5 text-center border border-white/5">
-                  <p className={`text-lg font-black leading-none ${s.color}`}>{s.value}</p>
-                  <p className="text-[9px] text-white/30 uppercase tracking-wider mt-1">{s.label}</p>
-                </div>
-              ))}
-            </div>
-
-            {/* Goals */}
-            <div className="space-y-2">
+          {/* Banners de Estado */}
+          {driverProfile?.status === "pendiente" && (
+            <div className="mt-3 flex items-center gap-2.5 rounded-2xl bg-yellow-50 border border-yellow-200 p-3 text-yellow-700">
+              <AlertTriangle className="h-5 w-5 shrink-0" />
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[9px] font-bold text-white/40 uppercase tracking-wider flex items-center gap-1"><Trophy className="h-3 w-3 text-amber-400" /> Meta diaria</span>
-                  <span className="text-[10px] font-bold text-white/70">{deliveriesToday}/{DAILY_GOAL_DELIVERIES}</span>
-                </div>
-                <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
-                  <div className="h-full bg-gradient-to-r from-amber-500 to-amber-400 rounded-full transition-all duration-500" style={{ width: `${goalDeliveriesPct}%` }} />
+                <p className="text-xs font-bold">Cuenta pendiente de aprobación</p>
+                <p className="text-[10px]">La empresa debe autorizar tu cuenta.</p>
+              </div>
+            </div>
+          )}
+          {driverProfile?.status === "suspendido" && (
+            <div className="mt-3 flex items-center gap-2.5 rounded-2xl bg-red-50 border border-red-200 p-3 text-red-700">
+              <AlertCircle className="h-5 w-5 shrink-0" />
+              <div>
+                <p className="text-xs font-bold">Cuenta suspendida</p>
+                <p className="text-[10px]">Comunícate con tu empresa.</p>
+              </div>
+            </div>
+          )}
+
+          {showInstallBanner && driverProfile?.status === "activo" && (
+            <div className="mt-3 flex items-center justify-between gap-3 rounded-2xl bg-green-50 border border-green-200 p-3">
+              <div className="flex items-start gap-2.5">
+                <Bike className="h-5 w-5 shrink-0 mt-0.5 text-green-600 animate-bounce" />
+                <div>
+                  <p className="text-xs font-bold text-slate-800">Instala la App</p>
+                  <p className="text-[10px] text-slate-500">Acceso directo y notificaciones más rápidas.</p>
                 </div>
               </div>
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-[9px] font-bold text-white/40 uppercase tracking-wider flex items-center gap-1"><Zap className="h-3 w-3 text-indigo-400" /> Meta semanal</span>
-                  <span className="text-[10px] font-bold text-white/70">{fmt(earningsWeek)}/{fmt(WEEKLY_GOAL_EARNINGS)}</span>
-                </div>
-                <div className="h-1.5 bg-white/5 rounded-full overflow-hidden">
-                  <div className="h-full bg-gradient-to-r from-indigo-500 to-violet-500 rounded-full transition-all duration-500" style={{ width: `${goalEarningsPct}%` }} />
-                </div>
-              </div>
-              {/* Streak */}
-              {deliveryStreak > 0 && (
-                <div className="flex items-center gap-2 bg-white/5 rounded-xl px-3 py-2 border border-white/5">
-                  <Flame className={`h-4 w-4 ${hasStreakBonus ? 'text-orange-400' : 'text-white/40'}`} />
-                  <span className="text-xs font-bold text-white/70">{deliveryStreak} entregas consecutivas</span>
-                  {hasStreakBonus && <span className="text-[9px] font-black text-orange-400 uppercase tracking-wider ml-auto">🔥 BONO ACTIVO</span>}
-                </div>
-              )}
-            </div>
-          </>
-        )}
-
-        {/* Feed / Mapa switcher */}
-        {activeTab === "orders" && (
-          <div className="bg-white/5 p-1 rounded-2xl flex gap-1 border border-white/5">
-            {[["feed", "Feed"], ["map", "Mapa"]].map(([mode, label]) => (
               <button
-                key={mode}
-                onClick={() => setViewMode(mode as "feed" | "map")}
-                className={`flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
-                  viewMode === mode ? "bg-indigo-600 text-white shadow-lg" : "text-white/30 hover:text-white/50"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        )}
-      </header>
+                onClick={() => { if (isIOS) setShowIOSPrompt(true); else handleInstallPWA(); }}
+                className="rounded-lg bg-green-600 px-3 py-1.5 text-xs font-black text-white hover:bg-green-700 transition-colors shrink-0"
+              >Instalar</button>
+            </div>
+          )}
+        </header>
+      )}
 
       {/* ── CONTENIDO ── */}
       <main className="flex-1 relative overflow-hidden">
         <AnimatePresence mode="wait">
-          {activeTab === "orders" ? (
-            <motion.div key={viewMode} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full w-full">
 
-              {viewMode === "map" && (
-                <div className="h-full w-full">
-                  <NearbyOrdersMap
-                    orders={pendingOrders}
-                    currentLocation={currentLocation}
-                    onAcceptOrder={(id) => {
-                      const o = pendingOrders.find(o => o.id === id);
-                      if (o) acceptOrder(o);
-                    }}
-                  />
-                </div>
-              )}
+          {activeTab === "inicio" && (
+            <motion.div key="inicio" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full w-full flex flex-col items-center justify-center pb-32 px-6">
+              <button
+                onClick={toggleAvailability}
+                disabled={toggling || driverProfile?.status === "pendiente" || driverProfile?.status === "suspendido"}
+                className={`relative h-56 w-56 rounded-full bg-white flex items-center justify-center transition-all active:scale-95 disabled:opacity-50 ${
+                  isAvailable
+                    ? "border-[10px] border-green-500 shadow-[0_0_60px_rgba(34,197,94,0.55)]"
+                    : "border-[10px] border-slate-300 shadow-[0_0_30px_rgba(0,0,0,0.08)]"
+                }`}
+              >
+                <Power className={`h-24 w-24 ${isAvailable ? "text-green-500" : "text-slate-400"}`} strokeWidth={2.5} />
+              </button>
+              <p className="mt-8 text-lg text-slate-600 font-medium">
+                {isAvailable ? "Toca para desconectarte" : "Toca para conectarte"}
+              </p>
+            </motion.div>
+          )}
 
-              {viewMode === "feed" && (
-                <div className="h-full overflow-y-auto px-5 pt-5 pb-32 space-y-4">
-                  <div className="flex items-center justify-between">
-                    <p className="text-[10px] font-black text-white/30 uppercase tracking-widest">Servicios disponibles</p>
-                    <span className="bg-indigo-600/20 text-indigo-400 text-[9px] font-black px-3 py-1 rounded-full border border-indigo-600/30">
-                      {pendingOrders.length} disponibles
-                    </span>
+          {activeTab === "pedidos" && (
+            <motion.div key="pedidos" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full overflow-y-auto px-4 pt-2 pb-32 space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Servicios disponibles</p>
+                <span className="bg-green-100 text-green-700 text-[10px] font-black px-3 py-1 rounded-full">
+                  {pendingOrders.length} disponibles
+                </span>
+              </div>
+              {!isAvailable ? (
+                <div className="flex flex-col items-center justify-center py-20 gap-3">
+                  <div className="h-20 w-20 bg-white rounded-3xl flex items-center justify-center border border-slate-200">
+                    <Power className="h-10 w-10 text-slate-300" />
                   </div>
-
-                  {!isAvailable ? (
-                    <div className="flex flex-col items-center justify-center py-20 gap-4">
-                      <div className="h-20 w-20 bg-white/5 rounded-3xl flex items-center justify-center border border-white/5">
-                        <Power className="h-10 w-10 text-white/10" />
-                      </div>
-                      <p className="text-xs font-black text-white/20 uppercase tracking-widest text-center">
-                        Actívate para recibir pedidos
-                      </p>
-                    </div>
-                  ) : pendingOrders.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-20 gap-4">
-                      <div className="h-20 w-20 bg-white/5 rounded-3xl flex items-center justify-center border border-white/5">
-                        <Package className="h-10 w-10 text-white/10" />
-                      </div>
-                      <p className="text-xs font-black text-white/20 uppercase tracking-widest text-center">
-                        Buscando pedidos cercanos...
-                      </p>
-                    </div>
-                  ) : (
-                    pendingOrders.map(order => (
-                      <motion.div
-                        key={order.id}
-                        initial={{ y: 20, opacity: 0 }}
-                        animate={{ y: 0, opacity: 1 }}
-                        className="bg-slate-900 border border-white/5 rounded-3xl p-5 shadow-2xl"
-                      >
-                        <div className="flex justify-between items-start mb-4">
-                          <div>
-                            <div className="flex items-center gap-2 mb-1">
-                              <div className="h-2 w-2 bg-emerald-500 rounded-full animate-pulse" />
-                              <span className="text-[9px] font-black text-emerald-500 uppercase tracking-widest">Nueva solicitud</span>
-                            </div>
-                            <p className="text-xs text-white/40">#{order.order_id} · {order.zone || "Sin zona"}</p>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-[9px] text-white/30 uppercase mb-1">Ganancia</p>
-                            <p className="text-2xl font-black text-indigo-400">{fmt(order.commission)}</p>
-                          </div>
-                        </div>
-
-                        <div className="flex gap-3 mb-5">
-                          <div className="flex flex-col items-center pt-1">
-                            <div className="h-3 w-3 bg-emerald-500 rounded-full" />
-                            <div className="w-px flex-1 bg-gradient-to-b from-emerald-500 to-indigo-500 my-1 min-h-[20px]" />
-                            <div className="h-3 w-3 bg-indigo-500 rounded-full" />
-                          </div>
-                          <div className="flex-1 space-y-4">
-                            <div>
-                              <p className="text-[8px] text-white/30 uppercase tracking-widest mb-0.5">Recoger en</p>
-                              <p className="text-xs font-semibold text-white leading-tight">{order.pickup_address}</p>
-                            </div>
-                            <div>
-                              <p className="text-[8px] text-white/30 uppercase tracking-widest mb-0.5">Entregar en</p>
-                              <p className="text-xs font-semibold text-white leading-tight">{order.delivery_address}</p>
-                            </div>
-                          </div>
-                        </div>
-
-                        {order.estimated_time && (
-                          <p className="text-[10px] text-white/30 mb-3">⏱ {order.estimated_time} min estimado</p>
-                        )}
-
-                        <button
-                          onClick={() => acceptOrder(order)}
-                          className="w-full h-14 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-black text-sm shadow-xl shadow-indigo-600/30 active:scale-95 transition-all"
-                        >
-                          ACEPTAR PEDIDO
-                        </button>
-                      </motion.div>
-                    ))
-                  )}
+                  <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Actívate para recibir pedidos</p>
                 </div>
+              ) : pendingOrders.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-20 gap-3">
+                  <div className="h-20 w-20 bg-white rounded-3xl flex items-center justify-center border border-slate-200">
+                    <Package className="h-10 w-10 text-slate-300" />
+                  </div>
+                  <p className="text-xs font-black text-slate-400 uppercase tracking-widest">Buscando pedidos cercanos...</p>
+                </div>
+              ) : (
+                pendingOrders.map(order => (
+                  <motion.div key={order.id} initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="bg-white border border-slate-200 rounded-3xl p-4 shadow-sm">
+                    <div className="flex justify-between items-start mb-3">
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <div className="h-2 w-2 bg-green-500 rounded-full animate-pulse" />
+                          <span className="text-[9px] font-black text-green-600 uppercase tracking-widest">Nueva solicitud</span>
+                        </div>
+                        <p className="text-xs text-slate-500">#{order.order_id} · {order.zone || "Sin zona"}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-[9px] text-slate-400 uppercase mb-1">Ganancia</p>
+                        <p className="text-2xl font-black text-green-600">{fmt(order.commission)}</p>
+                      </div>
+                    </div>
+                    <div className="flex gap-3 mb-4">
+                      <div className="flex flex-col items-center pt-1">
+                        <div className="h-3 w-3 bg-green-500 rounded-full" />
+                        <div className="w-px flex-1 bg-slate-200 my-1 min-h-[20px]" />
+                        <div className="h-3 w-3 bg-slate-700 rounded-full" />
+                      </div>
+                      <div className="flex-1 space-y-3">
+                        <div>
+                          <p className="text-[8px] text-slate-400 uppercase tracking-widest mb-0.5">Recoger en</p>
+                          <p className="text-xs font-semibold text-slate-800 leading-tight">{order.pickup_address}</p>
+                        </div>
+                        <div>
+                          <p className="text-[8px] text-slate-400 uppercase tracking-widest mb-0.5">Entregar en</p>
+                          <p className="text-xs font-semibold text-slate-800 leading-tight">{order.delivery_address}</p>
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => acceptOrder(order)}
+                      className="w-full h-12 rounded-2xl bg-green-600 hover:bg-green-700 text-white font-black text-sm shadow-lg shadow-green-600/20 active:scale-95 transition-all"
+                    >ACEPTAR PEDIDO</button>
+                  </motion.div>
+                ))
               )}
             </motion.div>
-          ) : (
-            <motion.div key="history" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full overflow-y-auto pt-4 pb-32">
+          )}
+
+          {activeTab === "mapa" && (
+            <motion.div key="mapa" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full w-full pb-24">
+              <NearbyOrdersMap
+                orders={pendingOrders}
+                currentLocation={currentLocation}
+                onAcceptOrder={(id) => {
+                  const o = pendingOrders.find(o => o.id === id);
+                  if (o) acceptOrder(o);
+                }}
+              />
+            </motion.div>
+          )}
+
+          {activeTab === "historial" && (
+            <motion.div key="historial" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full overflow-y-auto pb-32">
               <DeliveryHistory />
+            </motion.div>
+          )}
+
+          {activeTab === "cuenta" && (
+            <motion.div key="cuenta" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full overflow-y-auto px-4 pb-32 space-y-4">
+              {driverProfile && (
+                <>
+                  <div className="grid grid-cols-3 gap-2">
+                    {[
+                      { label: "Entregas", value: driverProfile.total_deliveries ?? 0, color: "text-slate-800" },
+                      { label: "Rating",   value: `⭐ ${driverProfile.rating ?? "—"}`, color: "text-amber-500" },
+                      { label: "Aceptación", value: `${driverProfile.acceptance_rate ?? 0}%`, color: "text-green-600" },
+                    ].map(s => (
+                      <div key={s.label} className="bg-white rounded-2xl p-3 text-center border border-slate-200">
+                        <p className={`text-lg font-black leading-none ${s.color}`}>{s.value}</p>
+                        <p className="text-[9px] text-slate-500 uppercase tracking-wider mt-1">{s.label}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3">
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1"><Trophy className="h-3 w-3 text-amber-500" /> Meta diaria</span>
+                        <span className="text-[11px] font-bold text-slate-700">{deliveriesToday}/{DAILY_GOAL_DELIVERIES}</span>
+                      </div>
+                      <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                        <div className="h-full bg-amber-500 rounded-full transition-all duration-500" style={{ width: `${goalDeliveriesPct}%` }} />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1"><Zap className="h-3 w-3 text-green-600" /> Meta semanal</span>
+                        <span className="text-[11px] font-bold text-slate-700">{fmt(earningsWeek)}</span>
+                      </div>
+                      <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+                        <div className="h-full bg-green-500 rounded-full transition-all duration-500" style={{ width: `${goalEarningsPct}%` }} />
+                      </div>
+                    </div>
+                    {deliveryStreak > 0 && (
+                      <div className="flex items-center gap-2 bg-orange-50 rounded-xl px-3 py-2 border border-orange-100">
+                        <Flame className={`h-4 w-4 ${hasStreakBonus ? 'text-orange-500' : 'text-slate-400'}`} />
+                        <span className="text-xs font-bold text-slate-700">{deliveryStreak} entregas consecutivas</span>
+                        {hasStreakBonus && <span className="text-[9px] font-black text-orange-500 uppercase tracking-wider ml-auto">🔥 BONO</span>}
+                      </div>
+                    )}
+                  </div>
+
+                  <button
+                    onClick={() => setBatterySaver(!batterySaver)}
+                    className="w-full flex items-center justify-between bg-white rounded-2xl border border-slate-200 p-4"
+                  >
+                    <span className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                      {batterySaver ? <BatteryCharging className="h-4 w-4 text-green-600" /> : <Battery className="h-4 w-4 text-slate-400" />}
+                      Modo ahorro
+                    </span>
+                    <span className={`text-xs font-black px-3 py-1 rounded-full ${batterySaver ? "bg-green-100 text-green-700" : "bg-slate-100 text-slate-500"}`}>
+                      {batterySaver ? "ACTIVO" : "OFF"}
+                    </span>
+                  </button>
+
+                  <button
+                    onClick={signOut}
+                    className="w-full flex items-center justify-center gap-2 bg-white rounded-2xl border border-red-200 p-4 text-red-600 font-bold text-sm active:scale-95 transition-all"
+                  >
+                    <LogOut className="h-4 w-4" /> Cerrar sesión
+                  </button>
+                </>
+              )}
             </motion.div>
           )}
         </AnimatePresence>
       </main>
 
       {/* ── BOTTOM NAV ── */}
-      <nav className="fixed bottom-0 inset-x-0 bg-slate-950/90 backdrop-blur-2xl border-t border-white/5 z-50"
-        style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
-        <div className="flex items-center justify-between px-10 pt-3 pb-1">
+      <nav className="fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 z-50"
+        style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}>
+        <div className="grid grid-cols-5 items-end px-2 pt-2">
+          {[
+            { key: "inicio", label: "Inicio", Icon: Home },
+            { key: "pedidos", label: "Pedidos", Icon: Receipt },
+          ].map(({ key, label, Icon }) => {
+            const on = activeTab === key;
+            return (
+              <button key={key} onClick={() => setActiveTab(key as any)} className="flex flex-col items-center gap-1 pt-2 pb-1 relative">
+                {on && <span className="absolute top-0 h-0.5 w-8 bg-green-500 rounded-full" />}
+                <Icon className={`h-6 w-6 ${on ? "text-green-600" : "text-slate-400"}`} />
+                <span className={`text-[11px] font-semibold ${on ? "text-green-600" : "text-slate-500"}`}>{label}</span>
+              </button>
+            );
+          })}
+          {/* Center raised Mapa button */}
           <button
-            onClick={() => setActiveTab("orders")}
-            className={`flex flex-col items-center gap-1 transition-all ${activeTab === "orders" ? "text-indigo-400 scale-110" : "text-white/25"}`}
+            onClick={() => setActiveTab("mapa")}
+            className="flex flex-col items-center gap-1"
           >
-            <LayoutGrid className="h-6 w-6" />
-            <span className="text-[9px] font-black uppercase tracking-widest">Panel</span>
+            <div className={`-mt-6 h-16 w-16 rounded-3xl flex items-center justify-center shadow-lg transition-all active:scale-95 border-4 border-white ${activeTab === "mapa" ? "bg-green-600 shadow-green-600/30" : "bg-green-500 shadow-green-500/30"}`}>
+              <Bike className="h-8 w-8 text-white" />
+            </div>
+            <span className={`text-[11px] font-semibold ${activeTab === "mapa" ? "text-green-600" : "text-slate-500"}`}>Mapa</span>
           </button>
-
-          <div
-            onClick={toggleAvailability}
-            className={`h-16 w-16 -mt-10 rounded-[30%] flex items-center justify-center shadow-2xl transition-all active:scale-90 cursor-pointer border-4 border-slate-950 ${
-              isAvailable ? "bg-indigo-600 shadow-indigo-600/40" : "bg-slate-800"
-            }`}
-          >
-            <Bike className="h-8 w-8 text-white" />
-          </div>
-
-          <button
-            onClick={() => setActiveTab("history")}
-            className={`flex flex-col items-center gap-1 transition-all ${activeTab === "history" ? "text-indigo-400 scale-110" : "text-white/25"}`}
-          >
-            <History className="h-6 w-6" />
-            <span className="text-[9px] font-black uppercase tracking-widest">Viajes</span>
-          </button>
+          {[
+            { key: "historial", label: "Historial", Icon: History },
+            { key: "cuenta", label: "Cuenta", Icon: User },
+          ].map(({ key, label, Icon }) => {
+            const on = activeTab === key;
+            return (
+              <button key={key} onClick={() => setActiveTab(key as any)} className="flex flex-col items-center gap-1 pt-2 pb-1 relative">
+                {on && <span className="absolute top-0 h-0.5 w-8 bg-green-500 rounded-full" />}
+                <Icon className={`h-6 w-6 ${on ? "text-green-600" : "text-slate-400"}`} />
+                <span className={`text-[11px] font-semibold ${on ? "text-green-600" : "text-slate-500"}`}>{label}</span>
+              </button>
+            );
+          })}
         </div>
       </nav>
 
