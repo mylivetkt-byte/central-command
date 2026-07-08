@@ -5,6 +5,13 @@ import { Info } from "lucide-react";
 
 const CHANGELOG = [
   {
+    version: "0.2.2",
+    changes: [
+      "Optimización de interfaz para dispositivos móviles",
+      "Menú de navegación lateral adaptativo con botón hamburguesa",
+    ],
+  },
+  {
     version: "0.2.1",
     changes: [
       "Diseño en modo claro para la central de comando",

@@ -44,7 +44,7 @@ const hexToHsl = (hex: string) => {
 };
 
 export const AppSidebar = () => {
-  const { collapsed, setCollapsed } = useSidebar();
+  const { collapsed, setCollapsed, isMobileMenuOpen, setMobileMenuOpen } = useSidebar();
   const location = useLocation();
   const navigate = useNavigate();
   const { signOut, user, role } = useAuth();
@@ -53,11 +53,20 @@ export const AppSidebar = () => {
   const brandColorHsl = company?.primary_color ? hexToHsl(company.primary_color) : null;
 
   return (
-    <aside
-      className={`fixed left-0 top-0 z-40 flex h-screen flex-col border-r border-slate-200 bg-white shadow-xl transition-all duration-300 ${collapsed ? "w-16" : "w-60"}`}
-    >
-      {brandColorHsl && company?.primary_color && (
-        <style>{`
+    <>
+      {/* Overlay para móvil */}
+      {isMobileMenuOpen && (
+        <div 
+          className="fixed inset-0 z-40 bg-black/50 md:hidden"
+          onClick={() => setMobileMenuOpen(false)}
+        />
+      )}
+      
+      <aside
+        className={`fixed left-0 top-0 z-50 flex h-screen flex-col border-r border-slate-200 bg-white shadow-xl transition-all duration-300 md:translate-x-0 ${isMobileMenuOpen ? "translate-x-0 w-64" : "-translate-x-full w-64"} md:${collapsed ? "w-16" : "w-60"}`}
+      >
+        {brandColorHsl && company?.primary_color && (
+          <style>{`
           :root {
             --primary: ${brandColorHsl} !important;
             --gradient-primary: linear-gradient(to right, ${company.primary_color}, ${company.primary_color}dd) !important;
@@ -118,6 +127,7 @@ export const AppSidebar = () => {
               <RouterNavLink
                 key={to}
                 to={to}
+                onClick={() => setMobileMenuOpen(false)}
                 className={`flex items-center gap-3 rounded-sm px-3 py-2.5 text-sm font-bold transition-all ${
                   active
                     ? "bg-emerald-50 text-emerald-700 shadow-sm"
@@ -151,5 +161,6 @@ export const AppSidebar = () => {
         </button>
       </div>
     </aside>
+    </>
   );
 };
