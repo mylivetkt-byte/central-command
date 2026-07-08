@@ -193,6 +193,8 @@ const NearbyOrdersMap: React.FC<NearbyOrdersMapProps> = ({ orders, currentLocati
       if (!order.pickup_lat || !order.pickup_lng) return;
       const el = document.createElement('div');
       el.className = 'order-pickup-marker';
+      el.style.pointerEvents = 'auto';
+      el.style.cursor = 'pointer';
       el.innerHTML = `
         <div class="order-marker-pin">
           <div class="order-marker-inner">
@@ -205,7 +207,9 @@ const NearbyOrdersMap: React.FC<NearbyOrdersMapProps> = ({ orders, currentLocati
         .setLngLat([order.pickup_lng, order.pickup_lat])
         .addTo(map);
 
-      el.onclick = () => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        e.preventDefault();
         setSelectedOrder(order);
         map.easeTo({
           center: [order.pickup_lng!, order.pickup_lat!],
@@ -213,14 +217,14 @@ const NearbyOrdersMap: React.FC<NearbyOrdersMapProps> = ({ orders, currentLocati
           pitch: 60,
           duration: 1000
         });
-      };
+      });
       markersRef.current.push(marker);
     });
   }, [orders, currentLocation]);
 
-  // Route preview fetcher
+  // Route preview fetcher (driver -> pickup, or fallback pickup -> delivery)
   useEffect(() => {
-    if (!mapInstance.current || !selectedOrder || !currentLocation) {
+    if (!mapInstance.current || !selectedOrder) {
       if (mapInstance.current) {
         const src = mapInstance.current.getSource('preview-route') as maplibregl.GeoJSONSource;
         if (src) src.setData({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [] } });
@@ -231,7 +235,17 @@ const NearbyOrdersMap: React.FC<NearbyOrdersMapProps> = ({ orders, currentLocati
     const map = mapInstance.current;
     setLoadingRoute(true);
 
-    const waypoints = `${currentLocation.lng},${currentLocation.lat};${selectedOrder.pickup_lng},${selectedOrder.pickup_lat}`;
+    const startLng = currentLocation ? currentLocation.lng : selectedOrder.pickup_lng;
+    const startLat = currentLocation ? currentLocation.lat : selectedOrder.pickup_lat;
+    const endLng = currentLocation ? selectedOrder.pickup_lng : selectedOrder.delivery_lng;
+    const endLat = currentLocation ? selectedOrder.pickup_lat : selectedOrder.delivery_lat;
+
+    if (!startLng || !startLat || !endLng || !endLat) {
+      setLoadingRoute(false);
+      return;
+    }
+
+    const waypoints = `${startLng},${startLat};${endLng},${endLat}`;
     fetch(`https://router.project-osrm.org/route/v1/driving/${waypoints}?overview=full&geometries=geojson`)
       .then(res => res.json())
       .then(data => {
@@ -245,8 +259,8 @@ const NearbyOrdersMap: React.FC<NearbyOrdersMapProps> = ({ orders, currentLocati
           }
 
           // Calculate bounding box to fit route
-          const lats = [currentLocation.lat, selectedOrder.pickup_lat!];
-          const lngs = [currentLocation.lng, selectedOrder.pickup_lng!];
+          const lats = [startLat, endLat];
+          const lngs = [startLng, endLng];
           map.fitBounds([
             [Math.min(...lngs) - 0.002, Math.min(...lats) - 0.002],
             [Math.max(...lngs) + 0.002, Math.max(...lats) + 0.002]
