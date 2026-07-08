@@ -348,7 +348,7 @@ export type Database = {
           current_load: number
           id: string
           rating: number | null
-          status: Database["public"]["Enums"]["driver_status"]
+          status: string
           total_deliveries: number
           updated_at: string
           vehicle_type: string | null
@@ -363,7 +363,7 @@ export type Database = {
           current_load?: number
           id: string
           rating?: number | null
-          status?: Database["public"]["Enums"]["driver_status"]
+          status?: string
           total_deliveries?: number
           updated_at?: string
           vehicle_type?: string | null
@@ -378,7 +378,7 @@ export type Database = {
           current_load?: number
           id?: string
           rating?: number | null
-          status?: Database["public"]["Enums"]["driver_status"]
+          status?: string
           total_deliveries?: number
           updated_at?: string
           vehicle_type?: string | null
@@ -436,12 +436,14 @@ export type Database = {
           created_at: string
           email: string | null
           id: string
+          logo_url: string | null
           max_drivers: number
           name: string
           nit: string | null
           phone: string | null
           plan: string
           plan_value: number
+          primary_color: string | null
           status: string
           updated_at: string
         }
@@ -449,12 +451,14 @@ export type Database = {
           created_at?: string
           email?: string | null
           id?: string
+          logo_url?: string | null
           max_drivers?: number
           name: string
           nit?: string | null
           phone?: string | null
           plan?: string
           plan_value?: number
+          primary_color?: string | null
           status?: string
           updated_at?: string
         }
@@ -462,16 +466,62 @@ export type Database = {
           created_at?: string
           email?: string | null
           id?: string
+          logo_url?: string | null
           max_drivers?: number
           name?: string
           nit?: string | null
           phone?: string | null
           plan?: string
           plan_value?: number
+          primary_color?: string | null
           status?: string
           updated_at?: string
         }
         Relationships: []
+      }
+      saas_payments: {
+        Row: {
+          amount: number
+          company_id: string
+          created_at: string
+          id: string
+          notes: string | null
+          payment_date: string
+          period_end: string
+          period_start: string
+          status: string
+        }
+        Insert: {
+          amount: number
+          company_id: string
+          created_at?: string
+          id?: string
+          notes?: string | null
+          payment_date?: string
+          period_end: string
+          period_start: string
+          status: string
+        }
+        Update: {
+          amount?: number
+          company_id?: string
+          created_at?: string
+          id?: string
+          notes?: string | null
+          payment_date?: string
+          period_end?: string
+          period_start?: string
+          status?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "saas_payments_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "saas_companies"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_roles: {
         Row: {
@@ -557,6 +607,22 @@ export type Database = {
       }
     }
     Functions: {
+      claim_delivery: { Args: { p_delivery_id: string }; Returns: Json }
+      delete_company_completely: {
+        Args: { p_company_id: string }
+        Returns: boolean
+      }
+      get_company_users_list: {
+        Args: { p_company_id: string }
+        Returns: {
+          created_at: string
+          email: string
+          full_name: string
+          role: string
+          status: string
+          user_id: string
+        }[]
+      }
       get_driver_stats: { Args: { p_driver_id?: string }; Returns: Json }
       get_my_role: { Args: never; Returns: string }
       get_user_company_id: { Args: never; Returns: string }
@@ -573,6 +639,10 @@ export type Database = {
       }
       is_super_admin: { Args: { uid: string }; Returns: boolean }
       reset_company_data: { Args: { p_company_id: string }; Returns: string }
+      set_user_password: {
+        Args: { p_new_password: string; p_user_id: string }
+        Returns: boolean
+      }
       user_can_access_company: {
         Args: { record_company_id: string }
         Returns: boolean
