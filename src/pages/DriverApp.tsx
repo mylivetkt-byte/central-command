@@ -437,6 +437,14 @@ const DriverApp = () => {
             allDeliveries={activeDeliveries as any}
           />
         </div>
+
+        {/* Alerta de segundo pedido mientras está en servicio activo */}
+        <NewOrderAlert
+          order={alertOrder}
+          timeoutSeconds={30}
+          onAccept={acceptFromAlert}
+          onReject={rejectFromAlert}
+        />
       </div>
     );
   }
