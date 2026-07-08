@@ -2,17 +2,21 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { MapStyleSwitcher, useMapStyle, MapStyle } from '@/components/MapStyleSwitcher';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { Target, TrendingUp } from "lucide-react";
+import { Target, TrendingUp, X, MapPin, Navigation, Bike, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { motion, AnimatePresence } from "framer-motion";
 
 interface Order {
   id: string;
+  order_id: string;
   pickup_lat: number | null;
   pickup_lng: number | null;
   delivery_lat: number | null;
   delivery_lng: number | null;
   amount: number;
   commission: number;
+  pickup_address?: string;
+  delivery_address?: string;
 }
 
 interface HotZone {
@@ -37,6 +41,9 @@ const DEFAULT_HOT_ZONES: HotZone[] = [
   { name: "Sur", lat: 4.54, lng: -74.1, intensity: 0.7, orderCount: 10 },
 ];
 
+const fmt = (v: number) =>
+  new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(v);
+
 const NearbyOrdersMap: React.FC<NearbyOrdersMapProps> = ({ orders, currentLocation, onAcceptOrder, hotZones = DEFAULT_HOT_ZONES }) => {
   const { current: mapStyle, setStyle } = useMapStyle("dark");
   const mapContainer = useRef<HTMLDivElement>(null);
@@ -45,6 +52,10 @@ const NearbyOrdersMap: React.FC<NearbyOrdersMapProps> = ({ orders, currentLocati
   const driverMarkerRef = useRef<maplibregl.Marker | null>(null);
   const [showHotZones, setShowHotZones] = useState(true);
   const heatLayerRef = useRef<any>(null);
+
+  const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [routeInfo, setRouteInfo] = useState<{ distance: string; duration: string } | null>(null);
+  const [loadingRoute, setLoadingRoute] = useState(false);
 
   const recenter = () => {
     if (!mapInstance.current || !currentLocation) return;
@@ -70,8 +81,9 @@ const NearbyOrdersMap: React.FC<NearbyOrdersMapProps> = ({ orders, currentLocati
 
     mapInstance.current.on('style.load', () => {
       if (!mapInstance.current) return;
+      const map = mapInstance.current;
       try {
-        mapInstance.current.addLayer({
+        map.addLayer({
           id: '3d-buildings',
           source: 'carto',
           'source-layer': 'building',
@@ -85,6 +97,28 @@ const NearbyOrdersMap: React.FC<NearbyOrdersMapProps> = ({ orders, currentLocati
           }
         });
       } catch {}
+
+      // Add empty source for preview route
+      if (!map.getSource('preview-route')) {
+        map.addSource('preview-route', {
+          type: 'geojson',
+          data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [] } }
+        });
+        map.addLayer({
+          id: 'preview-route-case',
+          type: 'line',
+          source: 'preview-route',
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: { 'line-color': '#a5b4fc', 'line-width': 8, 'line-opacity': 0.4 }
+        });
+        map.addLayer({
+          id: 'preview-route-line',
+          type: 'line',
+          source: 'preview-route',
+          layout: { 'line-join': 'round', 'line-cap': 'round' },
+          paint: { 'line-color': '#4F46E5', 'line-width': 4, 'line-opacity': 1 }
+        });
+      }
     });
 
     return () => { mapInstance.current?.remove(); mapInstance.current = null; };
@@ -120,6 +154,7 @@ const NearbyOrdersMap: React.FC<NearbyOrdersMapProps> = ({ orders, currentLocati
     });
   }, [hotZones, showHotZones]);
 
+  // Order marker placement & Driver marker tracking
   useEffect(() => {
     if (!mapInstance.current) return;
     const map = mapInstance.current;
@@ -169,12 +204,64 @@ const NearbyOrdersMap: React.FC<NearbyOrdersMapProps> = ({ orders, currentLocati
       const marker = new maplibregl.Marker({ element: el, anchor: 'bottom' })
         .setLngLat([order.pickup_lng, order.pickup_lat])
         .addTo(map);
+
       el.onclick = () => {
-        map.easeTo({ center: [order.pickup_lng!, order.pickup_lat!], zoom: 17, pitch: 60, duration: 1000 });
+        setSelectedOrder(order);
+        map.easeTo({
+          center: [order.pickup_lng!, order.pickup_lat!],
+          zoom: 17,
+          pitch: 60,
+          duration: 1000
+        });
       };
       markersRef.current.push(marker);
     });
   }, [orders, currentLocation]);
+
+  // Route preview fetcher
+  useEffect(() => {
+    if (!mapInstance.current || !selectedOrder || !currentLocation) {
+      if (mapInstance.current) {
+        const src = mapInstance.current.getSource('preview-route') as maplibregl.GeoJSONSource;
+        if (src) src.setData({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [] } });
+      }
+      setRouteInfo(null);
+      return;
+    }
+    const map = mapInstance.current;
+    setLoadingRoute(true);
+
+    const waypoints = `${currentLocation.lng},${currentLocation.lat};${selectedOrder.pickup_lng},${selectedOrder.pickup_lat}`;
+    fetch(`https://router.project-osrm.org/route/v1/driving/${waypoints}?overview=full&geometries=geojson`)
+      .then(res => res.json())
+      .then(data => {
+        setLoadingRoute(false);
+        if (data.routes?.[0]) {
+          const route = data.routes[0];
+          const coordinates = route.geometry.coordinates;
+          const src = map.getSource('preview-route') as maplibregl.GeoJSONSource;
+          if (src) {
+            src.setData({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates } });
+          }
+
+          // Calculate bounding box to fit route
+          const lats = [currentLocation.lat, selectedOrder.pickup_lat!];
+          const lngs = [currentLocation.lng, selectedOrder.pickup_lng!];
+          map.fitBounds([
+            [Math.min(...lngs) - 0.002, Math.min(...lats) - 0.002],
+            [Math.max(...lngs) + 0.002, Math.max(...lats) + 0.002]
+          ], { padding: 80, duration: 1000 });
+
+          setRouteInfo({
+            distance: (route.distance / 1000).toFixed(1) + " km",
+            duration: Math.ceil(route.duration / 60) + " min"
+          });
+        }
+      })
+      .catch(() => {
+        setLoadingRoute(false);
+      });
+  }, [selectedOrder, currentLocation]);
 
   const handleStyleChange = useCallback((style: MapStyle) => {
     setStyle(style.id);
@@ -225,6 +312,85 @@ const NearbyOrdersMap: React.FC<NearbyOrdersMapProps> = ({ orders, currentLocati
         </div>
       </div>
 
+      {/* Selected Order Bottom Preview Card */}
+      <AnimatePresence>
+        {selectedOrder && (
+          <motion.div
+            initial={{ y: 200, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 200, opacity: 0 }}
+            className="absolute bottom-6 inset-x-4 z-[1002] bg-white rounded-3xl p-5 border border-slate-100 shadow-[0_20px_50px_rgba(0,0,0,0.2)] flex flex-col gap-4"
+          >
+            {/* Header / Earnings */}
+            <div className="flex justify-between items-start">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Bike className="h-4 w-4 text-emerald-500 animate-pulse" />
+                  <span className="text-[10px] font-black text-emerald-500 uppercase tracking-widest">Vista Previa de Ruta</span>
+                </div>
+                <p className="text-xs text-slate-400 font-semibold mt-0.5">ID: #{selectedOrder.order_id.slice(-4).toUpperCase()}</p>
+              </div>
+              <div className="flex flex-col items-end">
+                <span className="text-xs text-slate-400 font-bold uppercase tracking-wider leading-none mb-0.5">Ganancia</span>
+                <span className="text-2xl font-black text-indigo-600">{fmt(selectedOrder.commission)}</span>
+              </div>
+            </div>
+
+            {/* OSRM Route Stats */}
+            {routeInfo && (
+              <div className="flex gap-4 bg-slate-50 border border-slate-100 p-3 rounded-2xl">
+                <div className="flex items-center gap-1.5 text-slate-600">
+                  <Navigation className="h-4 w-4 text-indigo-500" />
+                  <span className="text-xs font-black">{routeInfo.distance} de trayecto</span>
+                </div>
+                <div className="flex items-center gap-1.5 text-slate-600">
+                  <Clock className="h-4 w-4 text-indigo-500" />
+                  <span className="text-xs font-black">~{routeInfo.duration} est.</span>
+                </div>
+              </div>
+            )}
+
+            {/* Addresses */}
+            <div className="relative space-y-3 pl-1">
+              <div className="absolute left-[7px] top-2 bottom-2 w-[1.5px] bg-slate-100" />
+              <div className="flex gap-3 relative">
+                <div className="h-3 w-3 rounded-full bg-emerald-500 border-2 border-white mt-1 shadow-sm" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[8px] font-black text-emerald-600 uppercase tracking-wider mb-0.5">Punto de Recogida</p>
+                  <p className="text-xs font-bold text-slate-800 truncate">{selectedOrder.pickup_address || "Dirección de Recogida"}</p>
+                </div>
+              </div>
+              <div className="flex gap-3 relative">
+                <div className="h-3 w-3 rounded-full bg-indigo-500 border-2 border-white mt-1 shadow-sm" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[8px] font-black text-indigo-600 uppercase tracking-wider mb-0.5">Punto de Entrega</p>
+                  <p className="text-xs font-bold text-slate-800 truncate">{selectedOrder.delivery_address || "Dirección de Entrega"}</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-3">
+              <button
+                onClick={() => setSelectedOrder(null)}
+                className="flex-1 h-14 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-600 font-black text-xs uppercase tracking-widest active:scale-95 transition-all flex items-center justify-center gap-1.5"
+              >
+                <X className="h-4 w-4" /> Cancelar
+              </button>
+              <button
+                onClick={() => {
+                  onAcceptOrder(selectedOrder.id);
+                  setSelectedOrder(null);
+                }}
+                className="flex-[2] h-14 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs uppercase tracking-widest shadow-xl shadow-indigo-100 active:scale-95 transition-all flex items-center justify-center gap-1.5"
+              >
+                <Bike className="h-5 w-5" /> Aceptar Pedido
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <style dangerouslySetInnerHTML={{ __html: `
         .maplibregl-ctrl-bottom-left, .maplibregl-ctrl-bottom-right, .maplibregl-ctrl-top-right { display: none !important; }
 
@@ -267,6 +433,9 @@ const NearbyOrdersMap: React.FC<NearbyOrdersMapProps> = ({ orders, currentLocati
           100% { transform: scale(0.85); opacity: 0.6; }
         }
 
+        .order-pickup-marker {
+          cursor: pointer;
+        }
         .order-marker-pin {
           display: flex;
           flex-direction: column;
