@@ -12,7 +12,7 @@ const COLORS = ["hsl(217,91%,60%)", "hsl(160,84%,39%)", "hsl(38,92%,50%)", "hsl(
 const formatCurrency = (v: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(v);
 
-const tooltipStyle = { background: "hsl(222,47%,9%)", border: "1px solid hsl(217,33%,17%)", borderRadius: 8, color: "hsl(210,40%,96%)" };
+const tooltipStyle = { background: "white", border: "1px solid hsl(214.3, 31.8%, 91.4%)", borderRadius: 8, color: "black" };
 
 const Dashboard = () => {
   const navigate = useNavigate();
@@ -74,7 +74,7 @@ const Dashboard = () => {
     date.setDate(date.getDate() - (6 - i));
     date.setHours(0, 0, 0, 0);
     const nextDay = new Date(date);
-    nextDay.setDate(nextDay.getDate() + 1);
+    nextDay.setDate(date.getDate() + 1);
     const count = deliveries.filter((d: any) => {
       const created = new Date(d.created_at);
       return created >= date && created < nextDay;

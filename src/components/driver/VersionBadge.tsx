@@ -5,6 +5,14 @@ import { Info } from "lucide-react";
 
 const CHANGELOG = [
   {
+    version: "0.2.1",
+    changes: [
+      "Diseño en modo claro para la central de comando",
+      "Solución de redirecciones al acceder desde la PWA",
+      "Actualización de caché PWA automática con notificaciones",
+    ],
+  },
+  {
     version: "0.2.0",
     changes: [
       "Despacho dirigido: asignar pedido directamente a un mensajero específico",
