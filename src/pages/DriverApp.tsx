@@ -10,6 +10,7 @@ import DeliveryHistory from "@/components/driver/DeliveryHistory";
 import NearbyOrdersMap from "@/components/driver/NearbyOrdersMap";
 import ActiveDeliveryView from "@/components/driver/ActiveDeliveryView";
 import NewOrderAlert from "@/components/driver/NewOrderAlert";
+import { VersionBadge } from "@/components/driver/VersionBadge";
 
 interface DeliveryOrder {
   id: string;
@@ -742,6 +743,8 @@ const DriverApp = () => {
           })}
         </div>
       </nav>
+
+      <VersionBadge />
 
       <NewOrderAlert
         order={alertOrder}
