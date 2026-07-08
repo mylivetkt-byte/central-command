@@ -143,7 +143,10 @@ const DriverApp = () => {
         }
       });
 
-    const today = new Date().toISOString().split("T")[0];
+    const localToday = new Date();
+    localToday.setHours(0, 0, 0, 0);
+    const todayStr = localToday.toISOString();
+
     const weekStart = new Date(); weekStart.setDate(weekStart.getDate() - weekStart.getDay()); weekStart.setHours(0,0,0,0);
     const weekStartStr = weekStart.toISOString();
 
@@ -151,7 +154,7 @@ const DriverApp = () => {
       .select("commission, delivered_at, created_at")
       .eq("driver_id", user.id)
       .eq("status", "entregado")
-      .gte("updated_at", today)
+      .gte("updated_at", todayStr)
       .then(({ data }) => {
         const total = (data || []).reduce((s, d: any) => s + Number(d.commission || 0), 0);
         setEarningsToday(total);

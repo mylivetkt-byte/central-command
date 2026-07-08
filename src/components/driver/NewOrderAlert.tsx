@@ -213,7 +213,7 @@ const NewOrderAlert = ({ order, timeoutSeconds = 30, onAccept, onReject, onTimeo
                       onClick={onAccept}
                       className="col-span-3 h-14 rounded-2xl bg-green-600 hover:bg-green-700 text-white font-black text-xs uppercase tracking-widest shadow-xl shadow-green-100 active:scale-95 transition-all flex items-center justify-center gap-2"
                     >
-                      <Check className="h-5 w-5" /> Aceptar
+                      <Check className="h-5 w-5" /> Recoger
                     </button>
                   </div>
                 </div>

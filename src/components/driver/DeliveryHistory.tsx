@@ -75,20 +75,20 @@ const DeliveryHistory = () => {
   const displayed  = filtered.slice(0, page * PAGE_SIZE);
 
   if (loading) return (
-    <div className="space-y-3 animate-pulse">
-      {[1,2,3].map(i => <div key={i} className="h-16 rounded-xl bg-muted/50" />)}
+    <div className="space-y-3 animate-pulse px-4">
+      {[1,2,3].map(i => <div key={i} className="h-20 rounded-2xl bg-white/5" />)}
     </div>
   );
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 px-4">
 
       {/* Filtro de período */}
-      <div className="flex gap-1 p-1 bg-muted/50 rounded-xl">
+      <div className="flex gap-1 p-1 bg-white/5 rounded-2xl border border-white/5">
         {(["day","week","month","all"] as Period[]).map(p => (
           <button key={p} onClick={() => { setPeriod(p); setPage(1); }}
-            className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-              period === p ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"
+            className={`flex-1 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+              period === p ? "bg-indigo-600 text-white shadow-sm" : "text-white/40 hover:text-white/60"
             }`}>
             {p === "day" ? "Hoy" : p === "week" ? "Semana" : p === "month" ? "Mes" : "Todo"}
           </button>
@@ -97,21 +97,21 @@ const DeliveryHistory = () => {
 
       {/* Resumen del período */}
       <div className="grid grid-cols-3 gap-2">
-        <div className="rounded-2xl bg-accent/10 border border-accent/20 p-3 text-center">
-          <p className="text-lg font-extrabold text-accent leading-none">{fmt(earnings)}</p>
-          <p className="text-[9px] text-muted-foreground mt-1 flex items-center justify-center gap-1">
+        <div className="rounded-2xl bg-emerald-500/10 border border-emerald-500/20 p-3 text-center">
+          <p className="text-lg font-black text-emerald-400 leading-none">{fmt(earnings)}</p>
+          <p className="text-[9px] text-white/40 mt-1.5 flex items-center justify-center gap-1 uppercase tracking-wider font-bold">
             <TrendingUp className="h-3 w-3" /> Ganancias
           </p>
         </div>
-        <div className="rounded-2xl bg-primary/10 border border-primary/20 p-3 text-center">
-          <p className="text-lg font-extrabold text-primary leading-none">{completed.length}</p>
-          <p className="text-[9px] text-muted-foreground mt-1 flex items-center justify-center gap-1">
+        <div className="rounded-2xl bg-indigo-500/10 border border-indigo-500/20 p-3 text-center">
+          <p className="text-lg font-black text-indigo-400 leading-none">{completed.length}</p>
+          <p className="text-[9px] text-white/40 mt-1.5 flex items-center justify-center gap-1 uppercase tracking-wider font-bold">
             <CheckCircle className="h-3 w-3" /> Entregados
           </p>
         </div>
-        <div className="rounded-2xl bg-destructive/10 border border-destructive/20 p-3 text-center">
-          <p className="text-lg font-extrabold text-destructive leading-none">{cancelled.length}</p>
-          <p className="text-[9px] text-muted-foreground mt-1 flex items-center justify-center gap-1">
+        <div className="rounded-2xl bg-red-500/10 border border-red-500/20 p-3 text-center">
+          <p className="text-lg font-black text-red-400 leading-none">{cancelled.length}</p>
+          <p className="text-[9px] text-white/40 mt-1.5 flex items-center justify-center gap-1 uppercase tracking-wider font-bold">
             <Package className="h-3 w-3" /> Cancelados
           </p>
         </div>
@@ -119,36 +119,36 @@ const DeliveryHistory = () => {
 
       {/* Lista */}
       {displayed.length === 0 ? (
-        <div className="text-center py-10">
-          <Package className="h-10 w-10 text-muted-foreground/40 mx-auto mb-2" />
-          <p className="text-sm text-muted-foreground">Sin entregas en este período</p>
+        <div className="text-center py-16">
+          <Package className="h-10 w-10 text-white/20 mx-auto mb-2" />
+          <p className="text-xs font-bold text-white/40 uppercase tracking-widest">Sin entregas en este período</p>
         </div>
       ) : (
-        <>
+        <div className="space-y-2">
           <AnimatePresence>
             {displayed.map((d, i) => (
               <motion.div key={d.id}
                 initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: Math.min(i * 0.03, 0.3) }}
-                className="flex items-center gap-3 p-3 rounded-xl bg-card border border-border/40">
-                <div className={`h-9 w-9 rounded-full flex items-center justify-center shrink-0 ${
-                  d.status === "entregado" ? "bg-accent/20" : "bg-destructive/20"
+                className="flex items-center gap-3 p-4 rounded-2xl bg-slate-900 border border-white/5">
+                <div className={`h-9 w-9 rounded-xl flex items-center justify-center shrink-0 ${
+                  d.status === "entregado" ? "bg-emerald-500/10" : "bg-red-500/10"
                 }`}>
                   {d.status === "entregado"
-                    ? <CheckCircle className="h-4 w-4 text-accent" />
-                    : <Package className="h-4 w-4 text-destructive" />
+                    ? <CheckCircle className="h-4 w-4 text-emerald-400" />
+                    : <Package className="h-4 w-4 text-red-400" />
                   }
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold text-foreground truncate">{d.customer_name}</p>
-                    <span className="text-sm font-bold text-accent shrink-0 ml-2">
+                    <p className="text-sm font-bold text-white truncate">{d.customer_name}</p>
+                    <span className="text-sm font-black text-emerald-400 shrink-0 ml-2">
                       {d.status === "entregado" ? fmt(Number(d.commission)) : "—"}
                     </span>
                   </div>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <span className="text-[10px] text-muted-foreground truncate">{d.delivery_address}</span>
-                    <span className="text-[10px] text-muted-foreground/50 shrink-0 flex items-center gap-0.5">
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className="text-[10px] text-white/60 truncate flex-1">{d.delivery_address}</span>
+                    <span className="text-[9px] text-white/40 shrink-0 flex items-center gap-0.5">
                       <Calendar className="h-2.5 w-2.5" />
                       {fmtDate(d.delivered_at || d.created_at)}
                       <Clock className="h-2.5 w-2.5 ml-1" />
@@ -163,11 +163,11 @@ const DeliveryHistory = () => {
           {/* Cargar más */}
           {filtered.length > displayed.length && (
             <button onClick={() => setPage(p => p + 1)}
-              className="w-full py-3 text-xs font-semibold text-primary hover:text-primary/80 transition-colors">
+              className="w-full py-4 text-xs font-black text-indigo-400 hover:text-indigo-300 transition-colors uppercase tracking-widest">
               Ver {Math.min(PAGE_SIZE, filtered.length - displayed.length)} más...
             </button>
           )}
-        </>
+        </div>
       )}
     </div>
   );

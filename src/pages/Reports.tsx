@@ -38,7 +38,12 @@ const downloadCSV = (rows: Record<string, any>[], filename: string) => {
 const Reports = () => {
   const [filter, setFilter] = useState<DateFilter>("semana");
   const [report, setReport] = useState<"deliveries" | "revenue" | "drivers" | "daily">("deliveries");
-  const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const d = new Date();
+    const offset = d.getTimezoneOffset();
+    const local = new Date(d.getTime() - (offset * 60 * 1000));
+    return local.toISOString().split('T')[0];
+  });
 
   const { data: deliveries = [], isLoading: loadingD } = useQuery({
     queryKey: ["reports-deliveries"],
