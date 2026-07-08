@@ -7,7 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect } from "react";
-import { Zap, MapPin, Package, Plus, X, Send, UserCheck, Clock, CheckCircle, XCircle, RefreshCw, BellRing, Navigation } from "lucide-react";
+import { Zap, MapPin, Package, Plus, X, Send, UserCheck, Clock, CheckCircle, XCircle, RefreshCw, BellRing, Navigation, Radio, Users } from "lucide-react";
 import { toast } from "sonner";
 
 const formatCurrency = (v: number) =>
@@ -47,6 +47,8 @@ const Dispatch = () => {
   const [showNewForm, setShowNewForm] = useState(false);
   const [form, setForm] = useState<NewDeliveryForm>(emptyForm);
   const [selectedOrder, setSelectedOrder] = useState<string | null>(null);
+  const [dispatchMode, setDispatchMode] = useState<"todos" | "especifico">("todos");
+  const [targetDriverId, setTargetDriverId] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   // Pedidos activos
@@ -97,7 +99,8 @@ const Dispatch = () => {
   const createDelivery = useMutation({
     mutationFn: async (formData: NewDeliveryForm) => {
       const orderId = `DOM-${Date.now().toString().slice(-6)}`;
-      
+      const isDirectAssign = dispatchMode === "especifico" && targetDriverId;
+
       const { data: inserted, error } = await (supabase.from("deliveries") as any).insert({
         order_id: orderId,
         company_id: selectedCompanyId ?? undefined,
@@ -113,21 +116,47 @@ const Dispatch = () => {
         commission: parseFloat(formData.commission) || 0,
         estimated_time: parseInt(formData.estimated_time) || 30,
         zone: formData.zone || null,
-        status: "pendiente",
+        // Si es asignación directa: ya va con driver y estado aceptado
+        status: isDirectAssign ? "aceptado" : "pendiente",
+        driver_id: isDirectAssign ? targetDriverId : null,
+        accepted_at: isDirectAssign ? new Date().toISOString() : null,
         notes: formData.notes || null,
       }).select("id").maybeSingle();
       if (error) throw error;
-      
-      // Enviar señal a los mensajeros con el ID real
-      if (inserted?.id) await broadcastNewOrder(inserted.id);
-      
-      return orderId;
+
+      if (inserted?.id) {
+        if (isDirectAssign) {
+          // Broadcast solo al mensajero asignado
+          const ch = supabase.channel("dispatch-notifications");
+          await ch.subscribe(async (status) => {
+            if (status === "SUBSCRIBED") {
+              await ch.send({
+                type: "broadcast",
+                event: "new-order",
+                payload: { id: inserted.id, driverId: targetDriverId },
+              });
+              setTimeout(() => supabase.removeChannel(ch), 500);
+            }
+          });
+        } else {
+          await broadcastNewOrder(inserted.id);
+        }
+      }
+
+      return { orderId, isDirectAssign };
     },
-    onSuccess: (orderId) => {
+    onSuccess: ({ orderId, isDirectAssign }) => {
+      const driverName = isDirectAssign
+        ? availableDrivers.find((d: any) => d.id === targetDriverId)?.profiles?.full_name ?? "el mensajero"
+        : null;
       toast.success(`✅ ¡PEDIDO PUBLICADO!`, {
-        description: `El servicio ${orderId} ya está disponible para los mensajeros.`,
+        description: isDirectAssign
+          ? `El servicio ${orderId} fue asignado directamente a ${driverName}.`
+          : `El servicio ${orderId} ya está disponible para todos los mensajeros.`,
       });
       setForm(emptyForm);
+      setDispatchMode("todos");
+      setTargetDriverId(null);
       setShowNewForm(false);
       queryClient.invalidateQueries({ queryKey: ["dispatch-pending"] });
     },
@@ -283,8 +312,79 @@ const Dispatch = () => {
                                         />
                                     </div>
 
-                                    <button type="submit" disabled={createDelivery.isPending} className="w-full h-16 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-black transition-all shadow-xl shadow-indigo-100 flex items-center justify-center gap-3">
-                                        <Send /> {createDelivery.isPending ? "PROCESANDO..." : "PUBLICAR SERVICIO AHORA"}
+                                    {/* MODO DE ENVÍO */}
+                                    <div className="space-y-3">
+                                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">🚀 Enviar a</label>
+                                      <div className="grid grid-cols-2 gap-3">
+                                        <button
+                                          type="button"
+                                          onClick={() => { setDispatchMode("todos"); setTargetDriverId(null); }}
+                                          className={`flex items-center gap-2 p-4 rounded-2xl border-2 transition-all text-sm font-black ${
+                                            dispatchMode === "todos"
+                                              ? "border-indigo-500 bg-indigo-50 text-indigo-700"
+                                              : "border-slate-200 bg-slate-50 text-slate-500 hover:border-slate-300"
+                                          }`}
+                                        >
+                                          <Users className="h-4 w-4 flex-shrink-0" />
+                                          Todos los mensajeros
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setDispatchMode("especifico")}
+                                          className={`flex items-center gap-2 p-4 rounded-2xl border-2 transition-all text-sm font-black ${
+                                            dispatchMode === "especifico"
+                                              ? "border-emerald-500 bg-emerald-50 text-emerald-700"
+                                              : "border-slate-200 bg-slate-50 text-slate-500 hover:border-slate-300"
+                                          }`}
+                                        >
+                                          <Radio className="h-4 w-4 flex-shrink-0" />
+                                          Mensajero específico
+                                        </button>
+                                      </div>
+
+                                      {/* Lista de mensajeros si modo específico */}
+                                      {dispatchMode === "especifico" && (
+                                        <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                                          {availableDrivers.length === 0 && (
+                                            <p className="text-xs text-slate-400 text-center py-4">No hay mensajeros activos ahora mismo.</p>
+                                          )}
+                                          {availableDrivers.map((d: any) => (
+                                            <button
+                                              key={d.id}
+                                              type="button"
+                                              onClick={() => setTargetDriverId(d.id)}
+                                              className={`w-full flex items-center justify-between p-3 rounded-2xl border-2 transition-all ${
+                                                targetDriverId === d.id
+                                                  ? "border-emerald-500 bg-emerald-50"
+                                                  : "border-slate-100 bg-slate-50 hover:border-slate-200"
+                                              }`}
+                                            >
+                                              <div className="flex items-center gap-3">
+                                                <div className={`h-9 w-9 rounded-xl flex items-center justify-center font-black text-sm capitalize ${
+                                                  targetDriverId === d.id ? "bg-emerald-500 text-white" : "bg-slate-200 text-slate-600"
+                                                }`}>
+                                                  {d.profiles?.full_name?.[0] || "M"}
+                                                </div>
+                                                <div className="text-left">
+                                                  <p className="text-sm font-black text-slate-800">{d.profiles?.full_name}</p>
+                                                  <p className="text-[10px] text-slate-400 font-bold">⭐ {d.rating || 5.0} · {d.current_load} pedidos activos</p>
+                                                </div>
+                                              </div>
+                                              {targetDriverId === d.id && (
+                                                <span className="text-[10px] font-black text-emerald-600 bg-emerald-100 px-2 py-1 rounded-full">SELECCIONADO</span>
+                                              )}
+                                            </button>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    <button
+                                      type="submit"
+                                      disabled={createDelivery.isPending || (dispatchMode === "especifico" && !targetDriverId)}
+                                      className="w-full h-16 rounded-2xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-black transition-all shadow-xl shadow-indigo-100 flex items-center justify-center gap-3"
+                                    >
+                                      <Send /> {createDelivery.isPending ? "PROCESANDO..." : dispatchMode === "especifico" && targetDriverId ? "ASIGNAR AL MENSAJERO" : "PUBLICAR SERVICIO AHORA"}
                                     </button>
                                 </form>
                             </div>

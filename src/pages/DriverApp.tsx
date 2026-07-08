@@ -256,6 +256,10 @@ const DriverApp = () => {
 
     const ch2 = supabase.channel("dispatch-notifications")
       .on("broadcast", { event: "new-order" }, (payload: any) => {
+        const targetedDriverId = payload.payload?.driverId;
+        // Si el pedido va dirigido a un mensajero específico, solo él lo procesa
+        if (targetedDriverId && targetedDriverId !== user.id) return;
+
         const repId = payload.payload?.republished_delivery_id;
         if (repId) {
           shownAlertIds.current.delete(repId);
