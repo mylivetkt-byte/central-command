@@ -63,7 +63,7 @@ export const AppSidebar = () => {
       )}
       
       <aside
-        className={`fixed left-0 top-0 z-50 flex h-screen flex-col border-r border-slate-200 bg-white shadow-xl transition-all duration-300 md:translate-x-0 ${isMobileMenuOpen ? "translate-x-0 w-64" : "-translate-x-full w-64"} md:${collapsed ? "w-16" : "w-60"}`}
+        className={`fixed left-0 top-0 z-50 flex h-screen flex-col border-r border-slate-200 bg-white shadow-xl transition-all duration-300 md:translate-x-0 ${isMobileMenuOpen ? "translate-x-0 w-64" : "-translate-x-full w-64"} ${collapsed ? "md:w-16" : "md:w-60"}`}
       >
         {brandColorHsl && company?.primary_color && (
           <style>{`

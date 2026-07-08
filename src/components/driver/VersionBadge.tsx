@@ -5,6 +5,13 @@ import { Info } from "lucide-react";
 
 const CHANGELOG = [
   {
+    version: "0.2.3",
+    changes: [
+      "Solución al menú lateral que se quedaba en blanco",
+      "Mejora en inputs numéricos de montos en despacho (sin flechas)",
+    ],
+  },
+  {
     version: "0.2.2",
     changes: [
       "Optimización de interfaz para dispositivos móviles",

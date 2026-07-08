@@ -24,7 +24,7 @@ const LayoutContent = ({ children }: { children: ReactNode }) => {
 
       <AppSidebar />
       <main
-        className={`flex-1 min-h-screen transition-all duration-300 md:${collapsed ? "ml-16" : "ml-60"}`}
+        className={`flex-1 min-h-screen transition-all duration-300 ${collapsed ? "md:ml-16" : "md:ml-60"}`}
       >
         <div className="p-4 lg:p-8">{children}</div>
       </main>

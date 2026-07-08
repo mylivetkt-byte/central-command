@@ -280,7 +280,7 @@ const Dispatch = () => {
                                         <AddressAutocomplete value={form.delivery_address} onChange={(a, c) => { handleFormChange("delivery_address", a); if(c){ handleFormChange("delivery_lat", c.lat); handleFormChange("delivery_lng", c.lng); } }} placeholder="Busca la dirección exacta del cliente..." className="dispatch-autocomplete" />
                                     </div>
 
-                                    <div className="grid grid-cols-3 gap-4 pb-4">
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pb-4">
                                         <div className="space-y-2">
                                             <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Cobro Cliente</label>
                                             <div className="relative">
