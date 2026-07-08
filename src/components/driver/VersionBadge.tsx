@@ -5,6 +5,13 @@ import { Info } from "lucide-react";
 
 const CHANGELOG = [
   {
+    version: "0.2.4",
+    changes: [
+      "Las estadísticas del Panel Central y Financiero ahora se agrupan por fecha de entrega",
+      "Sincronización correcta de reportes de cobros entre conductor y central de comando",
+    ],
+  },
+  {
     version: "0.2.3",
     changes: [
       "Solución al menú lateral que se quedaba en blanco",

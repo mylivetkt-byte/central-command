@@ -45,9 +45,13 @@ const Dashboard = () => {
     refetchInterval: 30000,
   });
 
+  const getDeliveryRefDate = (d: any) => {
+    return new Date(d.status === "entregado" ? (d.delivered_at || d.created_at) : d.created_at);
+  };
+
   // KPIs calculados desde datos reales
   const todayDeliveries = deliveries.filter((d: any) =>
-    new Date(d.created_at) >= today
+    getDeliveryRefDate(d) >= today
   );
 
   const kpis = {
@@ -76,8 +80,8 @@ const Dashboard = () => {
     const nextDay = new Date(date);
     nextDay.setDate(date.getDate() + 1);
     const count = deliveries.filter((d: any) => {
-      const created = new Date(d.created_at);
-      return created >= date && created < nextDay;
+      const refDate = getDeliveryRefDate(d);
+      return refDate >= date && refDate < nextDay;
     }).length;
     return {
       date: date.toISOString().slice(0, 10),

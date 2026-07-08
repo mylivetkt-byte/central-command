@@ -43,8 +43,8 @@ const Analytics = () => {
     nextDay.setDate(nextDay.getDate() + 1);
 
     const dayDeliveries = deliveries.filter((d: any) => {
-      const created = new Date(d.created_at);
-      return created >= date && created < nextDay;
+      const refDate = new Date(d.status === "entregado" ? (d.delivered_at || d.created_at) : d.created_at);
+      return refDate >= date && refDate < nextDay;
     });
 
     const revenue = dayDeliveries

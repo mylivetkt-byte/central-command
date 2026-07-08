@@ -81,9 +81,13 @@ const Reports = () => {
 
   const range = getRange();
 
+  const getDeliveryRefDate = (d: any) => {
+    return new Date(d.status === "entregado" ? (d.delivered_at || d.created_at) : d.created_at);
+  };
+
   const filteredDeliveries = deliveries.filter((d: any) => {
-    const c = new Date(d.created_at);
-    return c >= range.from && c < range.to;
+    const refDate = getDeliveryRefDate(d);
+    return refDate >= range.from && refDate < range.to;
   });
 
   // Datos para gráficas por día
@@ -92,8 +96,8 @@ const Reports = () => {
     date.setDate(date.getDate() + i);
     const next = new Date(date); next.setDate(next.getDate() + 1);
     const day = filteredDeliveries.filter((d: any) => {
-      const c = new Date(d.created_at);
-      return c >= date && c < next;
+      const refDate = getDeliveryRefDate(d);
+      return refDate >= date && refDate < next;
     });
     return {
       date: date.toLocaleDateString("es-CO", { month: "short", day: "numeric" }),
@@ -121,8 +125,8 @@ const Reports = () => {
     const name = drv.profiles?.full_name || "Sin nombre";
     const driverDeliveries = deliveries.filter((d: any) =>
       d.driver_id === drv.id &&
-      new Date(d.created_at) >= dailyDateFrom &&
-      new Date(d.created_at) <= dailyDateTo
+      getDeliveryRefDate(d) >= dailyDateFrom &&
+      getDeliveryRefDate(d) <= dailyDateTo
     );
     const delivered = driverDeliveries.filter((d: any) => d.status === "entregado");
     const cancelled = driverDeliveries.filter((d: any) => d.status === "cancelado");

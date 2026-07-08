@@ -65,8 +65,8 @@ const Financial = () => {
 
     const revenue = deliveries
       .filter((d: any) => {
-        const created = new Date(d.created_at);
-        return created >= date && created < nextDay;
+        const deliveryDate = new Date(d.delivered_at || d.created_at);
+        return deliveryDate >= date && deliveryDate < nextDay;
       })
       .reduce((s: number, d: any) => s + Number(d.amount || 0), 0);
 
