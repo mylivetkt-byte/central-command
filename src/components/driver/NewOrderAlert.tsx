@@ -129,14 +129,14 @@ const NewOrderAlert = ({ order, timeoutSeconds = 30, onAccept, onReject, onTimeo
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-[9999] bg-slate-950/85 backdrop-blur-xl flex items-end sm:items-center justify-center p-4"
+          className="fixed inset-0 z-[9999] bg-slate-950/60 backdrop-blur-md flex items-end sm:items-center justify-center p-4"
         >
           <motion.div
             initial={{ y: 60, scale: 0.96 }}
             animate={{ y: 0, scale: 1 }}
             exit={{ y: 40, opacity: 0 }}
             transition={{ type: "spring", damping: 22, stiffness: 260 }}
-            className="w-full max-w-md bg-gradient-to-b from-slate-900 to-slate-950 rounded-[36px] border border-indigo-500/30 shadow-[0_0_80px_-10px_rgba(99,102,241,0.5)] overflow-hidden"
+            className="w-full max-w-md bg-white rounded-[36px] border border-slate-100 shadow-[0_20px_60px_rgba(0,0,0,0.15)] overflow-hidden"
           >
             {!showReasons ? (
               <>
@@ -144,10 +144,10 @@ const NewOrderAlert = ({ order, timeoutSeconds = 30, onAccept, onReject, onTimeo
                 <div className="relative pt-6 pb-2 flex flex-col items-center">
                   <div className="relative h-28 w-28">
                     <svg className="absolute inset-0 -rotate-90" viewBox="0 0 100 100">
-                      <circle cx="50" cy="50" r={R} stroke="rgba(255,255,255,0.08)" strokeWidth="6" fill="none" />
+                      <circle cx="50" cy="50" r={R} stroke="rgba(0,0,0,0.04)" strokeWidth="6" fill="none" />
                       <motion.circle
                         cx="50" cy="50" r={R}
-                        stroke={remaining <= 10 ? "#ef4444" : "#6366f1"}
+                        stroke={remaining <= 10 ? "#ef4444" : "#4f46e5"}
                         strokeWidth="6" fill="none" strokeLinecap="round"
                         strokeDasharray={C}
                         strokeDashoffset={C * (1 - pct)}
@@ -155,49 +155,60 @@ const NewOrderAlert = ({ order, timeoutSeconds = 30, onAccept, onReject, onTimeo
                       />
                     </svg>
                     <div className="absolute inset-0 flex flex-col items-center justify-center">
-                      <Bike className="h-6 w-6 text-indigo-400 mb-0.5" />
-                      <span className={`text-3xl font-black leading-none ${remaining <= 10 ? "text-red-400" : "text-white"}`}>{remaining}</span>
-                      <span className="text-[9px] font-black text-white/40 uppercase tracking-widest">seg</span>
+                      <Bike className="h-6 w-6 text-indigo-600 mb-0.5" />
+                      <span className={`text-3xl font-black leading-none ${remaining <= 10 ? "text-red-500" : "text-slate-800"}`}>{remaining}</span>
+                      <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest">seg</span>
                     </div>
                   </div>
-                  <p className="mt-3 text-[10px] font-black text-indigo-400 uppercase tracking-[0.3em] animate-pulse">🔔 Nuevo pedido</p>
+                  <p className="mt-3 text-[10px] font-black text-indigo-600 uppercase tracking-[0.3em] animate-pulse">⚡ Nuevo pedido</p>
                 </div>
 
-                <div className="px-6 pb-6 space-y-5">
+                <div className="px-6 pb-6 space-y-4">
                   {/* Earnings */}
-                  <div className="bg-white/5 border border-white/5 rounded-3xl p-5 flex items-center justify-between">
+                  <div className="bg-slate-50 border border-slate-100 rounded-3xl p-5 flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="h-12 w-12 rounded-2xl bg-indigo-500/15 flex items-center justify-center">
-                        <Wallet className="h-6 w-6 text-indigo-400" />
+                      <div className="h-12 w-12 rounded-2xl bg-indigo-50 flex items-center justify-center">
+                        <Wallet className="h-6 w-6 text-indigo-600" />
                       </div>
                       <div>
-                        <p className="text-[9px] font-black text-white/40 uppercase tracking-widest">Ganancia</p>
-                        <p className="text-2xl font-black text-white tracking-tight">{fmt(Number(order.commission ?? 0))}</p>
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Ganancia</p>
+                        <p className="text-3xl font-black text-emerald-500 tracking-tight">{fmt(Number(order.commission ?? 0))}</p>
                       </div>
                     </div>
                     {order.estimated_time != null && (
-                      <div className="flex items-center gap-1.5 text-white/60">
+                      <div className="flex items-center gap-1.5 text-slate-500">
                         <Clock className="h-3.5 w-3.5" />
                         <span className="text-xs font-black">{order.estimated_time} min</span>
                       </div>
                     )}
                   </div>
 
-                  {/* Route */}
-                  <div className="relative space-y-4">
-                    <div className="absolute left-[7px] top-3 bottom-3 w-[2px] bg-white/5" />
-                    <div className="flex items-start gap-4 relative">
-                      <div className="h-3.5 w-3.5 rounded-full bg-emerald-500 border-4 border-slate-900 mt-1" />
+                  {/* Special Note Card */}
+                  {order.notes && (
+                    <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3.5 flex items-start gap-2.5">
+                      <span className="text-base mt-0.5">📝</span>
                       <div className="flex-1 min-w-0">
-                        <p className="text-[9px] font-black text-emerald-500 uppercase tracking-[0.2em] mb-0.5">Recogida</p>
-                        <p className="text-sm font-bold text-white/80 leading-snug truncate">{order.pickup_address || "—"}</p>
+                        <p className="text-[8px] font-black text-amber-600 uppercase tracking-wider mb-0.5">Nota especial</p>
+                        <p className="text-xs font-bold text-amber-950 leading-snug">{order.notes}</p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Route */}
+                  <div className="relative space-y-4 px-1 py-1">
+                    <div className="absolute left-[7px] top-3 bottom-3 w-[2px] bg-slate-100" />
+                    <div className="flex items-start gap-4 relative">
+                      <div className="h-3.5 w-3.5 rounded-full bg-emerald-500 border-4 border-white mt-1 shadow-sm" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[9px] font-black text-emerald-600 uppercase tracking-[0.2em] mb-0.5">Recogida</p>
+                        <p className="text-sm font-bold text-slate-800 leading-snug truncate">{order.pickup_address || "—"}</p>
                       </div>
                     </div>
                     <div className="flex items-start gap-4 relative">
-                      <div className="h-3.5 w-3.5 rounded-full bg-indigo-500 border-4 border-slate-900 mt-1" />
+                      <div className="h-3.5 w-3.5 rounded-full bg-indigo-500 border-4 border-white mt-1 shadow-sm" />
                       <div className="flex-1 min-w-0">
-                        <p className="text-[9px] font-black text-indigo-500 uppercase tracking-[0.2em] mb-0.5">Entrega</p>
-                        <p className="text-sm font-bold text-white/80 leading-snug truncate">{order.delivery_address || "—"}</p>
+                        <p className="text-[9px] font-black text-indigo-600 uppercase tracking-[0.2em] mb-0.5">Entrega</p>
+                        <p className="text-sm font-bold text-slate-800 leading-snug truncate">{order.delivery_address || "—"}</p>
                       </div>
                     </div>
                   </div>
@@ -206,15 +217,15 @@ const NewOrderAlert = ({ order, timeoutSeconds = 30, onAccept, onReject, onTimeo
                   <div className="grid grid-cols-5 gap-3 pt-1">
                     <button
                       onClick={handleRejectClick}
-                      className="col-span-2 h-14 rounded-2xl bg-white/5 border border-white/5 text-white/60 font-black text-xs uppercase tracking-widest active:scale-95 transition-all flex items-center justify-center gap-2"
+                      className="col-span-2 h-14 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-600 font-black text-xs uppercase tracking-widest active:scale-95 transition-all flex items-center justify-center gap-2"
                     >
                       <X className="h-4 w-4" /> Rechazar
                     </button>
                     <button
                       onClick={onAccept}
-                      className="col-span-3 h-14 rounded-2xl bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-black text-xs uppercase tracking-widest shadow-xl shadow-indigo-600/40 active:scale-95 transition-all flex items-center justify-center gap-2"
+                      className="col-span-3 h-14 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xs uppercase tracking-widest shadow-xl shadow-indigo-100 active:scale-95 transition-all flex items-center justify-center gap-2"
                     >
-                      <Check className="h-5 w-5" /> Aceptar pedido
+                      <Check className="h-5 w-5" /> Aceptar
                     </button>
                   </div>
                 </div>
@@ -222,17 +233,17 @@ const NewOrderAlert = ({ order, timeoutSeconds = 30, onAccept, onReject, onTimeo
             ) : (
               <div className="p-6 space-y-4">
                 <div className="flex items-center gap-3">
-                  <button onClick={() => setShowReasons(false)} className="text-white/50 hover:text-white">
+                  <button onClick={() => setShowReasons(false)} className="text-slate-400 hover:text-slate-800">
                     <ChevronLeft className="h-5 w-5" />
                   </button>
-                  <p className="text-sm font-bold text-white">¿Por qué rechazas este pedido?</p>
+                  <p className="text-sm font-bold text-slate-800">¿Por qué rechazas este pedido?</p>
                 </div>
                 <div className="space-y-2">
                   {REJECT_REASONS.map((reason) => (
                     <button
                       key={reason}
                       onClick={() => handleReasonSelect(reason)}
-                      className="w-full text-left p-4 rounded-2xl bg-white/5 border border-white/5 text-white/80 font-semibold text-sm active:scale-[0.98] transition-all hover:bg-white/10"
+                      className="w-full text-left p-4 rounded-2xl bg-slate-50 border border-slate-100 text-slate-700 font-bold text-sm active:scale-[0.98] transition-all hover:bg-slate-100 hover:text-slate-900"
                     >
                       {reason}
                     </button>

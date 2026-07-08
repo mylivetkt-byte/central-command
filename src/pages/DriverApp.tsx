@@ -27,6 +27,7 @@ interface DeliveryOrder {
   pickup_lng: number | null;
   delivery_lat: number | null;
   delivery_lng: number | null;
+  notes?: string | null;
 }
 
 const fmt = (v: number) =>
@@ -216,6 +217,7 @@ const DriverApp = () => {
         pickup_lng: d.pickup_lng ?? null,
         delivery_lat: d.delivery_lat ?? null,
         delivery_lng: d.delivery_lng ?? null,
+        notes: d.notes,
       }));
 
       if (isCurrentlyAvailable && (active || []).length < 2) {

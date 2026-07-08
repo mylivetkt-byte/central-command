@@ -515,11 +515,26 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
             </div>
             <div className="flex items-center gap-2">
               {delivery.customer_phone && (
-                <a href={`tel:${delivery.customer_phone}`} className="h-9 w-9 rounded-full bg-emerald-50 flex items-center justify-center">
-                  <Phone className="h-4 w-4 text-emerald-600" />
-                </a>
+                <>
+                  <a
+                    href={`https://wa.me/${delivery.customer_phone.replace(/\D/g, "")}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="h-9 w-9 rounded-full bg-green-50 hover:bg-green-100 flex items-center justify-center transition-all"
+                  >
+                    <svg className="h-4 w-4 text-green-600 fill-current" viewBox="0 0 24 24">
+                      <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946C.06 5.348 5.397.01 12.008.01c3.202.001 6.212 1.246 8.477 3.514 2.266 2.268 3.507 5.28 3.505 8.484-.004 6.657-5.34 11.997-11.953 11.997-2.005-.001-3.973-.502-5.724-1.458L0 24zm6.59-4.846c1.6.95 3.182 1.449 4.825 1.451 5.436 0 9.86-4.42 9.864-9.852.002-2.63-1.023-5.101-2.887-6.967C16.578 1.919 14.106.894 11.48.894c-5.44 0-9.866 4.418-9.87 9.851-.001 1.776.474 3.51 1.378 5.066l-1.009 3.687 3.776-.99zM15.8 12.94c-.328-.164-1.94-.959-2.24-1.07-.3-.109-.52-.164-.74.164-.22.329-.85 1.07-1.04 1.29-.19.22-.38.246-.708.082-.328-.164-1.386-.511-2.64-1.632-.975-.87-1.633-1.946-1.825-2.274-.19-.329-.02-.507.144-.67.149-.147.328-.384.492-.575.164-.19.219-.328.328-.548.11-.219.055-.411-.027-.575-.082-.164-.74-1.782-1.01-2.44-.265-.636-.53-.55-.74-.56l-.63-.01c-.22 0-.58.08-.88.41-.3.33-1.15 1.12-1.15 2.73s1.17 3.17 1.33 3.39c.16.22 2.3 3.52 5.58 4.94.78.34 1.39.54 1.86.69.79.25 1.5.21 2.07.13.63-.09 1.94-.79 2.22-1.56.27-.77.27-1.42.19-1.56-.08-.14-.3-.22-.63-.38z" />
+                    </svg>
+                  </a>
+                  <a
+                    href={`tel:${delivery.customer_phone}`}
+                    className="h-9 w-9 rounded-full bg-emerald-50 hover:bg-emerald-100 flex items-center justify-center transition-all"
+                  >
+                    <Phone className="h-4 w-4 text-emerald-600" />
+                  </a>
+                </>
               )}
-              <div className="text-right">
+              <div className="text-right ml-2">
                 <p className="text-sm font-black text-indigo-600">{fmt(delivery.amount || 0)}</p>
                 <p className="text-[9px] text-slate-400">Por cobrar</p>
               </div>
@@ -594,11 +609,11 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
           <div className="mt-auto pb-8">
             {isPickingUp ? (
               <Button onClick={() => onPickedUp(delivery.id)} className="w-full h-16 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xl shadow-xl active:scale-[0.98] transition-all">
-                YA RECOGÍ EL PEDIDO
+                RECOGER
               </Button>
             ) : (
               <Button onClick={() => onDelivered(delivery.id)} className="w-full h-16 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xl shadow-xl active:scale-[0.98] transition-all">
-                PEDIDO ENTREGADO ✓
+                ENTREGADO
               </Button>
             )}
           </div>
