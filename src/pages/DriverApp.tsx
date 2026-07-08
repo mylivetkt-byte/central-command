@@ -243,14 +243,18 @@ const DriverApp = () => {
     // Carga inicial
     fetchDataRef.current();
 
-    const ch1 = supabase.channel(`driver-db-${user.id}`)
+    const ch1 = supabase.channel("driver-db")
       .on("postgres_changes", { event: "*", schema: "public", table: "deliveries" }, () => {
         fetchDataRef.current();
       })
       .subscribe();
 
-    const ch2 = supabase.channel(`dispatch-notifications-${user.id}`)
-      .on("broadcast", { event: "new-order" }, () => {
+    const ch2 = supabase.channel("dispatch-notifications")
+      .on("broadcast", { event: "new-order" }, (payload: any) => {
+        const repId = payload.payload?.republished_delivery_id;
+        if (repId) {
+          shownAlertIds.current.delete(repId);
+        }
         fetchDataRef.current();
       })
       .subscribe();

@@ -164,6 +164,32 @@ const Dispatch = () => {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
+  const handleRepublish = async (deliveryId: string) => {
+    const channel = supabase.channel("dispatch-notifications");
+    await channel.subscribe(async (status) => {
+      if (status === "SUBSCRIBED") {
+        await channel.send({
+          type: "broadcast",
+          event: "new-order",
+          payload: { republished_delivery_id: deliveryId },
+        });
+        setTimeout(() => supabase.removeChannel(channel), 500);
+      }
+    });
+
+    const { error } = await supabase
+      .from("deliveries")
+      .update({ updated_at: new Date().toISOString() })
+      .eq("id", deliveryId);
+
+    if (error) {
+      toast.error("Error al republicar envío: " + error.message);
+    } else {
+      toast.success("Envío republicado a todos los mensajeros");
+      queryClient.invalidateQueries({ queryKey: ["dispatch-pending"] });
+    }
+  };
+
   return (
     <DashboardLayout>
       <div className="max-w-[1200px] mx-auto space-y-8 animate-in fade-in duration-700">
@@ -301,6 +327,19 @@ const Dispatch = () => {
                                         <p className="text-xs text-white/60 font-medium truncate">{d.delivery_address}</p>
                                     </div>
                                 </div>
+                                {selectedOrder === d.id && d.status === 'pendiente' && (
+                                    <div className="border-t border-white/5 pt-4 mt-4 flex justify-end">
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleRepublish(d.id);
+                                            }}
+                                            className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 px-4 py-2 text-xs font-black text-white shadow-lg transition-all active:scale-95"
+                                        >
+                                            <Send className="h-3 w-3" /> Republicar a Mensajeros
+                                        </button>
+                                    </div>
+                                )}
                             </motion.div>
                         ))}
                     </div>
