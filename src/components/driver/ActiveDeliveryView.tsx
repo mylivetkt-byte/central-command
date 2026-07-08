@@ -119,18 +119,6 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
     { type: 'delivery', label: 'Entregar', address: delivery.delivery_address, lat: delivery.delivery_lat, lng: delivery.delivery_lng, completed: false },
   ];
 
-  // Add all deliveries as additional stops for multi-stop view
-  const multiStops: Stop[] = React.useMemo(() => {
-    if (allDeliveries.length <= 1) return stops;
-    const all: Stop[] = [];
-    allDeliveries.forEach((d, i) => {
-      const isPickComplete = d.status !== "aceptado";
-      all.push({ type: 'pickup', label: `Recoger #${i + 1}`, address: d.pickup_address || '', lat: d.pickup_lat, lng: d.pickup_lng, completed: isPickComplete });
-      all.push({ type: 'delivery', label: `Entregar #${i + 1}`, address: d.delivery_address, lat: d.delivery_lat, lng: d.delivery_lng, completed: d.status === "entregado" });
-    });
-    return all;
-  }, [allDeliveries, stops]);
-
   const routeCacheKey = `route-${delivery.id}`;
 
   // Wake Lock
@@ -187,10 +175,9 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
     if (!isMapReady || !mapInstance.current || !currentLocation) return;
     const map = mapInstance.current;
 
-    // Build waypoints: current location + all stops
+    // Build waypoints: current location + focused delivery stops only
     let waypoints = `${currentLocation.lng},${currentLocation.lat}`;
-    const allS = allDeliveries.length > 1 ? multiStops : stops;
-    allS.forEach(s => {
+    stops.forEach(s => {
       if (s.lat && s.lng) waypoints += `;${s.lng},${s.lat}`;
     });
 
@@ -237,7 +224,7 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
         });
       }
     } catch {}
-  }, [isMapReady, currentLocation, isOffline, routeCacheKey, stops, multiStops, allDeliveries]);
+  }, [isMapReady, currentLocation, isOffline, routeCacheKey, stops]);
 
   useEffect(() => {
     fetchRouteDetails();
@@ -278,9 +265,8 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
     stopMarkerRefs.current.forEach(m => m.remove());
     stopMarkerRefs.current = [];
 
-    // Stop markers (support multi-stop)
-    const displayStops = allDeliveries.length > 1 ? multiStops : stops;
-    displayStops.forEach((s, i) => {
+    // Stop markers — only show focused delivery stops
+    stops.forEach((s, i) => {
       if (!s.lat || !s.lng) return;
       const color = s.type === 'pickup' ? '#10b981' : '#4F46E5';
       const emoji = s.type === 'pickup' ? '📦' : '🏠';
@@ -312,7 +298,7 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
     const spd = calcSpeedKmh(prevPosRef.current, curr);
     if (spd !== null) setSpeedKmh(spd);
     prevPosRef.current = curr;
-  }, [currentLocation, followMode, isMapReady, stops, multiStops, allDeliveries]);
+  }, [currentLocation, followMode, isMapReady, stops]);
 
   // Update breadcrumb
   useEffect(() => {
@@ -494,59 +480,28 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
             <div className="h-full bg-indigo-600 rounded-full transition-all duration-1000" style={{ width: `${Math.max(2, (1 - etaProgress) * 100)}%` }} />
           </div>
 
-          {/* Multi-stop list */}
-          {allDeliveries.length > 1 && (
-            <div className="mb-3 space-y-1.5">
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-2">Paradas ({multiStops.length})</p>
-              {multiStops.map((s, i) => (
-                <div key={i} className="flex items-center gap-2 py-1">
-                  <div className={`h-5 w-5 rounded-full flex items-center justify-center text-[9px] font-black text-white ${s.type === 'pickup' ? 'bg-emerald-500' : 'bg-indigo-600'}`}>
-                    {i + 1}
-                  </div>
-                  <span className="text-[11px] font-semibold text-slate-700 truncate">{s.address}</span>
-                </div>
-              ))}
-            </div>
-          )}
 
-          {/* Addresses */}
+
+          {/* Addresses — only the focused delivery */}
           <div className="space-y-3 mb-4">
-            {true ? (
-              <>
-                <div className={`p-3 rounded-2xl border-2 ${isPickingUp ? 'border-indigo-500 bg-indigo-50/30' : 'border-slate-100 bg-slate-50'}`}>
-                  <div className="flex items-center gap-3">
-                    <div className="h-8 w-8 rounded-xl bg-emerald-500 flex items-center justify-center text-sm">📦</div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[9px] font-bold text-emerald-600 uppercase tracking-wider mb-0.5">Recoger</p>
-                      <p className="text-xs font-bold text-slate-800 truncate">{delivery.pickup_address}</p>
-                    </div>
-                  </div>
+            <div className={`p-3 rounded-2xl border-2 ${isPickingUp ? 'border-indigo-500 bg-indigo-50/30' : 'border-slate-100 bg-slate-50'}`}>
+              <div className="flex items-center gap-3">
+                <div className="h-8 w-8 rounded-xl bg-emerald-500 flex items-center justify-center text-sm">📦</div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[9px] font-bold text-emerald-600 uppercase tracking-wider mb-0.5">Recoger</p>
+                  <p className="text-xs font-bold text-slate-800 truncate">{delivery.pickup_address}</p>
                 </div>
-                <div className={`p-3 rounded-2xl border-2 ${!isPickingUp ? 'border-indigo-500 bg-indigo-50/30' : 'border-slate-100 bg-slate-50'}`}>
-                  <div className="flex items-center gap-3">
-                    <div className="h-8 w-8 rounded-xl bg-indigo-600 flex items-center justify-center text-sm">🏠</div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[9px] font-bold text-indigo-600 uppercase tracking-wider mb-0.5">Entregar</p>
-                      <p className="text-xs font-bold text-slate-800 truncate">{delivery.delivery_address}</p>
-                    </div>
-                  </div>
+              </div>
+            </div>
+            <div className={`p-3 rounded-2xl border-2 ${!isPickingUp ? 'border-indigo-500 bg-indigo-50/30' : 'border-slate-100 bg-slate-50'}`}>
+              <div className="flex items-center gap-3">
+                <div className="h-8 w-8 rounded-xl bg-indigo-600 flex items-center justify-center text-sm">🏠</div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[9px] font-bold text-indigo-600 uppercase tracking-wider mb-0.5">Entregar</p>
+                  <p className="text-xs font-bold text-slate-800 truncate">{delivery.delivery_address}</p>
                 </div>
-              </>
-            ) : (
-              multiStops.map((s, i) => (
-                <div key={i} className="p-2.5 rounded-xl bg-slate-50 border border-slate-100">
-                  <div className="flex items-center gap-2.5">
-                    <div className={`h-7 w-7 rounded-lg flex items-center justify-center text-[10px] font-black text-white ${s.type === 'pickup' ? 'bg-emerald-500' : 'bg-indigo-600'}`}>
-                      {s.completed ? '✓' : i + 1}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[8px] font-bold text-slate-400 uppercase tracking-wider">{s.label}</p>
-                      <p className="text-[11px] font-semibold text-slate-700 truncate">{s.address}</p>
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
+              </div>
+            </div>
           </div>
 
           {/* Customer info */}
