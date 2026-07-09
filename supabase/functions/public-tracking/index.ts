@@ -11,6 +11,53 @@ Deno.serve(async (req) => {
 
   try {
     const url = new URL(req.url);
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+
+    // ---------- POST: customer sends chat message ----------
+    if (req.method === "POST") {
+      const body = await req.json().catch(() => ({}));
+      const orderId = String(body.order_id || "").slice(0, 64);
+      const message = String(body.message || "").trim().slice(0, 500);
+      if (!orderId || !message) {
+        return new Response(JSON.stringify({ error: "order_id and message required" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const { data: d } = await supabase
+        .from("deliveries")
+        .select("id, company_id, status")
+        .eq("order_id", orderId).maybeSingle();
+      if (!d) {
+        return new Response(JSON.stringify({ error: "not_found" }), {
+          status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      if (["entregado", "cancelado"].includes(String((d as any).status))) {
+        return new Response(JSON.stringify({ error: "closed" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      const { data: inserted, error: insErr } = await supabase
+        .from("chat_messages")
+        .insert({
+          delivery_id: (d as any).id,
+          sender_id: (d as any).id,           // synthetic customer id (delivery.id)
+          sender_role: "customer",
+          message,
+          company_id: (d as any).company_id,
+        })
+        .select("id, created_at")
+        .single();
+      if (insErr) throw insErr;
+      return new Response(JSON.stringify({ ok: true, message: inserted }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // ---------- GET ----------
     const orderId = url.searchParams.get("order_id");
     if (!orderId || orderId.length > 64) {
       return new Response(JSON.stringify({ error: "order_id required" }), {
@@ -18,10 +65,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-    );
+    const wantChat = url.searchParams.get("chat") === "1";
 
     const { data: d, error } = await supabase
       .from("deliveries")
@@ -32,6 +76,28 @@ Deno.serve(async (req) => {
     if (error) throw error;
     if (!d) {
       return new Response(JSON.stringify({ delivery: null }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Chat-only fast path
+    if (wantChat) {
+      const { data: msgs } = await supabase
+        .from("chat_messages")
+        .select("id, sender_role, message, created_at, sender_id")
+        .eq("delivery_id", (d as any).id)
+        .in("sender_role", ["customer", "driver"])
+        .order("created_at", { ascending: true })
+        .limit(200);
+      const customerId = (d as any).id;
+      const shaped = (msgs || []).map((m: any) => ({
+        id: m.id,
+        role: m.sender_role,
+        mine: m.sender_role === "customer" && m.sender_id === customerId,
+        message: m.message,
+        created_at: m.created_at,
+      }));
+      return new Response(JSON.stringify({ messages: shaped }), {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
