@@ -8,7 +8,7 @@ import {
   XCircle, ChevronDown, User, Bike, Camera, WifiOff,
   ArrowUp, ArrowUpLeft, ArrowUpRight as ArrowUpRightIcon,
   ArrowLeft, ArrowRight, RotateCw, MapPin as MapPinIcon,
-  Flag, Volume2, VolumeX
+  Flag, Volume2, VolumeX, Plus, Minus
 } from "lucide-react";
 import { motion, AnimatePresence } from 'framer-motion';
 import { useDriverLocation } from "@/hooks/useDriverLocation";
@@ -182,8 +182,8 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
       if (mapInstance.current && currentLocation) {
         mapInstance.current.easeTo({
           center: [currentLocation.lng, currentLocation.lat],
-          zoom: 18,
-          pitch: 60,
+          zoom: 16.5,
+          pitch: 45,
           bearing: currentLocation.heading || 0,
           duration: 900,
         });
@@ -268,8 +268,8 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
       container: mapContainer.current,
       style: mapStyle.url,
       center: currentLocation ? [currentLocation.lng, currentLocation.lat] : [delivery.pickup_lng || -73.1198, delivery.pickup_lat || 7.1193],
-      zoom: 17,
-      pitch: 65,
+      zoom: 16.5,
+      pitch: 45,
       bearing: currentLocation?.heading || 0
     });
 
@@ -525,8 +525,8 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
       map.easeTo({
         center: [currentLocation.lng, currentLocation.lat],
         bearing: currentLocation.heading || 0,
-        zoom: 18,
-        pitch: 60,
+        zoom: 16.5,
+        pitch: 45,
         duration: 800,
       });
     }
