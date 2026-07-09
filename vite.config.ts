@@ -50,10 +50,10 @@ export default defineConfig(({ mode }) => ({
         short_name: "GoMoto",
         description: "App de entregas para conductores",
         theme_color: "#1a1a2e",
-        background_color: "#1a1a2e",
+        background_color: "#ffffff",
         display: "standalone",
         orientation: "portrait",
-        start_url: "/driver-login",
+        start_url: "/",
         scope: "/",
         icons: [
           {
