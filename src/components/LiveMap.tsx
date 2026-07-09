@@ -51,6 +51,7 @@ const LiveMap: React.FC<LiveMapProps> = ({
   const [isMapReady, setIsMapReady] = useState(false);
   const { current: mapStyle, setStyle } = useMapStyle("dark");
   const { selectedCompanyId } = useCompany();
+  const didFitBoundsRef = useRef(false);
 
   // Consulta de drivers
   const { data: drivers = [] } = useQuery({
@@ -186,7 +187,9 @@ const LiveMap: React.FC<LiveMapProps> = ({
       // Pickup Marker
       if (d.pickup_lat && d.pickup_lng) {
         const pId = `pickup-${d.id}`;
-        if (!markersRef.current[pId]) {
+        if (markersRef.current[pId]) {
+          markersRef.current[pId].setLngLat([d.pickup_lng, d.pickup_lat]);
+        } else {
           const el = document.createElement('div');
           el.innerHTML = `<div class="bg-accent text-white p-1.5 rounded-md shadow-md border border-white">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
@@ -201,7 +204,9 @@ const LiveMap: React.FC<LiveMapProps> = ({
       // Delivery Marker
       if (d.delivery_lat && d.delivery_lng) {
         const dId = `delivery-${d.id}`;
-        if (!markersRef.current[dId]) {
+        if (markersRef.current[dId]) {
+          markersRef.current[dId].setLngLat([d.delivery_lng, d.delivery_lat]);
+        } else {
           const el = document.createElement('div');
           el.innerHTML = `<div class="bg-destructive text-white p-1.5 rounded-md shadow-md border border-white pulse-marker">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
@@ -214,6 +219,24 @@ const LiveMap: React.FC<LiveMapProps> = ({
       }
     });
   }, [deliveries, isMapReady, showDeliveries]);
+
+  // fitBounds automático la primera vez que hay marcadores
+  useEffect(() => {
+    if (!isMapReady || !mapInstance.current || didFitBoundsRef.current) return;
+    const bounds = new maplibregl.LngLatBounds();
+    let count = 0;
+    drivers.forEach(d => {
+      if (d.last_lat && d.last_lng) { bounds.extend([d.last_lng, d.last_lat]); count++; }
+    });
+    deliveries.forEach(d => {
+      if (d.pickup_lat && d.pickup_lng) { bounds.extend([d.pickup_lng, d.pickup_lat]); count++; }
+      if (d.delivery_lat && d.delivery_lng) { bounds.extend([d.delivery_lng, d.delivery_lat]); count++; }
+    });
+    if (count >= 1) {
+      mapInstance.current.fitBounds(bounds, { padding: 80, maxZoom: 15, duration: 800 });
+      didFitBoundsRef.current = true;
+    }
+  }, [drivers, deliveries, isMapReady]);
 
   // Manejar enfoque
   useEffect(() => {
