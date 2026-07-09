@@ -5,6 +5,7 @@ import { KPICard } from "@/components/KPICard";
 import { DollarSign, TrendingUp, Users, Receipt } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { motion } from "framer-motion";
+import { useCompany } from "@/hooks/useCompany";
 
 const formatCurrency = (v: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(v);
@@ -12,10 +13,13 @@ const formatCurrency = (v: number) =>
 const tooltipStyle = { background: "hsl(222,47%,9%)", border: "1px solid hsl(217,33%,17%)", borderRadius: 8, color: "hsl(210,40%,96%)" };
 
 const Financial = () => {
+  const { selectedCompanyId } = useCompany();
   const { data: deliveries = [], isLoading: isLoadingDeliveries } = useQuery({
-    queryKey: ["financial-deliveries"],
+    queryKey: ["financial-deliveries", selectedCompanyId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("deliveries").select("*").eq("status", "entregado").order("updated_at", { ascending: false });
+      let q: any = supabase.from("deliveries").select("*").eq("status", "entregado").order("updated_at", { ascending: false });
+      if (selectedCompanyId) q = q.eq("company_id", selectedCompanyId);
+      const { data, error } = await q;
       if (error) throw error;
       return data || [];
     },
@@ -23,9 +27,11 @@ const Financial = () => {
   });
 
   const { data: drivers = [], isLoading: isLoadingDrivers } = useQuery({
-    queryKey: ["financial-drivers"],
+    queryKey: ["financial-drivers", selectedCompanyId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("driver_profiles").select("*, profiles (full_name)");
+      let q: any = supabase.from("driver_profiles").select("*, profiles (full_name)");
+      if (selectedCompanyId) q = q.eq("company_id", selectedCompanyId);
+      const { data, error } = await q;
       if (error) throw error;
       return data || [];
     },
