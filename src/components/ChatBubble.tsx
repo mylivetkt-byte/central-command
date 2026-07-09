@@ -37,6 +37,7 @@ interface ChatBubbleProps {
   currentUserId: string;
   isDriverView?: boolean;
   initialOpen?: boolean;
+  driverId?: string | null;
 }
 
 const timeStr = (d: string) =>
@@ -50,11 +51,13 @@ const ChatBubble = ({
   currentUserId,
   isDriverView = false,
   initialOpen = false,
+  driverId = null,
 }: ChatBubbleProps) => {
   const [open, setOpen] = useState(initialOpen);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(true);
+  const [unread, setUnread] = useState(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   const channelRef = useRef<any>(null);
 
@@ -69,15 +72,15 @@ const ChatBubble = ({
     setLoading(false);
   }, [deliveryId]);
 
+  // Cargar mensajes siempre para poder mostrar el badge
   useEffect(() => {
-    if (!open) return;
     loadMessages();
-  }, [open, loadMessages]);
+  }, [loadMessages]);
 
-  // Realtime subscription
+  // Suscripción realtime SIEMPRE activa (aunque el chat esté cerrado)
+  // para poder notificar al mensajero apenas llegue el mensaje.
   useEffect(() => {
-    if (!open || channelRef.current) return;
-
+    if (channelRef.current) return;
     channelRef.current = supabase
       .channel(`chat-${deliveryId}`)
       .on(
@@ -90,7 +93,30 @@ const ChatBubble = ({
         },
         ({ new: n }: any) => {
           setMessages((prev) => [...prev, n as ChatMessage]);
-          if (n.sender_id !== currentUserId) playChatAlert();
+          if (n.sender_id !== currentUserId) {
+            playChatAlert();
+            setUnread((u) => u + 1);
+            // Notificación del sistema si la pestaña no está visible
+            try {
+              if (
+                typeof Notification !== "undefined" &&
+                Notification.permission === "granted" &&
+                (typeof document === "undefined" || document.hidden)
+              ) {
+                const title =
+                  n.sender_role === "admin"
+                    ? "Mensaje de Central"
+                    : n.sender_role === "customer"
+                    ? "Mensaje del cliente"
+                    : "Nuevo mensaje";
+                new Notification(title, {
+                  body: n.message,
+                  icon: "/icons/icon-192.png",
+                  tag: `chat-${deliveryId}`,
+                });
+              }
+            } catch {}
+          }
         }
       )
       .subscribe();
@@ -101,7 +127,12 @@ const ChatBubble = ({
         channelRef.current = null;
       }
     };
-  }, [open, deliveryId]);
+  }, [deliveryId, currentUserId]);
+
+  // Al abrir el chat, limpiar contador de no leídos
+  useEffect(() => {
+    if (open) setUnread(0);
+  }, [open, messages.length]);
 
   // Auto-scroll
   useEffect(() => {
@@ -120,15 +151,33 @@ const ChatBubble = ({
 
   const send = async () => {
     if (!text.trim() || !currentUserId) return;
+    const msg = text.trim();
     setText("");
     const { error } = await (supabase.from("chat_messages") as any).insert({
       delivery_id: deliveryId,
       sender_id: currentUserId,
       sender_role: isDriverView ? "driver" : "admin",
-      message: text.trim(),
+      message: msg,
     });
     if (error) {
-      setText(text); // restore on error
+      setText(msg); // restore on error
+      return;
+    }
+    // Si es el admin quien envía, disparar push notification al mensajero
+    if (!isDriverView && driverId) {
+      try {
+        await supabase.functions.invoke("notify-drivers-push", {
+          body: {
+            driver_id: driverId,
+            title: "💬 Mensaje de Central",
+            body: msg.length > 120 ? msg.slice(0, 117) + "..." : msg,
+            url: "/driver",
+            delivery_id: deliveryId,
+          },
+        });
+      } catch (e) {
+        console.warn("[chat push]", e);
+      }
     }
   };
 
@@ -139,10 +188,10 @@ const ChatBubble = ({
         className="relative h-12 w-12 rounded-full bg-white/90 backdrop-blur-xl shadow-2xl flex items-center justify-center active:scale-90 transition-transform"
       >
         <MessageCircle className="h-5 w-5 text-slate-700" />
-        {!isDriverView && messages.length > 0 && (
-          <span className="absolute -top-1 -right-1 h-4 w-4 bg-red-500 rounded-full flex items-center justify-center">
-            <span className="text-[8px] font-bold text-white">
-              {messages.filter((m) => m.sender_id !== currentUserId).length}
+        {unread > 0 && (
+          <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-red-500 rounded-full flex items-center justify-center animate-pulse">
+            <span className="text-[9px] font-bold text-white">
+              {unread > 9 ? "9+" : unread}
             </span>
           </span>
         )}
