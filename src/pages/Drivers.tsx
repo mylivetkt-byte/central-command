@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { useState } from "react";
-import { Search, UserCheck, UserX, Star, Phone, Package, RefreshCw, Plus, Edit2, Trash2, X, AlertTriangle } from "lucide-react";
+import { Search, UserCheck, UserX, Star, Phone, Package, RefreshCw, Plus, Edit2, Trash2, X, AlertTriangle, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import { useCompany } from "@/hooks/useCompany";
 
@@ -152,6 +152,18 @@ const Drivers = () => {
       queryClient.invalidateQueries({ queryKey: ["drivers"] });
     },
     onError: (err: any) => toast.error(`Error al eliminar: ${err.message}`),
+  });
+
+  const resetPassword = useMutation({
+    mutationFn: async ({ driverId, newPassword }: { driverId: string; newPassword: string }) => {
+      const { data, error } = await supabase.functions.invoke("reset-user-password", {
+        body: { user_id: driverId, new_password: newPassword },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+    },
+    onSuccess: () => toast.success("Contraseña actualizada. Comparte la nueva clave con el repartidor."),
+    onError: (err: any) => toast.error(`Error: ${err.message}`),
   });
 
   const filtered = drivers.filter((d: any) =>
@@ -395,6 +407,21 @@ const Drivers = () => {
                           className="flex items-center gap-1 rounded-lg border border-destructive/20 bg-transparent px-3 py-2 text-xs font-medium text-destructive hover:bg-destructive/5 transition-colors"
                         >
                           <Trash2 className="h-3 w-3" /> Eliminar
+                        </button>
+                        <button
+                          onClick={() => {
+                            const pwd = window.prompt("Nueva contraseña para el repartidor (mín. 6 caracteres):");
+                            if (!pwd) return;
+                            if (pwd.length < 6) {
+                              toast.error("La contraseña debe tener al menos 6 caracteres");
+                              return;
+                            }
+                            resetPassword.mutate({ driverId: selectedDriver.id, newPassword: pwd });
+                          }}
+                          disabled={resetPassword.isPending}
+                          className="flex items-center gap-1 rounded-lg bg-muted px-3 py-2 text-xs font-medium text-foreground hover:bg-muted/80 transition-colors"
+                        >
+                          <KeyRound className="h-3 w-3" /> Contraseña
                         </button>
                       </div>
                     </div>
