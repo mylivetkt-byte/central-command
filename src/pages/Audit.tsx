@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { CheckCircle, Clock, Truck, Package, XCircle, RefreshCw } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useCompany } from "@/hooks/useCompany";
 
 const eventIcons: Record<string, JSX.Element> = {
   pendiente:   <Clock className="h-4 w-4 text-warning" />,
@@ -23,16 +24,19 @@ const iconForEvent = (event: string) => {
 
 const Audit = () => {
   const queryClient = useQueryClient();
+  const { selectedCompanyId } = useCompany();
 
   // BUG FIX: usar delivery_audit_log en lugar de deliveries
   const { data: logs = [], isLoading } = useQuery<any[]>({
-    queryKey: ["audit-log"],
+    queryKey: ["audit-log", selectedCompanyId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let q: any = supabase
         .from("delivery_audit_log")
         .select("id, delivery_id, event, details, performed_by, created_at, deliveries (order_id)")
         .order("created_at", { ascending: false })
         .limit(100);
+      if (selectedCompanyId) q = q.eq("company_id", selectedCompanyId);
+      const { data, error } = await q;
       if (error) throw error;
       return (data || []) as any[];
     },
