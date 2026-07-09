@@ -5,7 +5,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import type { User, Session } from "@supabase/supabase-js";
 
-type AppRole = "admin" | "driver" | "super_admin" | null;
+type AppRole = "admin" | "driver" | "super_admin" | "bloqueado" | null;
 
 interface AuthContextType {
   user: User | null;
