@@ -14,8 +14,8 @@ const formatCurrency = (v: number) =>
 
 const statusColors: Record<string, string> = {
   pendiente:  "bg-yellow-500/10 text-yellow-500 border-yellow-500/30",
-  aceptado:   "bg-white/10 text-white border-white/40",
-  en_camino:  "bg-white/20 text-white border-white/50",
+  aceptado:   "bg-blue-500/10 text-blue-600 border-blue-500/30",
+  en_camino:  "bg-indigo-500/10 text-indigo-600 border-indigo-500/40",
   entregado:  "bg-success/15 text-success border-success/30",
   cancelado:  "bg-destructive/15 text-destructive border-destructive/30",
 };

@@ -93,11 +93,17 @@ const LiveMap: React.FC<LiveMapProps> = ({
       if (selectedCompanyId) q = q.eq('company_id', selectedCompanyId);
       const { data, error } = await q;
       if (error) throw error;
-      // Also fetch locations
-      let lq = supabase.from('driver_locations').select('driver_id, lat, lng, company_id');
-      if (selectedCompanyId) lq = lq.eq('company_id', selectedCompanyId);
-      const { data: locs } = await lq;
-      const locMap = new Map((locs || []).map((l: any) => [l.driver_id, l]));
+      const driverIds = (data || []).map((d: any) => d.id);
+      // Fetch locations filtered by driver_id (avoids stale/NULL company_id on driver_locations)
+      let locs: any[] = [];
+      if (driverIds.length > 0) {
+        const { data: locData } = await supabase
+          .from('driver_locations')
+          .select('driver_id, lat, lng')
+          .in('driver_id', driverIds);
+        locs = locData || [];
+      }
+      const locMap = new Map(locs.map((l: any) => [l.driver_id, l]));
       return (data || []).map((d: any) => ({
         ...d,
         last_lat: locMap.get(d.id)?.lat || null,
@@ -145,12 +151,11 @@ const LiveMap: React.FC<LiveMapProps> = ({
   // Realtime: driver_locations
   useEffect(() => {
     if (!showDrivers) return;
-    const filter = selectedCompanyId ? `company_id=eq.${selectedCompanyId}` : undefined;
     const channel = supabase
       .channel(`live-drivers-${selectedCompanyId ?? 'all'}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'driver_locations', ...(filter ? { filter } : {}) },
+        { event: '*', schema: 'public', table: 'driver_locations' },
         (payload: any) => {
           const row = payload.new || payload.old;
           if (!row?.driver_id) return;
