@@ -7,7 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect } from "react";
-import { Zap, MapPin, Package, Plus, X, Send, UserCheck, Clock, CheckCircle, XCircle, RefreshCw, BellRing, Navigation, Radio, Users } from "lucide-react";
+import { Zap, MapPin, Package, Plus, X, Send, UserCheck, Clock, CheckCircle, XCircle, RefreshCw, BellRing, Navigation, Radio, Users, Pencil, Trash2, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 
 const formatCurrency = (v: number) =>
@@ -49,6 +49,7 @@ const Dispatch = () => {
   const [selectedOrder, setSelectedOrder] = useState<string | null>(null);
   const [dispatchMode, setDispatchMode] = useState<"todos" | "especifico">("todos");
   const [targetDriverId, setTargetDriverId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   // Pedidos activos
@@ -98,6 +99,29 @@ const Dispatch = () => {
 
   const createDelivery = useMutation({
     mutationFn: async (formData: NewDeliveryForm) => {
+      // Si estamos editando, actualiza en lugar de crear
+      if (editingId) {
+        const { error } = await (supabase.from("deliveries") as any)
+          .update({
+            customer_name: formData.customer_name,
+            customer_phone: formData.customer_phone || null,
+            pickup_address: formData.pickup_address,
+            delivery_address: formData.delivery_address,
+            pickup_lat: formData.pickup_lat ?? null,
+            pickup_lng: formData.pickup_lng ?? null,
+            delivery_lat: formData.delivery_lat ?? null,
+            delivery_lng: formData.delivery_lng ?? null,
+            amount: parseFloat(formData.amount) || 0,
+            commission: parseFloat(formData.commission) || 0,
+            estimated_time: parseInt(formData.estimated_time) || 30,
+            zone: formData.zone || null,
+            notes: formData.notes || null,
+          })
+          .eq("id", editingId);
+        if (error) throw error;
+        return { orderId: "", isDirectAssign: false, edited: true };
+      }
+
       const orderId = `DOM-${Date.now().toString().slice(-6)}`;
       const isDirectAssign = dispatchMode === "especifico" && targetDriverId;
 
@@ -165,9 +189,17 @@ const Dispatch = () => {
         }
       }
 
-      return { orderId, isDirectAssign };
+      return { orderId, isDirectAssign, edited: false };
     },
-    onSuccess: ({ orderId, isDirectAssign }) => {
+    onSuccess: ({ orderId, isDirectAssign, edited }) => {
+      if (edited) {
+        toast.success("✅ Pedido actualizado");
+        setForm(emptyForm);
+        setEditingId(null);
+        setShowNewForm(false);
+        queryClient.invalidateQueries({ queryKey: ["dispatch-pending"] });
+        return;
+      }
       const driverName = isDirectAssign
         ? availableDrivers.find((d: any) => d.id === targetDriverId)?.profiles?.full_name ?? "el mensajero"
         : null;
@@ -211,6 +243,67 @@ const Dispatch = () => {
     },
   });
 
+  // Despublicar: quita el pedido del listado disponible para los mensajeros (marca como cancelado)
+  const unpublishDelivery = useMutation({
+    mutationFn: async (deliveryId: string) => {
+      const { error } = await (supabase.from("deliveries") as any)
+        .update({ status: "cancelado", updated_at: new Date().toISOString() })
+        .eq("id", deliveryId)
+        .eq("status", "pendiente");
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Pedido despublicado — ya no es visible para los mensajeros");
+      setSelectedOrder(null);
+      queryClient.invalidateQueries({ queryKey: ["dispatch-pending"] });
+    },
+    onError: (err: any) => toast.error(`Error: ${err.message}`),
+  });
+
+  // Eliminar definitivamente el pedido pendiente
+  const deleteDelivery = useMutation({
+    mutationFn: async (deliveryId: string) => {
+      const { error } = await (supabase.from("deliveries") as any)
+        .delete()
+        .eq("id", deliveryId)
+        .eq("status", "pendiente");
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Pedido eliminado");
+      setSelectedOrder(null);
+      queryClient.invalidateQueries({ queryKey: ["dispatch-pending"] });
+    },
+    onError: (err: any) => toast.error(`Error: ${err.message}`),
+  });
+
+  const startEdit = (d: any) => {
+    setEditingId(d.id);
+    setForm({
+      customer_name: d.customer_name || "",
+      customer_phone: d.customer_phone || "",
+      pickup_address: d.pickup_address || "",
+      delivery_address: d.delivery_address || "",
+      amount: String(d.amount ?? ""),
+      commission: String(d.commission ?? ""),
+      estimated_time: String(d.estimated_time ?? "30"),
+      zone: d.zone || "",
+      notes: d.notes || "",
+      pickup_lat: d.pickup_lat ?? undefined,
+      pickup_lng: d.pickup_lng ?? undefined,
+      delivery_lat: d.delivery_lat ?? undefined,
+      delivery_lng: d.delivery_lng ?? undefined,
+    });
+    setShowNewForm(true);
+    setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 50);
+  };
+
+  const closeForm = () => {
+    setShowNewForm(false);
+    setEditingId(null);
+    setForm(emptyForm);
+  };
+
   const handleFormChange = (field: keyof NewDeliveryForm, value: any) => {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
@@ -243,41 +336,43 @@ const Dispatch = () => {
 
   return (
     <DashboardLayout>
-      <div className="max-w-[1200px] mx-auto space-y-8 animate-in fade-in duration-700">
+      <div className="max-w-[1200px] mx-auto space-y-6 md:space-y-8 animate-in fade-in duration-700 px-2 md:px-0">
         
         {/* Cabecera Admin Premium */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 p-8 bg-white border border-slate-200 rounded-[32px] shadow-lg">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 md:gap-6 p-5 md:p-8 bg-white border border-slate-200 rounded-3xl md:rounded-[32px] shadow-lg">
           <div>
             <div className="flex items-center gap-3 mb-2">
                 <div className="p-2 bg-emerald-100 rounded-xl">
                     <Navigation className="h-6 w-6 text-emerald-600" />
                 </div>
-                <h1 className="text-3xl font-black tracking-tight text-slate-900">Central de Despacho</h1>
+                <h1 className="text-2xl md:text-3xl font-black tracking-tight text-slate-900">Central de Despacho</h1>
             </div>
             <p className="text-sm text-slate-500 font-medium">Gestiona la logística de tu flota en tiempo real.</p>
           </div>
           
           <button
-            onClick={() => setShowNewForm(true)}
-            className="group relative flex items-center gap-3 rounded-2xl bg-emerald-600 px-8 py-4 text-sm font-black text-white hover:bg-emerald-500 transition-all shadow-xl shadow-emerald-600/20 active:scale-95"
+            onClick={() => { setEditingId(null); setForm(emptyForm); setShowNewForm(true); }}
+            className="group relative flex items-center justify-center gap-3 rounded-2xl bg-emerald-600 px-6 md:px-8 py-3.5 md:py-4 text-sm font-black text-white hover:bg-emerald-500 transition-all shadow-xl shadow-emerald-600/20 active:scale-95"
           >
             <Plus className="h-5 w-5" /> PUBLICAR NUEVO ENVÍO
             <div className="absolute -top-1 -right-1 h-4 w-4 bg-green-400 rounded-full animate-ping pointer-events-none" />
           </button>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 md:gap-8">
             
             {/* Listado de Servicios (60%) */}
-            <div className="lg:col-span-8 space-y-6">
+            <div className="lg:col-span-8 space-y-6 min-w-0">
                 
                 <AnimatePresence>
                     {showNewForm && (
                         <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-                            <div className="bg-white rounded-[32px] p-8 shadow-2xl space-y-6 border border-slate-100">
+                            <div className="bg-white rounded-3xl md:rounded-[32px] p-5 md:p-8 shadow-2xl space-y-6 border border-slate-100">
                                 <div className="flex items-center justify-between border-b border-slate-50 pb-5">
-                                    <h2 className="text-xl font-black text-slate-800">Detalles del Servicio</h2>
-                                    <button onClick={() => setShowNewForm(false)} className="h-10 w-10 rounded-full bg-slate-50 flex items-center justify-center text-slate-400 hover:bg-slate-100"><X /></button>
+                                    <h2 className="text-lg md:text-xl font-black text-slate-800">
+                                      {editingId ? "✏️ Editar Servicio" : "Detalles del Servicio"}
+                                    </h2>
+                                    <button type="button" onClick={closeForm} className="h-10 w-10 rounded-full bg-slate-50 flex items-center justify-center text-slate-400 hover:bg-slate-100"><X /></button>
                                 </div>
                                 
                                 <form onSubmit={(e) => { e.preventDefault(); createDelivery.mutate(form); }} className="space-y-6">
@@ -334,7 +429,8 @@ const Dispatch = () => {
                                         />
                                     </div>
 
-                                    {/* MODO DE ENVÍO */}
+                                    {/* MODO DE ENVÍO (solo al crear) */}
+                                    {!editingId && (
                                     <div className="space-y-3">
                                       <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">🚀 Enviar a</label>
                                       <div className="grid grid-cols-2 gap-3">
@@ -400,13 +496,20 @@ const Dispatch = () => {
                                         </div>
                                       )}
                                     </div>
+                                    )}
 
                                     <button
                                       type="submit"
                                       disabled={createDelivery.isPending || (dispatchMode === "especifico" && !targetDriverId)}
                                       className="w-full h-16 rounded-2xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-black transition-all shadow-xl shadow-emerald-100 flex items-center justify-center gap-3"
                                     >
-                                      <Send /> {createDelivery.isPending ? "PROCESANDO..." : dispatchMode === "especifico" && targetDriverId ? "ASIGNAR AL MENSAJERO" : "PUBLICAR SERVICIO AHORA"}
+                                      <Send /> {createDelivery.isPending
+                                        ? "PROCESANDO..."
+                                        : editingId
+                                          ? "GUARDAR CAMBIOS"
+                                          : dispatchMode === "especifico" && targetDriverId
+                                            ? "ASIGNAR AL MENSAJERO"
+                                            : "PUBLICAR SERVICIO AHORA"}
                                     </button>
                                 </form>
                             </div>
@@ -423,18 +526,18 @@ const Dispatch = () => {
                         </div>
                     </div>
                     
-                    <div className="space-y-3 max-h-[600px] overflow-y-auto custom-scrollbar pr-2">
+                    <div className="space-y-3 max-h-[600px] overflow-y-auto custom-scrollbar pr-1 md:pr-2">
                         {pending.map((d: any) => (
-                            <motion.div key={d.id} className={`p-5 rounded-3xl border transition-all cursor-pointer ${selectedOrder === d.id ? 'bg-emerald-50 border-emerald-500 shadow-md' : 'bg-slate-50 border-slate-100 hover:bg-slate-100 hover:border-slate-200'}`} onClick={() => setSelectedOrder(selectedOrder === d.id ? null : d.id)}>
+                            <motion.div key={d.id} className={`p-4 md:p-5 rounded-3xl border transition-all cursor-pointer ${selectedOrder === d.id ? 'bg-emerald-50 border-emerald-500 shadow-md' : 'bg-slate-50 border-slate-100 hover:bg-slate-100 hover:border-slate-200'}`} onClick={() => setSelectedOrder(selectedOrder === d.id ? null : d.id)}>
                                 <div className="flex items-center justify-between mb-4">
                                     <div className="flex items-center gap-3">
                                         <div className="h-10 w-10 rounded-xl bg-slate-200 flex items-center justify-center font-black text-slate-700 text-xs">#{d.order_id.slice(-4)}</div>
-                                        <div>
-                                            <p className="text-sm font-black text-slate-900">{d.customer_name}</p>
+                                        <div className="min-w-0">
+                                            <p className="text-sm font-black text-slate-900 truncate">{d.customer_name}</p>
                                             <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{d.status}</p>
                                         </div>
                                     </div>
-                                    <div className="text-right">
+                                    <div className="text-right shrink-0 ml-2">
                                         <p className="text-sm font-black text-emerald-600">{formatCurrency(d.commission)}</p>
                                         <p className="text-[10px] text-slate-400 font-bold">GANANCIA</p>
                                     </div>
@@ -450,15 +553,40 @@ const Dispatch = () => {
                                     </div>
                                 </div>
                                 {selectedOrder === d.id && d.status === 'pendiente' && (
-                                    <div className="border-t border-slate-100 pt-4 mt-4 flex justify-end">
+                                    <div className="border-t border-slate-100 pt-4 mt-4 grid grid-cols-2 md:flex md:flex-wrap md:justify-end gap-2">
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); handleRepublish(d.id); }}
+                                            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 px-3 py-2.5 text-[11px] font-black text-white shadow-md transition-all active:scale-95"
+                                        >
+                                            <Send className="h-3.5 w-3.5" /> Republicar
+                                        </button>
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); startEdit(d); }}
+                                            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 px-3 py-2.5 text-[11px] font-black text-white shadow-md transition-all active:scale-95"
+                                        >
+                                            <Pencil className="h-3.5 w-3.5" /> Modificar
+                                        </button>
                                         <button
                                             onClick={(e) => {
                                                 e.stopPropagation();
-                                                handleRepublish(d.id);
+                                                if (confirm("¿Despublicar este pedido? Ya no será visible para los mensajeros.")) {
+                                                    unpublishDelivery.mutate(d.id);
+                                                }
                                             }}
-                                            className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 px-4 py-2 text-xs font-black text-white shadow-md transition-all active:scale-95"
+                                            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 px-3 py-2.5 text-[11px] font-black text-white shadow-md transition-all active:scale-95"
                                         >
-                                            <Send className="h-3 w-3" /> Republicar a Mensajeros
+                                            <EyeOff className="h-3.5 w-3.5" /> Despublicar
+                                        </button>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (confirm("¿Eliminar definitivamente este pedido? Esta acción no se puede deshacer.")) {
+                                                    deleteDelivery.mutate(d.id);
+                                                }
+                                            }}
+                                            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-red-600 hover:bg-red-500 px-3 py-2.5 text-[11px] font-black text-white shadow-md transition-all active:scale-95"
+                                        >
+                                            <Trash2 className="h-3.5 w-3.5" /> Eliminar
                                         </button>
                                     </div>
                                 )}
