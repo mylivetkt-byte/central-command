@@ -6,6 +6,7 @@ import { useState } from "react";
 import { Search, UserCheck, UserX, Star, Phone, Package, RefreshCw, Plus, Edit2, Trash2, X, AlertTriangle, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import { useCompany } from "@/hooks/useCompany";
+import { isValidPhone, phoneToSyntheticEmail, normalizePhone } from "@/lib/phoneAuth";
 
 const statusColors: Record<string, string> = {
   activo: "bg-accent/10 text-accent",
@@ -30,6 +31,12 @@ const Drivers = () => {
     password: "",
     phone: "",
     zone: "",
+    signup_method: "email" as "email" | "phone",
+    vehicle_type: "moto",
+    vehicle_plate: "",
+    document_id: "",
+    address: "",
+    notes: "",
   });
   
   const { company, selectedCompanyId } = useCompany();
@@ -41,7 +48,7 @@ const Drivers = () => {
     queryFn: async () => {
       // Step 1: load all driver_profiles
       const { data: dps, error: dpError } = await (supabase.from("driver_profiles") as any)
-        .select("id, status, total_deliveries, rating, acceptance_rate, cancellation_rate, current_load, zone");
+        .select("id, status, total_deliveries, rating, acceptance_rate, cancellation_rate, current_load, zone, vehicle_type, vehicle_plate, document_id, address, notes");
       if (dpError) throw dpError;
       if (!dps || dps.length === 0) return [];
 
@@ -97,19 +104,35 @@ const Drivers = () => {
         if (profileError) throw profileError;
 
         const { error: driverError } = await (supabase.from("driver_profiles") as any)
-          .update({ zone: data.zone })
+          .update({
+            zone: data.zone,
+            vehicle_type: data.vehicle_type,
+            vehicle_plate: data.vehicle_plate || null,
+            document_id: data.document_id || null,
+            address: data.address || null,
+            notes: data.notes || null,
+          })
           .eq("id", editingDriver.id);
         if (driverError) throw driverError;
       } else {
+        // Determinar email real o sintético (si se registra con móvil)
+        let email = data.email.trim();
+        const contactPhone = normalizePhone(data.phone);
+        if (data.signup_method === "phone") {
+          if (!isValidPhone(data.phone)) throw new Error("Ingresa un número de móvil válido (7-15 dígitos)");
+          email = phoneToSyntheticEmail(data.phone);
+        } else {
+          if (!email) throw new Error("El correo es obligatorio");
+        }
         // Crear el conductor vía edge function (usa service_role, no toca la sesión del admin)
         const { data: fnData, error: fnError } = await supabase.functions.invoke(
           "create-company-admin",
           {
             body: {
-              email: data.email,
+              email,
               password: data.password,
               full_name: data.full_name,
-              phone: data.phone,
+              phone: contactPhone,
               role: "driver",
               company_id: selectedCompanyId,
             },
@@ -117,18 +140,37 @@ const Drivers = () => {
         );
         if (fnError) throw fnError;
         if (fnData?.error) throw new Error(fnData.error);
+
+        // Guardar los campos adicionales del perfil del conductor
+        const newUserId = fnData?.user_id;
+        if (newUserId) {
+          await (supabase.from("driver_profiles") as any)
+            .update({
+              zone: data.zone || null,
+              vehicle_type: data.vehicle_type,
+              vehicle_plate: data.vehicle_plate || null,
+              document_id: data.document_id || null,
+              address: data.address || null,
+              notes: data.notes || null,
+            })
+            .eq("id", newUserId);
+        }
       }
     },
     onSuccess: () => {
       toast.success(
         isEditing
           ? "Conductor actualizado correctamente"
-          : "Conductor creado. Ya puede iniciar sesión con su email y contraseña."
+          : "Conductor creado. Ya puede iniciar sesión."
       );
       setShowForm(false);
       setIsEditing(false);
       setEditingDriver(null);
-      setFormData({ full_name: "", email: "", password: "", phone: "", zone: "" });
+      setFormData({
+        full_name: "", email: "", password: "", phone: "", zone: "",
+        signup_method: "email", vehicle_type: "moto", vehicle_plate: "",
+        document_id: "", address: "", notes: "",
+      });
       queryClient.invalidateQueries({ queryKey: ["drivers"] });
     },
     onError: (err: any) => toast.error(`Error: ${err.message}`),
@@ -202,7 +244,11 @@ const Drivers = () => {
                   toast.error(`Has alcanzado el límite de repartidores de tu plan (${company.max_drivers})`);
                   return;
                 }
-                setFormData({ full_name: "", email: "", password: "", phone: "", zone: "" });
+                setFormData({
+                  full_name: "", email: "", password: "", phone: "", zone: "",
+                  signup_method: "email", vehicle_type: "moto", vehicle_plate: "",
+                  document_id: "", address: "", notes: "",
+                });
                 setIsEditing(false);
                 setShowForm(true);
               }}
