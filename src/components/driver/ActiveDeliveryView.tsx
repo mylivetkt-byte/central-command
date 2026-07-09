@@ -306,13 +306,12 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
     }
     const map = mapInstance.current;
 
-    // Build waypoints: current location + focused delivery stops only
-    let waypoints = `${currentLocation.lng},${currentLocation.lat}`;
-    stops.forEach(s => {
-      if (isValidCoord(s.lat, s.lng)) waypoints += `;${s.lng},${s.lat}`;
-    });
+    // Build waypoints: focused delivery stops only (origin = current location)
+    const wps = stops
+      .filter(s => isValidCoord(s.lat, s.lng))
+      .map(s => ({ lat: s.lat as number, lng: s.lng as number }));
 
-    if (waypoints === `${currentLocation.lng},${currentLocation.lat}`) {
+    if (wps.length === 0) {
       setRouteStatus("unavailable");
       return;
     }
@@ -325,8 +324,15 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
         if (cached) data = cached;
         else return;
       } else {
-        const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${waypoints}?overview=full&geometries=geojson&steps=true`);
-        data = await response.json();
+        const { data: routeData, error: routeErr } = await supabase.functions.invoke('google-navigation', {
+          body: {
+            action: 'route',
+            origin: { lat: currentLocation.lat, lng: currentLocation.lng },
+            waypoints: wps,
+          },
+        });
+        if (routeErr) throw routeErr;
+        data = routeData;
         cacheData(routeCacheKey, data);
       }
 
