@@ -39,16 +39,11 @@ export default function CustomerTracking() {
   const loadDelivery = useCallback(async () => {
     if (!orderId) return;
     try {
-      const { data, error } = await supabase.functions.invoke('public-tracking', {
-        method: 'GET' as any,
-        // functions.invoke doesn't allow query params directly; use fetch instead
-      } as any);
-      // Fallback: use fetch to send query string
-      void data; void error;
-      const url = `https://${import.meta.env.VITE_SUPABASE_PROJECT_ID}.functions.supabase.co/public-tracking?order_id=${encodeURIComponent(orderId)}`;
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/public-tracking?order_id=${encodeURIComponent(orderId)}`;
       const res = await fetch(url, {
         headers: {
           apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string,
+          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string}`,
         },
       });
       const json = await res.json();
