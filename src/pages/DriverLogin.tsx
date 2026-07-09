@@ -284,6 +284,30 @@ const DriverLogin = () => {
                       onChange={e => setPassword(e.target.value)}
                       placeholder="••••••••" className="pl-10" required minLength={6} />
                   </div>
+                  {isSignUp && (
+                    <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-1.5">
+                      <p className="text-xs font-semibold text-foreground mb-1">
+                        Tu contraseña debe tener:
+                      </p>
+                      {pwdChecks.map(c => (
+                        <div key={c.key} className="flex items-center gap-2 text-xs">
+                          {c.ok ? (
+                            <Check className="h-3.5 w-3.5 text-green-600 shrink-0" />
+                          ) : (
+                            <X className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                          )}
+                          <span className={c.ok ? "text-green-700 font-medium" : "text-muted-foreground"}>
+                            {c.label}
+                          </span>
+                        </div>
+                      ))}
+                      {password.length > 0 && (
+                        <p className={`text-xs font-semibold pt-1 ${pwdAllOk ? "text-green-700" : "text-amber-600"}`}>
+                          {pwdAllOk ? "✓ Contraseña válida" : "Aún faltan requisitos"}
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
                 {error && (
                   <div className="flex items-center gap-2 text-destructive text-sm bg-destructive/10 rounded-lg p-3">
