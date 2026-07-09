@@ -5,7 +5,10 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { Button } from "@/components/ui/button";
 import {
   Phone, Navigation, ArrowUpRight, Target,
-  XCircle, ChevronDown, User, Bike, Camera, WifiOff
+  XCircle, ChevronDown, User, Bike, Camera, WifiOff,
+  ArrowUp, ArrowUpLeft, ArrowUpRight as ArrowUpRightIcon,
+  ArrowLeft, ArrowRight, RotateCw, MapPin as MapPinIcon,
+  Flag, Volume2, VolumeX
 } from "lucide-react";
 import { motion, AnimatePresence } from 'framer-motion';
 import { useDriverLocation } from "@/hooks/useDriverLocation";
@@ -68,6 +71,50 @@ const calcSpeedKmh = (prev: { lat: number; lng: number; t: number } | null, curr
   return Math.round(km / (dt / 3600));
 };
 
+// Icono según el tipo de maniobra OSRM
+const maneuverIcon = (type?: string, modifier?: string) => {
+  if (type === 'arrive') return Flag;
+  if (type === 'depart') return ArrowUp;
+  if (type === 'roundabout' || type === 'rotary') return RotateCw;
+  const m = (modifier || '').toLowerCase();
+  if (m.includes('sharp left') || m === 'left') return ArrowLeft;
+  if (m.includes('sharp right') || m === 'right') return ArrowRight;
+  if (m.includes('slight left')) return ArrowUpLeft;
+  if (m.includes('slight right')) return ArrowUpRightIcon;
+  if (m === 'uturn') return RotateCw;
+  return ArrowUp;
+};
+
+// Texto en español para el anuncio de voz
+const maneuverText = (step: any): string => {
+  const t = step?.maneuver?.type;
+  const m = (step?.maneuver?.modifier || '').toLowerCase();
+  const street = step?.name || '';
+  if (t === 'arrive') return `Ha llegado${street ? ' a ' + street : ''}`;
+  if (t === 'depart') return `Continúe por ${street || 'la vía'}`;
+  if (t === 'roundabout' || t === 'rotary') return `Tome la rotonda${step?.maneuver?.exit ? ', salida ' + step.maneuver.exit : ''}`;
+  if (m === 'uturn') return 'Realice un cambio de sentido';
+  if (m.includes('sharp left')) return `Gire pronunciado a la izquierda${street ? ' hacia ' + street : ''}`;
+  if (m.includes('sharp right')) return `Gire pronunciado a la derecha${street ? ' hacia ' + street : ''}`;
+  if (m.includes('slight left')) return `Manténgase a la izquierda${street ? ' hacia ' + street : ''}`;
+  if (m.includes('slight right')) return `Manténgase a la derecha${street ? ' hacia ' + street : ''}`;
+  if (m === 'left') return `Gire a la izquierda${street ? ' hacia ' + street : ''}`;
+  if (m === 'right') return `Gire a la derecha${street ? ' hacia ' + street : ''}`;
+  return `Continúe por ${street || 'la vía'}`;
+};
+
+const speak = (text: string) => {
+  try {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'es-CO';
+    u.rate = 1;
+    u.volume = 1;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(u);
+  } catch {}
+};
+
 interface ActiveDeliveryViewProps {
   delivery: Delivery;
   onPickedUp: (deliveryId: string) => void;
@@ -90,6 +137,12 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
   const [followMode, setFollowMode] = useState(true);
   const [isExpanded, setIsExpanded] = useState(false);
   const [routeInfo, setRouteInfo] = useState<{ distance: string; duration: string; nextStreet: string; nextManeuver: string } | null>(null);
+  const [currentStep, setCurrentStep] = useState<any | null>(null);
+  const [voiceOn, setVoiceOn] = useState(true);
+  const stepsRef = useRef<any[]>([]);
+  const routeCoordsRef = useRef<[number, number][]>([]);
+  const announcedRef = useRef<Record<string, Set<'far' | 'near'>>>({});
+  const lastRecomputeRef = useRef<number>(0);
   const [showCancel, setShowCancel] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
@@ -198,6 +251,11 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
       if (data.routes?.[0]) {
         const route = data.routes[0];
         const coordinates: [number, number][] = route.geometry.coordinates;
+        routeCoordsRef.current = coordinates;
+        // Aplanar todos los pasos de todas las etapas (recogida → entrega)
+        const allSteps: any[] = (route.legs || []).flatMap((l: any) => l.steps || []);
+        stepsRef.current = allSteps;
+        announcedRef.current = {};
         const sourceId = 'route-source';
 
         if (!map.getSource(sourceId)) {
@@ -214,13 +272,11 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
         const endpoint = coordinates[coordinates.length - 1];
         const distToNext = distMeters(driverPos, endpoint);
         setEtaProgress(Math.min(1, Math.max(0, distToNext / route.distance * 1.1)));
-
-        const nextStep = route.legs[0].steps[1] || route.legs[0].steps[0];
         setRouteInfo({
           distance: (distToNext / 1000).toFixed(1) + " km",
           duration: Math.ceil(route.duration / 60) + " min",
-          nextStreet: nextStep.name || "Continuar",
-          nextManeuver: nextStep.distance < 1000 ? Math.round(nextStep.distance) + " m" : (nextStep.distance / 1000).toFixed(1) + " km"
+          nextStreet: '',
+          nextManeuver: '',
         });
       }
     } catch {}
@@ -228,9 +284,77 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
 
   useEffect(() => {
     fetchRouteDetails();
-    const int = setInterval(fetchRouteDetails, 15000);
+    const int = setInterval(fetchRouteDetails, 30000);
     return () => clearInterval(int);
   }, [fetchRouteDetails]);
+
+  // Recalcular ruta al cambiar de etapa (recogida → entrega)
+  useEffect(() => {
+    fetchRouteDetails();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPickingUp]);
+
+  // Turn-by-turn: determinar paso actual, distancia al giro, anuncios de voz, off-route
+  useEffect(() => {
+    if (!currentLocation || stepsRef.current.length === 0) return;
+    const driverPos: [number, number] = [currentLocation.lng, currentLocation.lat];
+
+    // Encontrar el paso más cercano y adelante (candidato al próximo giro)
+    let best = { idx: -1, dist: Infinity };
+    stepsRef.current.forEach((s, i) => {
+      const loc = s?.maneuver?.location;
+      if (!Array.isArray(loc)) return;
+      const d = distMeters(driverPos, [loc[0], loc[1]]);
+      if (d < best.dist) best = { idx: i, dist: d };
+    });
+
+    if (best.idx === -1) return;
+    // Preferir el siguiente paso si ya pasamos el más cercano (< 25 m)
+    let idx = best.idx;
+    if (best.dist < 25 && idx < stepsRef.current.length - 1) idx += 1;
+    const step = stepsRef.current[idx];
+    if (!step) return;
+
+    const loc = step.maneuver.location;
+    const distToManeuver = distMeters(driverPos, [loc[0], loc[1]]);
+    setCurrentStep(step);
+    setRouteInfo(prev => prev ? {
+      ...prev,
+      nextStreet: step.name || 'Continuar',
+      nextManeuver: distToManeuver < 1000
+        ? Math.round(distToManeuver) + ' m'
+        : (distToManeuver / 1000).toFixed(1) + ' km',
+    } : prev);
+
+    // Anuncios de voz por umbrales
+    if (voiceOn) {
+      const key = String(idx);
+      const bucket = announcedRef.current[key] || new Set();
+      if (distToManeuver <= 220 && distToManeuver > 60 && !bucket.has('far')) {
+        bucket.add('far');
+        speak(`En ${Math.round(distToManeuver / 10) * 10} metros, ${maneuverText(step)}`);
+      } else if (distToManeuver <= 40 && !bucket.has('near')) {
+        bucket.add('near');
+        speak(`Ahora, ${maneuverText(step)}`);
+      }
+      announcedRef.current[key] = bucket;
+    }
+
+    // Detección de desvío: distancia mínima al polyline
+    if (routeCoordsRef.current.length > 1) {
+      let minD = Infinity;
+      for (const c of routeCoordsRef.current) {
+        const d = distMeters(driverPos, c as [number, number]);
+        if (d < minD) minD = d;
+      }
+      const now = Date.now();
+      if (minD > 60 && now - lastRecomputeRef.current > 15000) {
+        lastRecomputeRef.current = now;
+        if (voiceOn) speak('Recalculando ruta');
+        fetchRouteDetails();
+      }
+    }
+  }, [currentLocation, voiceOn, fetchRouteDetails]);
 
   // Markers
   useEffect(() => {
@@ -388,15 +512,30 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
           <motion.div initial={{ y: -80, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className={`absolute top-0 inset-x-0 z-[1001] safe-top ${isOffline ? 'mt-10' : ''}`}>
             <div className="bg-indigo-600 mx-3 mt-3 rounded-2xl p-4 shadow-xl flex items-center gap-4">
               <div className="bg-white/20 p-3 rounded-xl">
-                <ArrowUpRight className="h-7 w-7 text-white" />
+                {(() => {
+                  const Icon = maneuverIcon(currentStep?.maneuver?.type, currentStep?.maneuver?.modifier);
+                  return <Icon className="h-7 w-7 text-white" />;
+                })()}
               </div>
               <div className="flex-1 min-w-0">
-                <span className="text-3xl font-black text-white leading-none tracking-tight">{routeInfo.nextManeuver}</span>
-                <p className="text-sm font-semibold text-indigo-200 truncate mt-0.5">{routeInfo.nextStreet}</p>
+                <span className="text-3xl font-black text-white leading-none tracking-tight">{routeInfo.nextManeuver || '—'}</span>
+                <p className="text-sm font-semibold text-indigo-200 truncate mt-0.5">{routeInfo.nextStreet || 'Continuar'}</p>
               </div>
-              <div className="text-right">
-                <p className="text-xl font-black text-white">{routeInfo.duration}</p>
-                <p className="text-xs font-semibold text-indigo-200">{routeInfo.distance}</p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setVoiceOn(v => !v);
+                    if (voiceOn) window.speechSynthesis?.cancel();
+                  }}
+                  className="bg-white/15 hover:bg-white/25 p-2 rounded-lg transition-colors"
+                  title={voiceOn ? 'Silenciar voz' : 'Activar voz'}
+                >
+                  {voiceOn ? <Volume2 className="h-4 w-4 text-white" /> : <VolumeX className="h-4 w-4 text-white" />}
+                </button>
+                <div className="text-right">
+                  <p className="text-xl font-black text-white">{routeInfo.duration}</p>
+                  <p className="text-xs font-semibold text-indigo-200">{routeInfo.distance}</p>
+                </div>
               </div>
             </div>
           </motion.div>
