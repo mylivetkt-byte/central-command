@@ -283,7 +283,7 @@ const DriverLogin = () => {
               <div className="text-center">
                 <button type="button"
                   onClick={() => { setIsSignUp(!isSignUp); setError(""); }}
-                  className="text-sm text-accent hover:underline">
+                  className="text-sm font-semibold text-primary hover:underline">
                   {isSignUp ? "¿Ya tienes cuenta? Inicia sesión" : "¿Nuevo mensajero? Regístrate"}
                 </button>
               </div>
