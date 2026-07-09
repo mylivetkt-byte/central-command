@@ -3,7 +3,7 @@ import maplibregl from 'maplibre-gl';
 import { MapStyleSwitcher, useMapStyle, MapStyle } from '@/components/MapStyleSwitcher';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { supabase } from '@/integrations/supabase/client';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { useCompany } from '@/hooks/useCompany';
 
@@ -48,10 +48,12 @@ const LiveMap: React.FC<LiveMapProps> = ({
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<{ [key: string]: maplibregl.Marker }>({});
+  const markerAnimRef = useRef<{ [key: string]: number }>({});
   const [isMapReady, setIsMapReady] = useState(false);
   const { current: mapStyle, setStyle } = useMapStyle("dark");
   const { selectedCompanyId } = useCompany();
   const didFitBoundsRef = useRef(false);
+  const queryClient = useQueryClient();
 
   // Consulta de drivers
   const { data: drivers = [] } = useQuery({
@@ -74,7 +76,6 @@ const LiveMap: React.FC<LiveMapProps> = ({
         last_lng: locMap.get(d.id)?.lng || null,
       })) as Driver[];
     },
-    refetchInterval: 5000,
     enabled: showDrivers,
   });
 
@@ -91,9 +92,77 @@ const LiveMap: React.FC<LiveMapProps> = ({
       if (error) throw error;
       return data as Delivery[];
     },
-    refetchInterval: 5000,
     enabled: showDeliveries,
   });
+
+  // Interpolación suave del marcador entre updates
+  const animateMarker = (id: string, target: [number, number]) => {
+    const marker = markersRef.current[id];
+    if (!marker) return;
+    const start = marker.getLngLat();
+    const startLng = start.lng, startLat = start.lat;
+    const [endLng, endLat] = target;
+    const duration = 900;
+    const t0 = performance.now();
+    if (markerAnimRef.current[id]) cancelAnimationFrame(markerAnimRef.current[id]);
+    const step = (now: number) => {
+      const p = Math.min(1, (now - t0) / duration);
+      const ease = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+      marker.setLngLat([startLng + (endLng - startLng) * ease, startLat + (endLat - startLat) * ease]);
+      if (p < 1) markerAnimRef.current[id] = requestAnimationFrame(step);
+    };
+    markerAnimRef.current[id] = requestAnimationFrame(step);
+  };
+
+  // Realtime: driver_locations
+  useEffect(() => {
+    if (!showDrivers) return;
+    const filter = selectedCompanyId ? `company_id=eq.${selectedCompanyId}` : undefined;
+    const channel = supabase
+      .channel(`live-drivers-${selectedCompanyId ?? 'all'}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'driver_locations', ...(filter ? { filter } : {}) },
+        (payload: any) => {
+          const row = payload.new || payload.old;
+          if (!row?.driver_id) return;
+          const id = `driver-${row.driver_id}`;
+          if (payload.eventType !== 'DELETE' && row.lat != null && row.lng != null && markersRef.current[id]) {
+            animateMarker(id, [row.lng, row.lat]);
+          } else {
+            // Marcador nuevo o borrado → refrescar dataset
+            queryClient.invalidateQueries({ queryKey: ['live-drivers', selectedCompanyId] });
+          }
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [selectedCompanyId, showDrivers, queryClient]);
+
+  // Realtime: deliveries
+  useEffect(() => {
+    if (!showDeliveries) return;
+    const filter = selectedCompanyId ? `company_id=eq.${selectedCompanyId}` : undefined;
+    const channel = supabase
+      .channel(`live-deliveries-${selectedCompanyId ?? 'all'}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'deliveries', ...(filter ? { filter } : {}) },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ['live-deliveries', selectedCompanyId] });
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [selectedCompanyId, showDeliveries, queryClient]);
+
+  // Cleanup de animaciones al desmontar
+  useEffect(() => {
+    return () => {
+      Object.values(markerAnimRef.current).forEach(id => cancelAnimationFrame(id));
+      markerAnimRef.current = {};
+    };
+  }, []);
 
   // Inicializar mapa
   useEffect(() => {
@@ -140,7 +209,7 @@ const LiveMap: React.FC<LiveMapProps> = ({
       const lngLat: [number, number] = [driver.last_lng, driver.last_lat];
 
       if (markersRef.current[id]) {
-        markersRef.current[id].setLngLat(lngLat);
+        animateMarker(id, lngLat);
       } else {
         const el = document.createElement('div');
         el.className = 'driver-marker-container';
