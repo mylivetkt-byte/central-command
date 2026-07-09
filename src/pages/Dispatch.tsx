@@ -526,18 +526,18 @@ const Dispatch = () => {
                         </div>
                     </div>
                     
-                    <div className="space-y-3 max-h-[600px] overflow-y-auto custom-scrollbar pr-2">
+                    <div className="space-y-3 max-h-[600px] overflow-y-auto custom-scrollbar pr-1 md:pr-2">
                         {pending.map((d: any) => (
-                            <motion.div key={d.id} className={`p-5 rounded-3xl border transition-all cursor-pointer ${selectedOrder === d.id ? 'bg-emerald-50 border-emerald-500 shadow-md' : 'bg-slate-50 border-slate-100 hover:bg-slate-100 hover:border-slate-200'}`} onClick={() => setSelectedOrder(selectedOrder === d.id ? null : d.id)}>
+                            <motion.div key={d.id} className={`p-4 md:p-5 rounded-3xl border transition-all cursor-pointer ${selectedOrder === d.id ? 'bg-emerald-50 border-emerald-500 shadow-md' : 'bg-slate-50 border-slate-100 hover:bg-slate-100 hover:border-slate-200'}`} onClick={() => setSelectedOrder(selectedOrder === d.id ? null : d.id)}>
                                 <div className="flex items-center justify-between mb-4">
                                     <div className="flex items-center gap-3">
                                         <div className="h-10 w-10 rounded-xl bg-slate-200 flex items-center justify-center font-black text-slate-700 text-xs">#{d.order_id.slice(-4)}</div>
-                                        <div>
-                                            <p className="text-sm font-black text-slate-900">{d.customer_name}</p>
+                                        <div className="min-w-0">
+                                            <p className="text-sm font-black text-slate-900 truncate">{d.customer_name}</p>
                                             <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{d.status}</p>
                                         </div>
                                     </div>
-                                    <div className="text-right">
+                                    <div className="text-right shrink-0 ml-2">
                                         <p className="text-sm font-black text-emerald-600">{formatCurrency(d.commission)}</p>
                                         <p className="text-[10px] text-slate-400 font-bold">GANANCIA</p>
                                     </div>
@@ -553,15 +553,40 @@ const Dispatch = () => {
                                     </div>
                                 </div>
                                 {selectedOrder === d.id && d.status === 'pendiente' && (
-                                    <div className="border-t border-slate-100 pt-4 mt-4 flex justify-end">
+                                    <div className="border-t border-slate-100 pt-4 mt-4 grid grid-cols-2 md:flex md:flex-wrap md:justify-end gap-2">
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); handleRepublish(d.id); }}
+                                            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 px-3 py-2.5 text-[11px] font-black text-white shadow-md transition-all active:scale-95"
+                                        >
+                                            <Send className="h-3.5 w-3.5" /> Republicar
+                                        </button>
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); startEdit(d); }}
+                                            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 px-3 py-2.5 text-[11px] font-black text-white shadow-md transition-all active:scale-95"
+                                        >
+                                            <Pencil className="h-3.5 w-3.5" /> Modificar
+                                        </button>
                                         <button
                                             onClick={(e) => {
                                                 e.stopPropagation();
-                                                handleRepublish(d.id);
+                                                if (confirm("¿Despublicar este pedido? Ya no será visible para los mensajeros.")) {
+                                                    unpublishDelivery.mutate(d.id);
+                                                }
                                             }}
-                                            className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 px-4 py-2 text-xs font-black text-white shadow-md transition-all active:scale-95"
+                                            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 px-3 py-2.5 text-[11px] font-black text-white shadow-md transition-all active:scale-95"
                                         >
-                                            <Send className="h-3 w-3" /> Republicar a Mensajeros
+                                            <EyeOff className="h-3.5 w-3.5" /> Despublicar
+                                        </button>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (confirm("¿Eliminar definitivamente este pedido? Esta acción no se puede deshacer.")) {
+                                                    deleteDelivery.mutate(d.id);
+                                                }
+                                            }}
+                                            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-red-600 hover:bg-red-500 px-3 py-2.5 text-[11px] font-black text-white shadow-md transition-all active:scale-95"
+                                        >
+                                            <Trash2 className="h-3.5 w-3.5" /> Eliminar
                                         </button>
                                     </div>
                                 )}
