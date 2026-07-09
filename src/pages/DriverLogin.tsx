@@ -5,7 +5,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Bike, Mail, Lock, AlertCircle, User, ArrowLeft, CheckCircle } from "lucide-react";
+import { Bike, Mail, Lock, AlertCircle, User, ArrowLeft, CheckCircle, Check, X } from "lucide-react";
 import { toast } from "sonner";
 import { isValidPhone, phoneToSyntheticEmail } from "@/lib/phoneAuth";
 
@@ -26,6 +26,17 @@ const DriverLogin = () => {
 
   const navigate   = useNavigate();
   const { user, role, loading: authLoading } = useAuth();
+
+  // Reglas de contraseña (solo se aplican al registrarse)
+  const pwdRules = [
+    { key: "len",   label: "Al menos 8 caracteres",           test: (p: string) => p.length >= 8 },
+    { key: "upper", label: "Una letra mayúscula (A-Z)",       test: (p: string) => /[A-Z]/.test(p) },
+    { key: "lower", label: "Una letra minúscula (a-z)",       test: (p: string) => /[a-z]/.test(p) },
+    { key: "num",   label: "Un número (0-9)",                 test: (p: string) => /\d/.test(p) },
+    { key: "sym",   label: "Un símbolo (!@#$%…)",             test: (p: string) => /[^A-Za-z0-9]/.test(p) },
+  ];
+  const pwdChecks = pwdRules.map(r => ({ ...r, ok: r.test(password) }));
+  const pwdAllOk  = pwdChecks.every(c => c.ok);
 
   useEffect(() => {
     if (isSignUp) {
@@ -81,6 +92,11 @@ const DriverLogin = () => {
       if (isSignUp) {
         if (!selectedCompanyId) {
           setError("Debes seleccionar una empresa para registrarte.");
+          setSubmitting(false);
+          return;
+        }
+        if (!pwdAllOk) {
+          setError("La contraseña no cumple con todos los requisitos.");
           setSubmitting(false);
           return;
         }
