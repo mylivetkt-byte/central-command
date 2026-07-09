@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Bike, Mail, Lock, AlertCircle, User, ArrowLeft, CheckCircle } from "lucide-react";
 import { toast } from "sonner";
+import { isValidPhone, phoneToSyntheticEmail } from "@/lib/phoneAuth";
 
 const DriverLogin = () => {
   const [email, setEmail]                       = useState("");
@@ -20,6 +21,8 @@ const DriverLogin = () => {
   const [phone, setPhone]                       = useState("");
   const [companies, setCompanies]               = useState<any[]>([]);
   const [selectedCompanyId, setSelectedCompanyId] = useState("");
+  const [authMethod, setAuthMethod]             = useState<"email" | "phone">("email");
+  const [phoneLogin, setPhoneLogin]             = useState("");
 
   const navigate   = useNavigate();
   const { user, role, loading: authLoading } = useAuth();
@@ -63,6 +66,18 @@ const DriverLogin = () => {
     setError("");
 
     try {
+      // Resolver el identificador (email real o email sintético a partir del móvil)
+      let identifier = email.trim();
+      if (authMethod === "phone") {
+        const src = isSignUp ? phone : phoneLogin;
+        if (!isValidPhone(src)) {
+          setError("Ingresa un número de móvil válido (7-15 dígitos, con o sin +).");
+          setSubmitting(false);
+          return;
+        }
+        identifier = phoneToSyntheticEmail(src);
+      }
+
       if (isSignUp) {
         if (!selectedCompanyId) {
           setError("Debes seleccionar una empresa para registrarte.");
@@ -70,7 +85,7 @@ const DriverLogin = () => {
           return;
         }
         const { data, error: err } = await supabase.auth.signUp({
-          email, password,
+          email: identifier, password,
           options: {
             data: { 
               full_name: fullName, 
@@ -83,14 +98,19 @@ const DriverLogin = () => {
         });
         if (err) setError(err.message);
         else if (data.user && data.session) toast.success("¡Cuenta creada! Bienvenido.");
-        else { toast.success("Registro exitoso. Confirma tu correo antes de entrar."); setIsSignUp(false); }
+        else {
+          toast.success(authMethod === "phone"
+            ? "Registro exitoso. Ya puedes iniciar sesión con tu móvil."
+            : "Registro exitoso. Confirma tu correo antes de entrar.");
+          setIsSignUp(false);
+        }
       } else {
-        const { error: err } = await supabase.auth.signInWithPassword({ email, password });
+        const { error: err } = await supabase.auth.signInWithPassword({ email: identifier, password });
         if (err) {
           if (err.message.includes("Email not confirmed"))
             setError("Debes confirmar tu correo antes de entrar. Revisa tu bandeja.");
           else if (err.message.includes("Invalid login credentials"))
-            setError("Correo o contraseña incorrectos.");
+            setError(authMethod === "phone" ? "Móvil o contraseña incorrectos." : "Correo o contraseña incorrectos.");
           else
             setError(err.message);
         }
@@ -164,6 +184,16 @@ const DriverLogin = () => {
           ) : (
             <>
               <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="flex rounded-lg overflow-hidden border border-border text-xs font-bold">
+                  <button type="button" onClick={() => { setAuthMethod("email"); setError(""); }}
+                    className={`flex-1 py-2 transition-colors ${authMethod === "email" ? "bg-accent text-accent-foreground" : "bg-muted/40 text-muted-foreground hover:bg-muted"}`}>
+                    📧 Correo
+                  </button>
+                  <button type="button" onClick={() => { setAuthMethod("phone"); setError(""); }}
+                    className={`flex-1 py-2 transition-colors ${authMethod === "phone" ? "bg-accent text-accent-foreground" : "bg-muted/40 text-muted-foreground hover:bg-muted"}`}>
+                    📱 Móvil
+                  </button>
+                </div>
                 {isSignUp && (
                   <>
                     <div className="space-y-2">
@@ -175,12 +205,14 @@ const DriverLogin = () => {
                           placeholder="Tu nombre" className="pl-10" required />
                       </div>
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="phone">Teléfono</Label>
-                      <Input id="phone" value={phone}
-                        onChange={e => setPhone(e.target.value)}
-                        placeholder="+57 300 000 0000" required />
-                    </div>
+                    {authMethod === "email" && (
+                      <div className="space-y-2">
+                        <Label htmlFor="phone">Teléfono</Label>
+                        <Input id="phone" value={phone}
+                          onChange={e => setPhone(e.target.value)}
+                          placeholder="+57 300 000 0000" required />
+                      </div>
+                    )}
                     <div className="space-y-2">
                       <Label htmlFor="companySelect">Empresa a la que te registras *</Label>
                       <select
@@ -200,19 +232,29 @@ const DriverLogin = () => {
                     </div>
                   </>
                 )}
-                <div className="space-y-2">
-                  <Label htmlFor="email">Correo electrónico</Label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input id="email" type="email" value={email}
-                      onChange={e => setEmail(e.target.value)}
-                      placeholder="correo@ejemplo.com" className="pl-10" required />
+                {authMethod === "email" ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="email">Correo electrónico</Label>
+                    <div className="relative">
+                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input id="email" type="email" value={email}
+                        onChange={e => setEmail(e.target.value)}
+                        placeholder="correo@ejemplo.com" className="pl-10" required />
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label htmlFor="phoneAuth">Número de móvil</Label>
+                    <Input id="phoneAuth" type="tel"
+                      value={isSignUp ? phone : phoneLogin}
+                      onChange={e => isSignUp ? setPhone(e.target.value) : setPhoneLogin(e.target.value)}
+                      placeholder="+57 300 000 0000" required inputMode="tel" />
+                  </div>
+                )}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label htmlFor="password">Contraseña</Label>
-                    {!isSignUp && (
+                    {!isSignUp && authMethod === "email" && (
                       <button type="button"
                         onClick={() => { setIsForgotPassword(true); setError(""); }}
                         className="text-xs text-accent hover:underline">
