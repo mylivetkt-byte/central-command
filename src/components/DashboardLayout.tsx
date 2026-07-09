@@ -3,10 +3,12 @@ import { AppSidebar } from "./AppSidebar";
 import { SidebarProvider, useSidebar } from "./SidebarContext";
 import { Menu } from "lucide-react";
 import { Button } from "./ui/button";
+import { useCompany } from "@/hooks/useCompany";
 
 const LayoutContent = ({ children }: { children: ReactNode }) => {
   const { collapsed, setMobileMenuOpen } = useSidebar();
-  
+  const { company } = useCompany();
+
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row">
       {/* Header móvil */}
@@ -15,7 +17,9 @@ const LayoutContent = ({ children }: { children: ReactNode }) => {
           <div className="h-8 w-8 rounded-sm flex items-center justify-center bg-primary text-primary-foreground">
             E
           </div>
-          <span className="text-foreground tracking-tighter">CENTRAL</span>
+          <span className="text-foreground tracking-tighter">
+            {company?.name?.toUpperCase() || "CENTRAL"}
+          </span>
         </div>
         <Button variant="ghost" size="icon" onClick={() => setMobileMenuOpen(true)}>
           <Menu className="h-6 w-6" />
