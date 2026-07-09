@@ -440,8 +440,8 @@ const Drivers = () => {
               ) : (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
                   <div className="glass-card p-6">
-                    <div className="flex items-center gap-4 mb-6">
-                      <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/20 text-xl font-bold text-primary">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-4 mb-6">
+                      <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/20 text-xl font-bold text-primary shrink-0">
                         {getInitials(selectedDriver.profile?.full_name || "?")}
                       </div>
                       <div className="flex-1">
@@ -462,23 +462,23 @@ const Drivers = () => {
                           </span>
                         </div>
                       </div>
-                      <div className="flex gap-2">
+                      <div className="grid grid-cols-2 gap-2 w-full sm:flex sm:w-auto sm:flex-wrap">
                         <button
                           onClick={() => updateStatus.mutate({ driverId: selectedDriver.id, status: "activo" })}
                           disabled={updateStatus.isPending}
-                          className="flex items-center gap-1 rounded-lg bg-warning px-3 py-2 text-xs font-medium text-warning-foreground hover:bg-warning/90 transition-colors"
+                          className="flex items-center justify-center gap-1 rounded-lg bg-warning px-3 py-2 text-xs font-medium text-warning-foreground hover:bg-warning/90 transition-colors"
                         >
                           <UserCheck className="h-3 w-3" /> Activar
                         </button>
                         <button
                           onClick={() => updateStatus.mutate({ driverId: selectedDriver.id, status: "suspendido" })}
                           disabled={updateStatus.isPending}
-                          className="flex items-center gap-1 rounded-lg bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive hover:bg-destructive/20 transition-colors"
+                          className="flex items-center justify-center gap-1 rounded-lg bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive hover:bg-destructive/20 transition-colors"
                         >
                           <UserX className="h-3 w-3" /> Suspender
                         </button>
                         
-                        <div className="w-px h-8 bg-border/50 mx-1"></div>
+                        <div className="hidden sm:block w-px h-8 bg-border/50 mx-1"></div>
                         
                         <button
                           onClick={() => {
@@ -499,7 +499,7 @@ const Drivers = () => {
                             setIsEditing(true);
                             setShowForm(true);
                           }}
-                          className="flex items-center gap-1 rounded-lg bg-muted px-3 py-2 text-xs font-medium text-foreground hover:bg-muted/80 transition-colors"
+                          className="flex items-center justify-center gap-1 rounded-lg bg-muted px-3 py-2 text-xs font-medium text-foreground hover:bg-muted/80 transition-colors"
                         >
                           <Edit2 className="h-3 w-3" /> Editar
                         </button>
@@ -510,7 +510,7 @@ const Drivers = () => {
                             }
                           }}
                           disabled={deleteDriver.isPending}
-                          className="flex items-center gap-1 rounded-lg border border-destructive/20 bg-transparent px-3 py-2 text-xs font-medium text-destructive hover:bg-destructive/5 transition-colors"
+                          className="flex items-center justify-center gap-1 rounded-lg border border-destructive/20 bg-transparent px-3 py-2 text-xs font-medium text-destructive hover:bg-destructive/5 transition-colors"
                         >
                           <Trash2 className="h-3 w-3" /> Eliminar
                         </button>
@@ -525,7 +525,7 @@ const Drivers = () => {
                             resetPassword.mutate({ driverId: selectedDriver.id, newPassword: pwd });
                           }}
                           disabled={resetPassword.isPending}
-                          className="flex items-center gap-1 rounded-lg bg-muted px-3 py-2 text-xs font-medium text-foreground hover:bg-muted/80 transition-colors"
+                          className="col-span-2 flex items-center justify-center gap-1 rounded-lg bg-muted px-3 py-2 text-xs font-medium text-foreground hover:bg-muted/80 transition-colors sm:col-span-1"
                         >
                           <KeyRound className="h-3 w-3" /> Contraseña
                         </button>
