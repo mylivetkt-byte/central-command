@@ -9,6 +9,7 @@ import {
   Navigation, ChevronRight, Loader2, ArrowLeft, Bike
 } from 'lucide-react';
 import CustomerChatPanel from '@/components/CustomerChatPanel';
+import CustomerRatingCard from '@/components/CustomerRatingCard';
 
 const BUCARAMANGA_CENTER: [number, number] = [-73.1198, 7.1193];
 
@@ -35,6 +36,7 @@ export default function CustomerTracking() {
   const [driver, setDriver] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [eta, setEta] = useState<string | null>(null);
+  const [rating, setRating] = useState<any>(null);
 
   // Load delivery data via public edge function (no auth required)
   const loadDelivery = useCallback(async () => {
@@ -50,6 +52,7 @@ export default function CustomerTracking() {
       const json = await res.json();
       if (!json?.delivery) { setDelivery(null); setLoading(false); return; }
       setDelivery(json.delivery);
+      setRating(json.rating || null);
       if (json.driver) {
         setDriver({
           profiles: { full_name: json.driver.full_name, phone: json.driver.phone },
@@ -253,8 +256,20 @@ export default function CustomerTracking() {
         </div>
       )}
 
+      {/* Rating card (delivered) */}
+      {delivery.status === 'entregado' && (
+        <div className="absolute bottom-8 left-4 right-4 z-[1000] max-w-md mx-auto">
+          <CustomerRatingCard
+            orderId={orderId!}
+            driverName={driver?.profiles?.full_name}
+            existing={rating}
+            onRated={loadDelivery}
+          />
+        </div>
+      )}
+
       {/* Driver info card */}
-      {driver && delivery.status !== 'pendiente' && (
+      {driver && delivery.status !== 'pendiente' && delivery.status !== 'entregado' && (
         <div className="absolute bottom-8 left-4 right-4 z-[1000]">
           <motion.div
             initial={{ y: 50, opacity: 0 }}
