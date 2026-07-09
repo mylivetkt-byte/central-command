@@ -1,21 +1,34 @@
 import { useRegisterSW } from "virtual:pwa-register/react";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { toast } from "sonner";
 import { RefreshCw } from "lucide-react";
-import { Button } from "@/components/ui/button";
+
+// Chequeo frecuente de actualizaciones para que las nuevas versiones lleguen
+// a los conductores en segundos (no en horas).
+const UPDATE_CHECK_INTERVAL_MS = 60 * 1000; // 60s
 
 export function ReloadPrompt() {
+  const registrationRef = useRef<ServiceWorkerRegistration | null>(null);
+  const appliedRef = useRef(false);
+
   const {
-    needRefresh: [needRefresh, setNeedRefresh],
+    needRefresh: [needRefresh],
     updateServiceWorker,
   } = useRegisterSW({
     onRegistered(r) {
-      // Opcional: chequear actualizaciones periódicamente
-      if (r) {
-        setInterval(() => {
-          r.update();
-        }, 60 * 60 * 1000); // 1 hora
-      }
+      if (!r) return;
+      registrationRef.current = r;
+      // Chequear cada 60s
+      setInterval(() => { r.update().catch(() => {}); }, UPDATE_CHECK_INTERVAL_MS);
+      // Chequear apenas la app vuelve a foco o recupera conexión
+      const check = () => { r.update().catch(() => {}); };
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") check();
+      });
+      window.addEventListener("online", check);
+      window.addEventListener("focus", check);
+      // Chequear al arrancar
+      check();
     },
     onRegisterError(error) {
       console.log("SW registration error", error);
@@ -23,17 +36,16 @@ export function ReloadPrompt() {
   });
 
   useEffect(() => {
-    if (needRefresh) {
-      toast("Nueva versión disponible", {
-        description: "Se ha encontrado una nueva versión de la aplicación.",
-        duration: 20000,
+    if (needRefresh && !appliedRef.current) {
+      appliedRef.current = true;
+      toast("Actualizando a la nueva versión…", {
+        description: "La app se recargará en unos segundos.",
+        duration: 3000,
         position: "top-center",
         icon: <RefreshCw className="h-5 w-5 text-indigo-500 animate-spin" />,
-        action: {
-          label: "Actualizar ahora",
-          onClick: () => updateServiceWorker(true),
-        },
       });
+      // Auto-actualizar sin esperar acción del usuario
+      setTimeout(() => { updateServiceWorker(true); }, 1500);
     }
   }, [needRefresh, updateServiceWorker]);
 
