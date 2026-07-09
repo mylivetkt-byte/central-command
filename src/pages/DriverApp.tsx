@@ -467,10 +467,19 @@ const DriverApp = () => {
   const name     = user?.user_metadata?.full_name || "Mensajero";
   const initials = name.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2);
 
+  // Splash overlay renderer (shared by all return paths)
+  const splashOverlay = (
+    <AnimatePresence>
+      {showSplash && <DriverSplash onDone={() => setShowSplash(false)} />}
+    </AnimatePresence>
+  );
+
   // Active delivery view (supports multi-stop)
   if (activeDeliveries.length > 0) {
     const selectedDelivery = activeDeliveries[selectedActiveIdx] || activeDeliveries[0];
     return (
+      <>
+      {splashOverlay}
       <div className="fixed inset-0 bg-slate-950 flex flex-col">
         <header className="bg-slate-900/90 backdrop-blur-xl border-b border-white/5 px-4 py-2 flex items-center justify-between z-50">
           <div className="flex items-center gap-2">
