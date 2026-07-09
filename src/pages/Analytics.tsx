@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, RadarChart, PolarGrid, PolarAngleAxis, Radar } from "recharts";
 import { motion } from "framer-motion";
 import { useState } from "react";
+import { useCompany } from "@/hooks/useCompany";
 
 const formatCurrency = (v: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(v);
@@ -12,11 +13,14 @@ const tooltipStyle = { background: "hsl(222,47%,9%)", border: "1px solid hsl(217
 
 const Analytics = () => {
   const [period, setPeriod] = useState<"7" | "14" | "30">("7");
+  const { selectedCompanyId } = useCompany();
 
   const { data: deliveries = [], isLoading: isLoadingDeliveries } = useQuery({
-    queryKey: ["analytics-deliveries"],
+    queryKey: ["analytics-deliveries", selectedCompanyId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("deliveries").select("*").order("created_at", { ascending: false });
+      let q: any = supabase.from("deliveries").select("*").order("created_at", { ascending: false });
+      if (selectedCompanyId) q = q.eq("company_id", selectedCompanyId);
+      const { data, error } = await q;
       if (error) throw error;
       return data || [];
     },
@@ -24,9 +28,11 @@ const Analytics = () => {
   });
 
   const { data: drivers = [], isLoading: isLoadingDrivers } = useQuery({
-    queryKey: ["analytics-drivers"],
+    queryKey: ["analytics-drivers", selectedCompanyId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("driver_profiles").select("*, profiles (full_name)");
+      let q: any = supabase.from("driver_profiles").select("*, profiles (full_name)");
+      if (selectedCompanyId) q = q.eq("company_id", selectedCompanyId);
+      const { data, error } = await q;
       if (error) throw error;
       return data || [];
     },

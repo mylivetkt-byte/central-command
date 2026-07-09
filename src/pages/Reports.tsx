@@ -6,6 +6,7 @@ import { Download, FileText, Table, TrendingUp, Users, Package, Calendar, Wallet
 import { useState } from "react";
 import { toast } from "sonner";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { useCompany } from "@/hooks/useCompany";
 
 const tooltipStyle = { background: "hsl(222,47%,9%)", border: "1px solid hsl(217,33%,17%)", borderRadius: 8, color: "hsl(210,40%,96%)" };
 
@@ -38,6 +39,7 @@ const downloadCSV = (rows: Record<string, any>[], filename: string) => {
 const Reports = () => {
   const [filter, setFilter] = useState<DateFilter>("semana");
   const [report, setReport] = useState<"deliveries" | "revenue" | "drivers" | "daily">("deliveries");
+  const { selectedCompanyId } = useCompany();
   const [selectedDate, setSelectedDate] = useState(() => {
     const d = new Date();
     const offset = d.getTimezoneOffset();
@@ -46,18 +48,22 @@ const Reports = () => {
   });
 
   const { data: deliveries = [], isLoading: loadingD } = useQuery({
-    queryKey: ["reports-deliveries"],
+    queryKey: ["reports-deliveries", selectedCompanyId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("deliveries").select("*").order("created_at", { ascending: false });
+      let q: any = supabase.from("deliveries").select("*").order("created_at", { ascending: false });
+      if (selectedCompanyId) q = q.eq("company_id", selectedCompanyId);
+      const { data, error } = await q;
       if (error) throw error;
       return data || [];
     },
   });
 
   const { data: drivers = [], isLoading: loadingDrv } = useQuery({
-    queryKey: ["reports-drivers"],
+    queryKey: ["reports-drivers", selectedCompanyId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("driver_profiles").select("*, profiles(full_name)");
+      let q: any = supabase.from("driver_profiles").select("*, profiles(full_name)");
+      if (selectedCompanyId) q = q.eq("company_id", selectedCompanyId);
+      const { data, error } = await q;
       if (error) throw error;
       return data || [];
     },

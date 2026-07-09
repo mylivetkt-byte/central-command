@@ -5,6 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Truck, Clock, MapPin, Package, RefreshCw, CheckCircle, XCircle } from "lucide-react";
 import { motion } from "framer-motion";
 import LiveMap from "@/components/LiveMap";
+import { useCompany } from "@/hooks/useCompany";
 
 const formatCurrency = (v: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(v);
@@ -19,14 +20,17 @@ const statusColors: Record<string, string> = {
 
 const Operations = () => {
   const queryClient = useQueryClient();
+  const { selectedCompanyId } = useCompany();
 
   const { data: deliveries = [], isLoading } = useQuery({
-    queryKey: ["operations-deliveries"],
+    queryKey: ["operations-deliveries", selectedCompanyId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let q: any = supabase
         .from("deliveries")
         .select("*, driver:driver_profiles(profiles(full_name))")
-        .order("created_at", { ascending: false }) as any;
+        .order("created_at", { ascending: false });
+      if (selectedCompanyId) q = q.eq("company_id", selectedCompanyId);
+      const { data, error } = await q;
       if (error) throw error;
       return data || [];
     },
@@ -34,11 +38,13 @@ const Operations = () => {
   });
 
   const { data: drivers = [] } = useQuery({
-    queryKey: ["operations-drivers"],
+    queryKey: ["operations-drivers", selectedCompanyId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let q: any = supabase
         .from("driver_profiles")
-        .select("*, profiles(full_name)") as any;
+        .select("*, profiles(full_name)");
+      if (selectedCompanyId) q = q.eq("company_id", selectedCompanyId);
+      const { data, error } = await q;
       if (error) throw error;
       return data || [];
     },
