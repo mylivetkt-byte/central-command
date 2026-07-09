@@ -6,6 +6,7 @@ import { useNavigate } from "react-router-dom";
 import { Package, Truck, Clock, DollarSign, Users, AlertTriangle, CheckCircle, XCircle, Zap, MapPin } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import { motion } from "framer-motion";
+import { useCompany } from "@/hooks/useCompany";
 
 const COLORS = ["hsl(217,91%,60%)", "hsl(160,84%,39%)", "hsl(38,92%,50%)", "hsl(0,84%,60%)"];
 
@@ -16,17 +17,20 @@ const tooltipStyle = { background: "white", border: "1px solid hsl(214.3, 31.8%,
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const { selectedCompanyId, company } = useCompany();
   // Pedidos de hoy
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
   const { data: deliveries = [] } = useQuery({
-    queryKey: ["dashboard-deliveries"],
+    queryKey: ["dashboard-deliveries", selectedCompanyId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let q: any = supabase
         .from("deliveries")
         .select("*")
         .order("created_at", { ascending: false });
+      if (selectedCompanyId) q = q.eq("company_id", selectedCompanyId);
+      const { data, error } = await q;
       if (error) throw error;
       return data || [];
     },
@@ -34,11 +38,13 @@ const Dashboard = () => {
   });
 
   const { data: drivers = [] } = useQuery({
-    queryKey: ["dashboard-drivers"],
+    queryKey: ["dashboard-drivers", selectedCompanyId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let q: any = supabase
         .from("driver_profiles")
-        .select(`id, status, total_deliveries, rating, acceptance_rate, current_load, zone, profiles (full_name)`) as any;
+        .select(`id, status, total_deliveries, rating, acceptance_rate, current_load, zone, profiles (full_name)`);
+      if (selectedCompanyId) q = q.eq("company_id", selectedCompanyId);
+      const { data, error } = await q;
       if (error) throw error;
       return data || [];
     },
