@@ -36,7 +36,27 @@ export const MAP_STYLES: MapStyle[] = [
     id: "satellite",
     label: "Satélite",
     emoji: "🛰️",
-    url: "https://api.maptiler.com/maps/hybrid/style.json?key=get_your_own_OpIi9ZULNHzrESv6T2vL",
+    url: "data:application/json;charset=utf-8," + encodeURIComponent(JSON.stringify({
+      version: 8,
+      sources: {
+        sat: {
+          type: "raster",
+          tiles: ["https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"],
+          tileSize: 256,
+          attribution: "Tiles © Esri"
+        },
+        labels: {
+          type: "raster",
+          tiles: ["https://basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}.png"],
+          tileSize: 256,
+          attribution: "© CARTO"
+        }
+      },
+      layers: [
+        { id: "sat", type: "raster", source: "sat" },
+        { id: "labels", type: "raster", source: "labels" }
+      ]
+    })),
     preview: "#1a2f1a",
   },
   {

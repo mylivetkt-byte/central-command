@@ -8,7 +8,7 @@ import {
   XCircle, ChevronDown, User, Bike, Camera, WifiOff,
   ArrowUp, ArrowUpLeft, ArrowUpRight as ArrowUpRightIcon,
   ArrowLeft, ArrowRight, RotateCw, MapPin as MapPinIcon,
-  Flag, Volume2, VolumeX
+  Flag, Volume2, VolumeX, Plus, Minus
 } from "lucide-react";
 import { motion, AnimatePresence } from 'framer-motion';
 import { useDriverLocation } from "@/hooks/useDriverLocation";
@@ -182,8 +182,8 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
       if (mapInstance.current && currentLocation) {
         mapInstance.current.easeTo({
           center: [currentLocation.lng, currentLocation.lat],
-          zoom: 18,
-          pitch: 60,
+          zoom: 16.5,
+          pitch: 45,
           bearing: currentLocation.heading || 0,
           duration: 900,
         });
@@ -268,8 +268,8 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
       container: mapContainer.current,
       style: mapStyle.url,
       center: currentLocation ? [currentLocation.lng, currentLocation.lat] : [delivery.pickup_lng || -73.1198, delivery.pickup_lat || 7.1193],
-      zoom: 17,
-      pitch: 65,
+      zoom: 16.5,
+      pitch: 45,
       bearing: currentLocation?.heading || 0
     });
 
@@ -296,6 +296,21 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
 
     return () => { mapInstance.current?.remove(); mapInstance.current = null; };
   }, []);
+
+  // Cambiar estilo del mapa cuando el usuario selecciona otro (claro, satélite, calles…)
+  useEffect(() => {
+    if (!isMapReady || !mapInstance.current) return;
+    const map = mapInstance.current;
+    map.setStyle(mapStyle.url);
+    const onLoad = () => {
+      // El handler 'style.load' de arriba ya reinserta edificios 3D.
+      // Reinsertar la ruta y sus capas al nuevo estilo:
+      routeCoordsRef.current = [];
+      fetchRouteDetails();
+    };
+    map.once('style.load', onLoad);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapStyle.url]);
 
   // Fetch Route (with offline fallback)
   const fetchRouteDetails = useCallback(async () => {
@@ -525,8 +540,8 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
       map.easeTo({
         center: [currentLocation.lng, currentLocation.lat],
         bearing: currentLocation.heading || 0,
-        zoom: 18,
-        pitch: 60,
+        zoom: 16.5,
+        pitch: 45,
         duration: 800,
       });
     }
@@ -693,12 +708,45 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
 
       <div ref={mapContainer} className="h-full w-full" />
 
+      {/* Selector de estilo de mapa (Oscuro / Claro / Satélite / Calles…) */}
+      <MapStyleSwitcher
+        current={mapStyle}
+        onSelect={(s) => setStyle(s.id)}
+        position="bottom-left"
+        dark={mapStyle.id === 'dark' || mapStyle.id === 'satellite'}
+      />
+
       {/* Controls */}
       <div className="absolute right-3 bottom-52 z-[1001] flex flex-col gap-2">
         <Button
           variant="secondary" size="icon"
+          className="h-10 w-10 rounded-full shadow-lg bg-white text-slate-700 border border-slate-200"
+          onClick={() => mapInstance.current?.zoomIn({ duration: 250 })}
+        >
+          <Plus className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="secondary" size="icon"
+          className="h-10 w-10 rounded-full shadow-lg bg-white text-slate-700 border border-slate-200"
+          onClick={() => mapInstance.current?.zoomOut({ duration: 250 })}
+        >
+          <Minus className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="secondary" size="icon"
           className={`h-12 w-12 rounded-full shadow-lg transition-all border ${followMode ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-700 border-slate-200'}`}
-          onClick={() => setFollowMode(!followMode)}
+          onClick={() => {
+            setFollowMode(true);
+            if (mapInstance.current && currentLocation) {
+              mapInstance.current.easeTo({
+                center: [currentLocation.lng, currentLocation.lat],
+                bearing: currentLocation.heading || 0,
+                zoom: 16.5,
+                pitch: 45,
+                duration: 700,
+              });
+            }
+          }}
         >
           <Target className="h-5 w-5" />
         </Button>
