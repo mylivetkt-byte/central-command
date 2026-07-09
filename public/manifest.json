@@ -1,11 +1,11 @@
 {
-  "name": "Central Command",
-  "short_name": "Cmd",
-  "description": "Aplicación de gestión de entregas",
+  "name": "GoMoto",
+  "short_name": "GoMoto",
+  "description": "GoMoto - Gestión de entregas y conductores",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#020617",
-  "theme_color": "#6366f1",
+  "background_color": "#ffffff",
+  "theme_color": "#1a1a2e",
   "icons": [
     {
       "src": "/icons/icon-192.png",
