@@ -35,6 +35,29 @@ import SaaSDashboard from "./pages/SaaSDashboard";
 
 const queryClient = new QueryClient();
 
+// Recuerda cuál fue el último "portal" que el usuario usó (driver | admin | saas)
+// para que al recargar en la URL base no aterrice siempre en el login de admin.
+const RootRedirect = () => {
+  const { user, role, loading } = useAuth();
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="h-8 w-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+  // Si hay sesión, mandarlo a su home real según rol
+  if (user && role === "driver")      return <Navigate to="/driver" replace />;
+  if (user && role === "super_admin") return <Navigate to="/saas/dashboard" replace />;
+  if (user && role === "admin")       return <Dashboard />;
+
+  // Sin sesión → respetar la última app usada
+  const last = typeof window !== "undefined" ? localStorage.getItem("gomoto:lastApp") : null;
+  if (last === "driver") return <Navigate to="/driver-login" replace />;
+  if (last === "saas")   return <Navigate to="/saas/login" replace />;
+  return <Navigate to="/admin-login" replace />;
+};
+
 // Redirige al super_admin fuera de rutas operativas hacia el panel SaaS si no tiene una empresa seleccionada para inspección.
 const SuperAdminGuard = ({ children }: { children: ReactNode }) => {
   const { role } = useAuth();
@@ -79,7 +102,8 @@ const App = () => (
             <Route path="/driver-qr" element={<AdminRoute><DriverQR /></AdminRoute>} />
 
             {/* Admin Central */}
-            <Route path="/" element={<AdminRoute><Dashboard /></AdminRoute>} />
+            <Route path="/" element={<RootRedirect />} />
+            <Route path="/dashboard" element={<AdminRoute><Dashboard /></AdminRoute>} />
             <Route path="/analytics" element={<AdminRoute><Analytics /></AdminRoute>} />
             <Route path="/operations" element={<AdminRoute><Operations /></AdminRoute>} />
             <Route path="/drivers" element={<AdminRoute><Drivers /></AdminRoute>} />
