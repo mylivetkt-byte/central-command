@@ -89,6 +89,8 @@ const maneuverIcon = (type?: string, modifier?: string) => {
 
 // Texto en español para el anuncio de voz
 const maneuverText = (step: any): string => {
+  // Si Google ya nos dio una instrucción localizada en español, úsala.
+  if (step?.instruction && typeof step.instruction === 'string') return step.instruction;
   const t = step?.maneuver?.type;
   const m = (step?.maneuver?.modifier || '').toLowerCase();
   const street = step?.name || '';
@@ -220,11 +222,18 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
         const key = `${delivery.id}:${stop.type}`;
         if (resolvedCoords[key]) continue;
         try {
-          const response = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(stop.address)}&lat=7.1193&lon=-73.1198&limit=1&lang=es`);
-          const data = await response.json();
-          const first = data?.features?.[0]?.geometry?.coordinates;
-          if (Array.isArray(first) && isValidCoord(first[1], first[0])) {
-            next[key] = { lat: first[1], lng: first[0] };
+          const { data, error } = await supabase.functions.invoke('google-navigation', {
+            body: {
+              action: 'geocode',
+              address: stop.address,
+              biasLat: currentLocation?.lat ?? 7.1193,
+              biasLng: currentLocation?.lng ?? -73.1198,
+            },
+          });
+          if (error) throw error;
+          const first = (data as any)?.result;
+          if (first && isValidCoord(first.lat, first.lng)) {
+            next[key] = { lat: first.lat, lng: first.lng };
           }
         } catch {}
       }
@@ -297,13 +306,12 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
     }
     const map = mapInstance.current;
 
-    // Build waypoints: current location + focused delivery stops only
-    let waypoints = `${currentLocation.lng},${currentLocation.lat}`;
-    stops.forEach(s => {
-      if (isValidCoord(s.lat, s.lng)) waypoints += `;${s.lng},${s.lat}`;
-    });
+    // Build waypoints: focused delivery stops only (origin = current location)
+    const wps = stops
+      .filter(s => isValidCoord(s.lat, s.lng))
+      .map(s => ({ lat: s.lat as number, lng: s.lng as number }));
 
-    if (waypoints === `${currentLocation.lng},${currentLocation.lat}`) {
+    if (wps.length === 0) {
       setRouteStatus("unavailable");
       return;
     }
@@ -316,8 +324,15 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
         if (cached) data = cached;
         else return;
       } else {
-        const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${waypoints}?overview=full&geometries=geojson&steps=true`);
-        data = await response.json();
+        const { data: routeData, error: routeErr } = await supabase.functions.invoke('google-navigation', {
+          body: {
+            action: 'route',
+            origin: { lat: currentLocation.lat, lng: currentLocation.lng },
+            waypoints: wps,
+          },
+        });
+        if (routeErr) throw routeErr;
+        data = routeData;
         cacheData(routeCacheKey, data);
       }
 
