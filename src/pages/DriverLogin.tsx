@@ -102,16 +102,10 @@ const DriverLogin = () => {
     }
   };
 
-  // Solo mostramos spinner si hay usuario pero el rol aún se está resolviendo
+  // No mostramos una segunda pantalla de "Verificando sesión…" entre el splash y la app —
+  // dejamos el fondo en blanco muy breve mientras el rol se resuelve.
   if (authLoading && user) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center space-y-3">
-          <div className="h-10 w-10 border-2 border-accent border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="text-sm text-muted-foreground">Verificando sesión...</p>
-        </div>
-      </div>
-    );
+    return <div className="min-h-screen bg-background" />;
   }
 
   return (
