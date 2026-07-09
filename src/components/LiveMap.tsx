@@ -151,12 +151,11 @@ const LiveMap: React.FC<LiveMapProps> = ({
   // Realtime: driver_locations
   useEffect(() => {
     if (!showDrivers) return;
-    const filter = selectedCompanyId ? `company_id=eq.${selectedCompanyId}` : undefined;
     const channel = supabase
       .channel(`live-drivers-${selectedCompanyId ?? 'all'}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'driver_locations', ...(filter ? { filter } : {}) },
+        { event: '*', schema: 'public', table: 'driver_locations' },
         (payload: any) => {
           const row = payload.new || payload.old;
           if (!row?.driver_id) return;
