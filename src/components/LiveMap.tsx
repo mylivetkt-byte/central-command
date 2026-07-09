@@ -6,6 +6,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { useCompany } from '@/hooks/useCompany';
+import { Target } from 'lucide-react';
 
 interface LiveMapProps {
   height?: string;
@@ -54,6 +55,8 @@ const LiveMap: React.FC<LiveMapProps> = ({
   const { selectedCompanyId } = useCompany();
   const didFitBoundsRef = useRef(false);
   const queryClient = useQueryClient();
+  const [followDriverId, setFollowDriverId] = useState<string | null>(null);
+  const [routeStats, setRouteStats] = useState<{ distance: string; duration: string } | null>(null);
 
   // Consulta de drivers
   const { data: drivers = [] } = useQuery({
@@ -320,6 +323,69 @@ const LiveMap: React.FC<LiveMapProps> = ({
     }
   }, [focusedDeliveryId, isMapReady, deliveries]);
 
+  // Ruta OSRM del pedido enfocado: driver (si asignado) → pickup → delivery
+  useEffect(() => {
+    if (!isMapReady || !mapInstance.current) return;
+    const map = mapInstance.current;
+    const clearRoute = () => {
+      if (map.getLayer('focus-route-line')) map.removeLayer('focus-route-line');
+      if (map.getLayer('focus-route-case')) map.removeLayer('focus-route-case');
+      if (map.getSource('focus-route')) map.removeSource('focus-route');
+      setRouteStats(null);
+    };
+
+    if (!focusedDeliveryId) { clearRoute(); return; }
+    const d: any = deliveries.find(x => x.id === focusedDeliveryId);
+    if (!d) { clearRoute(); return; }
+
+    const pts: [number, number][] = [];
+    if (d.driver_id) {
+      const drv = drivers.find(x => x.id === d.driver_id);
+      if (drv?.last_lat && drv?.last_lng) pts.push([drv.last_lng, drv.last_lat]);
+    }
+    if (d.pickup_lat && d.pickup_lng && d.status !== 'en_camino') pts.push([d.pickup_lng, d.pickup_lat]);
+    if (d.delivery_lat && d.delivery_lng) pts.push([d.delivery_lng, d.delivery_lat]);
+
+    if (pts.length < 2) { clearRoute(); return; }
+
+    let cancelled = false;
+    const wp = pts.map(p => `${p[0]},${p[1]}`).join(';');
+    fetch(`https://router.project-osrm.org/route/v1/driving/${wp}?overview=full&geometries=geojson`)
+      .then(r => r.json())
+      .then(data => {
+        if (cancelled || !data.routes?.[0]) return;
+        const route = data.routes[0];
+        const coords = route.geometry.coordinates;
+        const geo: any = { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } };
+        if (map.getSource('focus-route')) {
+          (map.getSource('focus-route') as maplibregl.GeoJSONSource).setData(geo);
+        } else {
+          map.addSource('focus-route', { type: 'geojson', data: geo });
+          map.addLayer({ id: 'focus-route-case', type: 'line', source: 'focus-route', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#a5b4fc', 'line-width': 10, 'line-opacity': 0.35 } });
+          map.addLayer({ id: 'focus-route-line', type: 'line', source: 'focus-route', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#4F46E5', 'line-width': 5 } });
+        }
+        setRouteStats({
+          distance: (route.distance / 1000).toFixed(1) + ' km',
+          duration: Math.max(1, Math.ceil(route.duration / 60)) + ' min',
+        });
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [focusedDeliveryId, deliveries, drivers, isMapReady]);
+
+  // Modo seguir: cámara sigue al driver seleccionado
+  useEffect(() => {
+    if (!isMapReady || !mapInstance.current || !followDriverId) return;
+    const drv = drivers.find(d => d.id === followDriverId);
+    if (drv?.last_lat && drv?.last_lng) {
+      mapInstance.current.easeTo({
+        center: [drv.last_lng, drv.last_lat],
+        zoom: Math.max(mapInstance.current.getZoom(), 15),
+        duration: 900,
+      });
+    }
+  }, [drivers, followDriverId, isMapReady]);
+
   return (
     <div className="relative rounded-xl overflow-hidden border border-border bg-card shadow-2xl">
       {!isMapReady && (
@@ -341,6 +407,37 @@ const LiveMap: React.FC<LiveMapProps> = ({
         position="top-right"
         dark={mapStyle.id === 'dark' || mapStyle.id === 'satellite'}
       />
+
+      {/* ETA / distancia del pedido enfocado */}
+      {routeStats && (
+        <div className="absolute top-4 left-4 z-10 bg-black/80 backdrop-blur-md rounded-lg border border-white/10 shadow-xl px-4 py-2 flex items-baseline gap-3">
+          <div>
+            <p className="text-[9px] font-bold text-white/50 uppercase tracking-widest">ETA</p>
+            <p className="text-lg font-black text-white leading-none">{routeStats.duration}</p>
+          </div>
+          <div className="w-px h-8 bg-white/15" />
+          <div>
+            <p className="text-[9px] font-bold text-white/50 uppercase tracking-widest">Distancia</p>
+            <p className="text-lg font-black text-white leading-none">{routeStats.distance}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Botón seguir driver del pedido enfocado */}
+      {focusedDeliveryId && (() => {
+        const d: any = deliveries.find(x => x.id === focusedDeliveryId);
+        if (!d?.driver_id) return null;
+        const active = followDriverId === d.driver_id;
+        return (
+          <button
+            onClick={() => setFollowDriverId(active ? null : d.driver_id)}
+            className={`absolute top-16 right-4 z-10 h-10 px-3 rounded-lg shadow-xl backdrop-blur-md flex items-center gap-2 text-xs font-bold transition-all border ${active ? 'bg-primary text-primary-foreground border-primary' : 'bg-black/80 text-white border-white/10'}`}
+          >
+            <Target className="h-4 w-4" />
+            {active ? 'Siguiendo' : 'Seguir driver'}
+          </button>
+        );
+      })()}
 
       <div className="absolute bottom-4 left-4 z-10 flex flex-col gap-2 pointer-events-none">
         <div className="bg-black/80 backdrop-blur-md p-3 rounded-lg border border-white/10 shadow-xl">
