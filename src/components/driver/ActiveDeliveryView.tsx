@@ -297,6 +297,21 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
     return () => { mapInstance.current?.remove(); mapInstance.current = null; };
   }, []);
 
+  // Cambiar estilo del mapa cuando el usuario selecciona otro (claro, satélite, calles…)
+  useEffect(() => {
+    if (!isMapReady || !mapInstance.current) return;
+    const map = mapInstance.current;
+    map.setStyle(mapStyle.url);
+    const onLoad = () => {
+      // El handler 'style.load' de arriba ya reinserta edificios 3D.
+      // Reinsertar la ruta y sus capas al nuevo estilo:
+      routeCoordsRef.current = [];
+      fetchRouteDetails();
+    };
+    map.once('style.load', onLoad);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapStyle.url]);
+
   // Fetch Route (with offline fallback)
   const fetchRouteDetails = useCallback(async () => {
     if (!isMapReady || !mapInstance.current) return;
