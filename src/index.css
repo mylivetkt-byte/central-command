@@ -24,7 +24,8 @@
     --secondary-foreground: 222.2 47.4% 11.2%;
 
     --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    /* Oscurecido para mejor contraste sobre fondos blancos en Reportes/Finanzas/Repartidores/Dashboard */
+    --muted-foreground: 215 25% 30%;
 
     --accent: 210 40% 96.1%;
     --accent-foreground: 222.2 47.4% 11.2%;
