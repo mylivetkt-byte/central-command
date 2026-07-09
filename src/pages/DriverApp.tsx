@@ -530,6 +530,19 @@ const DriverApp = () => {
   return (
     <div className="fixed inset-0 bg-[#f5f6f7] flex flex-col overflow-hidden">
 
+      {/* Banner de conexión offline / cola pendiente */}
+      {(isOffline || queueSize > 0) && (
+        <div
+          className={`px-4 py-1.5 text-[11px] font-bold text-center text-white ${
+            isOffline ? "bg-red-600" : "bg-amber-500"
+          }`}
+        >
+          {isOffline
+            ? `Sin conexión${queueSize > 0 ? ` · ${queueSize} pendientes` : ""} — Se sincronizará al reconectar`
+            : `Sincronizando ${queueSize} acción${queueSize === 1 ? "" : "es"} pendiente${queueSize === 1 ? "" : "s"}…`}
+        </div>
+      )}
+
       {/* ── HEADER CARD (siempre visible salvo en Mapa fullscreen) ── */}
       {activeTab !== "mapa" && (
         <header className="px-4 pt-5 pb-3">
