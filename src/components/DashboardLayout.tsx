@@ -4,6 +4,7 @@ import { SidebarProvider, useSidebar } from "./SidebarContext";
 import { Menu } from "lucide-react";
 import { Button } from "./ui/button";
 import { useCompany } from "@/hooks/useCompany";
+import { SupportChatWidget } from "./SupportChatWidget";
 
 const LayoutContent = ({ children }: { children: ReactNode }) => {
   const { collapsed, setMobileMenuOpen } = useSidebar();
@@ -32,6 +33,7 @@ const LayoutContent = ({ children }: { children: ReactNode }) => {
       >
         <div className="p-4 lg:p-8">{children}</div>
       </main>
+      <SupportChatWidget />
     </div>
   );
 };
