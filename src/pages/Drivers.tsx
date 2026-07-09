@@ -5,7 +5,6 @@ import { motion } from "framer-motion";
 import { useState } from "react";
 import { Search, UserCheck, UserX, Star, Phone, Package, RefreshCw, Plus, Edit2, Trash2, X, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
-import { createClient } from "@supabase/supabase-js";
 import { useCompany } from "@/hooks/useCompany";
 
 const statusColors: Record<string, string> = {
@@ -102,46 +101,29 @@ const Drivers = () => {
           .eq("id", editingDriver.id);
         if (driverError) throw driverError;
       } else {
-        // Use a secondary client so admin session is NOT overwritten
-        const tempClient = createClient(
-          import.meta.env.VITE_SUPABASE_URL,
-          import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-          { auth: { persistSession: false, autoRefreshToken: false } }
-        );
-
-        const { data: signUpData, error: signUpError } = await tempClient.auth.signUp({
-          email: data.email,
-          password: data.password,
-          options: {
-            data: { 
-              full_name: data.full_name, 
-              phone: data.phone, 
+        // Crear el conductor vía edge function (usa service_role, no toca la sesión del admin)
+        const { data: fnData, error: fnError } = await supabase.functions.invoke(
+          "create-company-admin",
+          {
+            body: {
+              email: data.email,
+              password: data.password,
+              full_name: data.full_name,
+              phone: data.phone,
               role: "driver",
               company_id: selectedCompanyId,
-              is_approved: true
             },
-          },
-        });
-
-        if (signUpError) throw signUpError;
-
-        // If email confirmation is enabled, the user exists but identities may be empty.
-        // The trigger handle_new_user_role still fires and creates driver_profiles.
-        // We show a helpful message instead of silently succeeding.
-        const needsConfirmation =
-          signUpData?.user && signUpData.user.identities?.length === 0;
-        if (needsConfirmation) {
-          throw new Error(
-            "El correo ya está registrado o requiere confirmación. Revisa la bandeja de entrada del repartidor."
-          );
-        }
+          }
+        );
+        if (fnError) throw fnError;
+        if (fnData?.error) throw new Error(fnData.error);
       }
     },
     onSuccess: () => {
       toast.success(
         isEditing
           ? "Conductor actualizado correctamente"
-          : "Conductor creado. Si Supabase pide confirmación de email, el repartidor debe confirmar antes de entrar."
+          : "Conductor creado. Ya puede iniciar sesión con su email y contraseña."
       );
       setShowForm(false);
       setIsEditing(false);
