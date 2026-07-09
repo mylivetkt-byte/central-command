@@ -7,7 +7,6 @@ import { useParams, useNavigate } from "react-router-dom";
 import { Building2, Users, Package, DollarSign, ArrowLeft, Edit2, Power, Trash2, AlertTriangle, RefreshCw, Mail, Phone, Calendar, MapPin, Check, Plus, Shield, Upload } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { useCompany } from "@/hooks/useCompany";
-import { createClient } from "@supabase/supabase-js";
 import { toast } from "sonner";
 
 const formatCurrency = (v: number) =>
@@ -202,36 +201,24 @@ const SaaSCompanyDetail = () => {
     }
     setCreatingAdmin(true);
     try {
-      const tempClient = createClient(
-        import.meta.env.VITE_SUPABASE_URL,
-        import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-        { auth: { persistSession: false, autoRefreshToken: false } }
-      );
-
-      const { data: signUpData, error: signUpError } = await tempClient.auth.signUp({
-        email: adminForm.email.trim(),
-        password: adminForm.password.trim(),
-        options: {
-          data: {
-            full_name: adminForm.fullName.trim(),
-            phone: adminForm.phone.trim() || null,
-            role: "admin",
-            company_id: id!,
-          },
+      const { data, error } = await supabase.functions.invoke("create-company-admin", {
+        body: {
+          company_id: id!,
+          email: adminForm.email.trim(),
+          password: adminForm.password.trim(),
+          full_name: adminForm.fullName.trim(),
+          phone: adminForm.phone.trim() || null,
+          role: "admin",
         },
       });
-
-      if (signUpError) throw signUpError;
-
-      const needsConfirmation = signUpData?.user && signUpData.user.identities?.length === 0;
-      if (needsConfirmation) {
-        throw new Error("El correo ya está registrado o requiere confirmación.");
-      }
+      if (error) throw error;
+      if ((data as any)?.error) throw new Error((data as any).error);
 
       toast.success("Administrador creado correctamente.");
       setShowAddAdmin(false);
       setAdminForm({ fullName: "", email: "", password: "", phone: "" });
-      queryClient.invalidateQueries({ queryKey: ["saas-company-users", id] });
+      await refetchUsers();
+      queryClient.invalidateQueries({ queryKey: ["saas-company-users-detailed", id] });
     } catch (err: any) {
       toast.error(err.message || "Error al crear administrador");
     } finally {
