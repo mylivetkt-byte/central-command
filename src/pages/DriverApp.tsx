@@ -2,11 +2,12 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Switch } from "@/components/ui/switch";
-import { Package, History, Power, LogOut, Bike, Home, User, Map as MapIcon, Receipt, Battery, BatteryCharging, Flame, Trophy, Zap, AlertTriangle, AlertCircle, Coins } from "lucide-react";
+import { Package, History, Power, LogOut, Bike, Home, User, Map as MapIcon, Receipt, Battery, BatteryCharging, Flame, Trophy, Zap, AlertTriangle, AlertCircle, Coins, Bell, BellOff } from "lucide-react";
 import { toast } from "sonner";
 import { AnimatePresence, motion } from "framer-motion";
 import { useDriverLocation } from "@/hooks/useDriverLocation";
 import { useOffline } from "@/hooks/useOffline";
+import { useDriverPush } from "@/hooks/useDriverPush";
 import DeliveryHistory from "@/components/driver/DeliveryHistory";
 import NearbyOrdersMap from "@/components/driver/NearbyOrdersMap";
 import ActiveDeliveryView from "@/components/driver/ActiveDeliveryView";
@@ -63,6 +64,7 @@ const DriverApp = () => {
 
   const { isTracking, currentLocation, startTracking, stopTracking, batterySaver, setBatterySaver } = useDriverLocation();
   const { isOffline, queueSize, enqueue, registerHandler, flushQueue } = useOffline();
+  const push = useDriverPush(user?.id);
   const prevCount   = useRef(0);
   const gpsStarted  = useRef(false);
 
