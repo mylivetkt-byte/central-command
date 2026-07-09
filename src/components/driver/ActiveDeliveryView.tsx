@@ -222,11 +222,18 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
         const key = `${delivery.id}:${stop.type}`;
         if (resolvedCoords[key]) continue;
         try {
-          const response = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(stop.address)}&lat=7.1193&lon=-73.1198&limit=1&lang=es`);
-          const data = await response.json();
-          const first = data?.features?.[0]?.geometry?.coordinates;
-          if (Array.isArray(first) && isValidCoord(first[1], first[0])) {
-            next[key] = { lat: first[1], lng: first[0] };
+          const { data, error } = await supabase.functions.invoke('google-navigation', {
+            body: {
+              action: 'geocode',
+              address: stop.address,
+              biasLat: currentLocation?.lat ?? 7.1193,
+              biasLng: currentLocation?.lng ?? -73.1198,
+            },
+          });
+          if (error) throw error;
+          const first = (data as any)?.result;
+          if (first && isValidCoord(first.lat, first.lng)) {
+            next[key] = { lat: first.lat, lng: first.lng };
           }
         } catch {}
       }
