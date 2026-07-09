@@ -6,7 +6,7 @@ import { supabase } from '@/integrations/supabase/client';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { useCompany } from '@/hooks/useCompany';
-import { Target } from 'lucide-react';
+import { Target, Layers as LayersIcon, Bike, Package, Truck, Flame } from 'lucide-react';
 
 interface LiveMapProps {
   height?: string;
@@ -57,6 +57,31 @@ const LiveMap: React.FC<LiveMapProps> = ({
   const queryClient = useQueryClient();
   const [followDriverId, setFollowDriverId] = useState<string | null>(null);
   const [routeStats, setRouteStats] = useState<{ distance: string; duration: string } | null>(null);
+  const [layers, setLayers] = useState({
+    drivers: true,
+    pendientes: true,
+    en_camino: true,
+    heatmap: false,
+  });
+  const [layersOpen, setLayersOpen] = useState(false);
+
+  // Entregas completadas hoy (para heatmap de demanda)
+  const { data: completedToday = [] } = useQuery({
+    queryKey: ['heatmap-today', selectedCompanyId],
+    queryFn: async () => {
+      const start = new Date(); start.setHours(0, 0, 0, 0);
+      let q = supabase
+        .from('deliveries')
+        .select('delivery_lat, delivery_lng, pickup_lat, pickup_lng')
+        .eq('status', 'entregado')
+        .gte('created_at', start.toISOString());
+      if (selectedCompanyId) q = q.eq('company_id', selectedCompanyId);
+      const { data } = await q;
+      return (data || []) as any[];
+    },
+    enabled: layers.heatmap,
+    staleTime: 60_000,
+  });
 
   // Consulta de drivers
   const { data: drivers = [] } = useQuery({
@@ -193,17 +218,19 @@ const LiveMap: React.FC<LiveMapProps> = ({
 
   // Actualizar marcadores de Drivers
   useEffect(() => {
-    if (!isMapReady || !mapInstance.current || !showDrivers) return;
+    if (!isMapReady || !mapInstance.current) return;
+    const on = showDrivers && layers.drivers;
 
     const currentDriverIds = new Set(drivers.map(d => `driver-${d.id}`));
     
     // Eliminar marcadores viejos
     Object.keys(markersRef.current).forEach(id => {
-      if (id.startsWith('driver-') && !currentDriverIds.has(id)) {
+      if (id.startsWith('driver-') && (!on || !currentDriverIds.has(id))) {
         markersRef.current[id].remove();
         delete markersRef.current[id];
       }
     });
+    if (!on) return;
 
     // Agregar/Actualizar marcadores
     drivers.forEach(driver => {
@@ -234,14 +261,21 @@ const LiveMap: React.FC<LiveMapProps> = ({
           .addTo(mapInstance.current!);
       }
     });
-  }, [drivers, isMapReady, showDrivers]);
+  }, [drivers, isMapReady, showDrivers, layers.drivers]);
 
   // Actualizar marcadores de Entregas (Pickup y Delivery)
   useEffect(() => {
     if (!isMapReady || !mapInstance.current || !showDeliveries) return;
 
+    // Filtrar según capas activas
+    const filtered = deliveries.filter((d: any) => {
+      if (d.status === 'pendiente') return layers.pendientes;
+      if (d.status === 'aceptado' || d.status === 'en_camino') return layers.en_camino;
+      return true;
+    });
+
     const currentDeliveryIds = new Set();
-    deliveries.forEach(d => {
+    filtered.forEach(d => {
       currentDeliveryIds.add(`pickup-${d.id}`);
       currentDeliveryIds.add(`delivery-${d.id}`);
     });
@@ -255,7 +289,7 @@ const LiveMap: React.FC<LiveMapProps> = ({
     });
 
     // Agregar/Actualizar marcadores
-    deliveries.forEach(d => {
+    filtered.forEach(d => {
       // Pickup Marker
       if (d.pickup_lat && d.pickup_lng) {
         const pId = `pickup-${d.id}`;
@@ -290,7 +324,53 @@ const LiveMap: React.FC<LiveMapProps> = ({
         }
       }
     });
-  }, [deliveries, isMapReady, showDeliveries]);
+  }, [deliveries, isMapReady, showDeliveries, layers.pendientes, layers.en_camino]);
+
+  // Heatmap de demanda (entregas completadas hoy)
+  useEffect(() => {
+    if (!isMapReady || !mapInstance.current) return;
+    const map = mapInstance.current;
+    const remove = () => {
+      if (map.getLayer('demand-heat')) map.removeLayer('demand-heat');
+      if (map.getSource('demand-heat')) map.removeSource('demand-heat');
+    };
+    if (!layers.heatmap) { remove(); return; }
+
+    const features = completedToday.flatMap((d: any) => {
+      const arr: any[] = [];
+      if (d.pickup_lat && d.pickup_lng) arr.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [d.pickup_lng, d.pickup_lat] }, properties: {} });
+      if (d.delivery_lat && d.delivery_lng) arr.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [d.delivery_lng, d.delivery_lat] }, properties: {} });
+      return arr;
+    });
+    const geo: any = { type: 'FeatureCollection', features };
+    if (map.getSource('demand-heat')) {
+      (map.getSource('demand-heat') as maplibregl.GeoJSONSource).setData(geo);
+    } else {
+      map.addSource('demand-heat', { type: 'geojson', data: geo });
+      map.addLayer({
+        id: 'demand-heat',
+        type: 'heatmap',
+        source: 'demand-heat',
+        maxzoom: 17,
+        paint: {
+          'heatmap-weight': 1,
+          'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 0, 1, 15, 3],
+          'heatmap-color': [
+            'interpolate', ['linear'], ['heatmap-density'],
+            0, 'rgba(0,0,0,0)',
+            0.2, 'rgba(59,130,246,0.5)',
+            0.4, 'rgba(16,185,129,0.6)',
+            0.6, 'rgba(234,179,8,0.75)',
+            0.8, 'rgba(249,115,22,0.85)',
+            1, 'rgba(239,68,68,0.95)',
+          ],
+          'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 10, 15, 40],
+          'heatmap-opacity': 0.75,
+        },
+      }, 'focus-route-case');
+    }
+    return () => {};
+  }, [layers.heatmap, completedToday, isMapReady]);
 
   // fitBounds automático la primera vez que hay marcadores
   useEffect(() => {
@@ -408,9 +488,40 @@ const LiveMap: React.FC<LiveMapProps> = ({
         dark={mapStyle.id === 'dark' || mapStyle.id === 'satellite'}
       />
 
+      {/* Toggle de capas */}
+      <div className="absolute top-16 left-4 z-10">
+        <button
+          onClick={() => setLayersOpen(o => !o)}
+          className="h-10 px-3 rounded-lg bg-black/80 backdrop-blur-md border border-white/10 shadow-xl text-white flex items-center gap-2 text-xs font-bold"
+        >
+          <LayersIcon className="h-4 w-4" />
+          Capas
+        </button>
+        {layersOpen && (
+          <div className="mt-2 bg-black/85 backdrop-blur-md rounded-lg border border-white/10 shadow-xl p-2 space-y-1 min-w-[180px]">
+            {[
+              { key: 'drivers' as const,   label: 'Conductores', Icon: Bike,    color: 'text-primary' },
+              { key: 'pendientes' as const, label: 'Pendientes', Icon: Package, color: 'text-yellow-400' },
+              { key: 'en_camino' as const,  label: 'En camino',  Icon: Truck,   color: 'text-orange-400' },
+              { key: 'heatmap' as const,    label: 'Zonas calientes', Icon: Flame, color: 'text-red-400' },
+            ].map(({ key, label, Icon, color }) => (
+              <button
+                key={key}
+                onClick={() => setLayers(l => ({ ...l, [key]: !l[key] }))}
+                className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/10 transition-colors"
+              >
+                <input type="checkbox" readOnly checked={layers[key]} className="accent-primary" />
+                <Icon className={`h-4 w-4 ${color}`} />
+                <span className="text-xs font-medium text-white/90">{label}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* ETA / distancia del pedido enfocado */}
       {routeStats && (
-        <div className="absolute top-4 left-4 z-10 bg-black/80 backdrop-blur-md rounded-lg border border-white/10 shadow-xl px-4 py-2 flex items-baseline gap-3">
+        <div className="absolute top-4 right-40 z-10 bg-black/80 backdrop-blur-md rounded-lg border border-white/10 shadow-xl px-4 py-2 flex items-baseline gap-3">
           <div>
             <p className="text-[9px] font-bold text-white/50 uppercase tracking-widest">ETA</p>
             <p className="text-lg font-black text-white leading-none">{routeStats.duration}</p>
