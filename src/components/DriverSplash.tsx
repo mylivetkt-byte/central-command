@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import { useEffect } from "react";
 import { Bike } from "lucide-react";
+import { APP_VERSION } from "@/constants/appVersion";
 
 interface Props {
   onDone: () => void;
@@ -9,7 +10,7 @@ interface Props {
 
 // Splash minimalista y rápido para la PWA del mensajero.
 // Sin vibración, sin animaciones pesadas, se cierra siempre a tiempo.
-export default function DriverSplash({ onDone, durationMs = 1100 }: Props) {
+export default function DriverSplash({ onDone, durationMs = 600 }: Props) {
   useEffect(() => {
     const t = setTimeout(onDone, durationMs);
     return () => clearTimeout(t);
@@ -37,6 +38,9 @@ export default function DriverSplash({ onDone, durationMs = 1100 }: Props) {
           </h1>
           <p className="mt-0.5 text-[10px] font-semibold uppercase tracking-[0.3em] text-white/40">
             Rider
+          </p>
+          <p className="mt-2 text-[10px] font-mono text-amber-400/80">
+            v{APP_VERSION}
           </p>
         </div>
       </motion.div>
