@@ -258,6 +258,7 @@ const DriverApp = () => {
   }, []);
 
   const activateDelivery = useCallback((delivery: DeliveryOrder) => {
+    if (!isTracking) startTracking();
     setSelectedActiveIdx(0);
     setActiveTab("mapa");
     setActiveDeliveries(prev => {
@@ -265,7 +266,7 @@ const DriverApp = () => {
       return sortDeliveriesByCreatedAt(next);
     });
     setPendingOrders(prev => prev.filter(d => d.id !== delivery.id));
-  }, []);
+  }, [isTracking, startTracking]);
 
   const claimDelivery = useCallback(async (order: DeliveryOrder) => {
     const { data: result, error } = await supabase.rpc("claim_delivery", { p_delivery_id: order.id });

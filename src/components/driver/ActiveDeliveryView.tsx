@@ -133,7 +133,7 @@ const isValidCoord = (lat?: number | null, lng?: number | null) =>
 
 const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initialDelivery, onPickedUp, onDelivered, allDeliveries = [], driverLocation }) => {
   const { user } = useAuth();
-  const { currentLocation: localLocation } = useDriverLocation();
+  const { currentLocation: localLocation, isTracking: localTracking, startTracking: startLocalTracking, error: gpsError } = useDriverLocation();
   const currentLocation = driverLocation ?? localLocation;
   const { isOffline, cacheData, getCachedData } = useOffline();
   const mapContainer = useRef<HTMLDivElement>(null);
@@ -165,6 +165,12 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [focusedDeliveryId, setFocusedDeliveryId] = useState(initialDelivery.id);
+
+  useEffect(() => {
+    if (!driverLocation && !localLocation && !localTracking) {
+      startLocalTracking();
+    }
+  }, [driverLocation, localLocation, localTracking, startLocalTracking]);
 
   useEffect(() => {
     if (initialDelivery?.id) {
@@ -653,9 +659,9 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
                 {routeStatus === "unavailable" && "Ruta sin coordenadas"}
               </p>
               <p className="text-xs font-semibold text-slate-500 truncate">
-                {routeStatus === "unavailable"
+                {gpsError || (routeStatus === "unavailable"
                   ? "Selecciona direcciones sugeridas en despacho para navegación exacta."
-                  : "El mapa entrará en conducción automáticamente."}
+                  : "El mapa entrará en conducción automáticamente.")}
               </p>
             </div>
           </div>
