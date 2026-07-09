@@ -403,46 +403,58 @@ export type Database = {
       driver_profiles: {
         Row: {
           acceptance_rate: number | null
+          address: string | null
           avg_delivery_time: number | null
           cancellation_rate: number | null
           company_id: string | null
           created_at: string
           current_load: number
+          document_id: string | null
           id: string
+          notes: string | null
           rating: number | null
           status: string
           total_deliveries: number
           updated_at: string
+          vehicle_plate: string | null
           vehicle_type: string | null
           zone: string | null
         }
         Insert: {
           acceptance_rate?: number | null
+          address?: string | null
           avg_delivery_time?: number | null
           cancellation_rate?: number | null
           company_id?: string | null
           created_at?: string
           current_load?: number
+          document_id?: string | null
           id: string
+          notes?: string | null
           rating?: number | null
           status?: string
           total_deliveries?: number
           updated_at?: string
+          vehicle_plate?: string | null
           vehicle_type?: string | null
           zone?: string | null
         }
         Update: {
           acceptance_rate?: number | null
+          address?: string | null
           avg_delivery_time?: number | null
           cancellation_rate?: number | null
           company_id?: string | null
           created_at?: string
           current_load?: number
+          document_id?: string | null
           id?: string
+          notes?: string | null
           rating?: number | null
           status?: string
           total_deliveries?: number
           updated_at?: string
+          vehicle_plate?: string | null
           vehicle_type?: string | null
           zone?: string | null
         }

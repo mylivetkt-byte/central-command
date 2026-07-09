@@ -6,6 +6,7 @@ import { useState } from "react";
 import { Search, UserCheck, UserX, Star, Phone, Package, RefreshCw, Plus, Edit2, Trash2, X, AlertTriangle, KeyRound } from "lucide-react";
 import { toast } from "sonner";
 import { useCompany } from "@/hooks/useCompany";
+import { isValidPhone, phoneToSyntheticEmail, normalizePhone } from "@/lib/phoneAuth";
 
 const statusColors: Record<string, string> = {
   activo: "bg-accent/10 text-accent",
@@ -30,6 +31,12 @@ const Drivers = () => {
     password: "",
     phone: "",
     zone: "",
+    signup_method: "email" as "email" | "phone",
+    vehicle_type: "moto",
+    vehicle_plate: "",
+    document_id: "",
+    address: "",
+    notes: "",
   });
   
   const { company, selectedCompanyId } = useCompany();
@@ -41,7 +48,7 @@ const Drivers = () => {
     queryFn: async () => {
       // Step 1: load all driver_profiles
       const { data: dps, error: dpError } = await (supabase.from("driver_profiles") as any)
-        .select("id, status, total_deliveries, rating, acceptance_rate, cancellation_rate, current_load, zone");
+        .select("id, status, total_deliveries, rating, acceptance_rate, cancellation_rate, current_load, zone, vehicle_type, vehicle_plate, document_id, address, notes");
       if (dpError) throw dpError;
       if (!dps || dps.length === 0) return [];
 
@@ -97,19 +104,35 @@ const Drivers = () => {
         if (profileError) throw profileError;
 
         const { error: driverError } = await (supabase.from("driver_profiles") as any)
-          .update({ zone: data.zone })
+          .update({
+            zone: data.zone,
+            vehicle_type: data.vehicle_type,
+            vehicle_plate: data.vehicle_plate || null,
+            document_id: data.document_id || null,
+            address: data.address || null,
+            notes: data.notes || null,
+          })
           .eq("id", editingDriver.id);
         if (driverError) throw driverError;
       } else {
+        // Determinar email real o sintético (si se registra con móvil)
+        let email = data.email.trim();
+        const contactPhone = normalizePhone(data.phone);
+        if (data.signup_method === "phone") {
+          if (!isValidPhone(data.phone)) throw new Error("Ingresa un número de móvil válido (7-15 dígitos)");
+          email = phoneToSyntheticEmail(data.phone);
+        } else {
+          if (!email) throw new Error("El correo es obligatorio");
+        }
         // Crear el conductor vía edge function (usa service_role, no toca la sesión del admin)
         const { data: fnData, error: fnError } = await supabase.functions.invoke(
           "create-company-admin",
           {
             body: {
-              email: data.email,
+              email,
               password: data.password,
               full_name: data.full_name,
-              phone: data.phone,
+              phone: contactPhone,
               role: "driver",
               company_id: selectedCompanyId,
             },
@@ -117,18 +140,37 @@ const Drivers = () => {
         );
         if (fnError) throw fnError;
         if (fnData?.error) throw new Error(fnData.error);
+
+        // Guardar los campos adicionales del perfil del conductor
+        const newUserId = fnData?.user_id;
+        if (newUserId) {
+          await (supabase.from("driver_profiles") as any)
+            .update({
+              zone: data.zone || null,
+              vehicle_type: data.vehicle_type,
+              vehicle_plate: data.vehicle_plate || null,
+              document_id: data.document_id || null,
+              address: data.address || null,
+              notes: data.notes || null,
+            })
+            .eq("id", newUserId);
+        }
       }
     },
     onSuccess: () => {
       toast.success(
         isEditing
           ? "Conductor actualizado correctamente"
-          : "Conductor creado. Ya puede iniciar sesión con su email y contraseña."
+          : "Conductor creado. Ya puede iniciar sesión."
       );
       setShowForm(false);
       setIsEditing(false);
       setEditingDriver(null);
-      setFormData({ full_name: "", email: "", password: "", phone: "", zone: "" });
+      setFormData({
+        full_name: "", email: "", password: "", phone: "", zone: "",
+        signup_method: "email", vehicle_type: "moto", vehicle_plate: "",
+        document_id: "", address: "", notes: "",
+      });
       queryClient.invalidateQueries({ queryKey: ["drivers"] });
     },
     onError: (err: any) => toast.error(`Error: ${err.message}`),
@@ -202,7 +244,11 @@ const Drivers = () => {
                   toast.error(`Has alcanzado el límite de repartidores de tu plan (${company.max_drivers})`);
                   return;
                 }
-                setFormData({ full_name: "", email: "", password: "", phone: "", zone: "" });
+                setFormData({
+                  full_name: "", email: "", password: "", phone: "", zone: "",
+                  signup_method: "email", vehicle_type: "moto", vehicle_plate: "",
+                  document_id: "", address: "", notes: "",
+                });
                 setIsEditing(false);
                 setShowForm(true);
               }}
@@ -238,30 +284,84 @@ const Drivers = () => {
               </button>
               <h2 className="text-xl font-bold mb-4">{isEditing ? "Editar Repartidor" : "Nuevo Repartidor"}</h2>
               <form onSubmit={(e) => { e.preventDefault(); saveDriver.mutate(formData); }} className="space-y-4">
+                {!isEditing && (
+                  <div className="flex rounded-lg overflow-hidden border border-border/50 text-xs font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => setFormData(p => ({ ...p, signup_method: "email" }))}
+                      className={`flex-1 py-2 transition-colors ${formData.signup_method === "email" ? "bg-primary text-primary-foreground" : "bg-muted/40 text-muted-foreground hover:bg-muted"}`}
+                    >
+                      📧 Registrar con Correo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFormData(p => ({ ...p, signup_method: "phone" }))}
+                      className={`flex-1 py-2 transition-colors ${formData.signup_method === "phone" ? "bg-primary text-primary-foreground" : "bg-muted/40 text-muted-foreground hover:bg-muted"}`}
+                    >
+                      📱 Registrar con Móvil
+                    </button>
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <label className="text-xs text-muted-foreground font-medium">Nombre Completo *</label>
                     <input required value={formData.full_name} onChange={e => setFormData(p => ({ ...p, full_name: e.target.value }))} className="w-full rounded-lg bg-muted/50 border border-border/50 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-xs text-muted-foreground font-medium">Teléfono</label>
-                    <input value={formData.phone} onChange={e => setFormData(p => ({ ...p, phone: e.target.value }))} className="w-full rounded-lg bg-muted/50 border border-border/50 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
+                    <label className="text-xs text-muted-foreground font-medium">
+                      Móvil / WhatsApp{formData.signup_method === "phone" ? " *" : ""}
+                    </label>
+                    <input
+                      required={formData.signup_method === "phone"}
+                      value={formData.phone}
+                      onChange={e => setFormData(p => ({ ...p, phone: e.target.value }))}
+                      placeholder="+57 300 000 0000"
+                      className="w-full rounded-lg bg-muted/50 border border-border/50 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    />
                   </div>
-                  {!isEditing && (
+                  {!isEditing && formData.signup_method === "email" && (
                     <>
                       <div className="space-y-1">
                         <label className="text-xs text-muted-foreground font-medium">Email *</label>
                         <input type="email" required value={formData.email} onChange={e => setFormData(p => ({ ...p, email: e.target.value }))} className="w-full rounded-lg bg-muted/50 border border-border/50 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
                       </div>
-                      <div className="space-y-1">
-                        <label className="text-xs text-muted-foreground font-medium">Contraseña *</label>
-                        <input type="password" required minLength={6} value={formData.password} onChange={e => setFormData(p => ({ ...p, password: e.target.value }))} className="w-full rounded-lg bg-muted/50 border border-border/50 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
-                      </div>
                     </>
                   )}
+                  {!isEditing && (
+                    <div className="space-y-1">
+                      <label className="text-xs text-muted-foreground font-medium">Contraseña *</label>
+                      <input type="password" required minLength={6} value={formData.password} onChange={e => setFormData(p => ({ ...p, password: e.target.value }))} placeholder="Mínimo 6 caracteres" className="w-full rounded-lg bg-muted/50 border border-border/50 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
+                    </div>
+                  )}
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground font-medium">Documento de Identidad</label>
+                    <input value={formData.document_id} onChange={e => setFormData(p => ({ ...p, document_id: e.target.value }))} placeholder="Cédula / DNI" className="w-full rounded-lg bg-muted/50 border border-border/50 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground font-medium">Vehículo</label>
+                    <select value={formData.vehicle_type} onChange={e => setFormData(p => ({ ...p, vehicle_type: e.target.value }))} className="w-full rounded-lg bg-muted/50 border border-border/50 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50">
+                      <option value="moto">Moto</option>
+                      <option value="bicicleta">Bicicleta</option>
+                      <option value="carro">Carro</option>
+                      <option value="camioneta">Camioneta</option>
+                      <option value="a_pie">A pie</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground font-medium">Placa del Vehículo</label>
+                    <input value={formData.vehicle_plate} onChange={e => setFormData(p => ({ ...p, vehicle_plate: e.target.value.toUpperCase() }))} placeholder="ABC-123" className="w-full rounded-lg bg-muted/50 border border-border/50 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
+                  </div>
                   <div className="space-y-1">
                     <label className="text-xs text-muted-foreground font-medium">Zona Asignada</label>
                     <input value={formData.zone} onChange={e => setFormData(p => ({ ...p, zone: e.target.value }))} placeholder="Ej: Norte" className="w-full rounded-lg bg-muted/50 border border-border/50 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
+                  </div>
+                  <div className="space-y-1 col-span-2">
+                    <label className="text-xs text-muted-foreground font-medium">Dirección de Residencia</label>
+                    <input value={formData.address} onChange={e => setFormData(p => ({ ...p, address: e.target.value }))} placeholder="Calle, número, ciudad" className="w-full rounded-lg bg-muted/50 border border-border/50 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
+                  </div>
+                  <div className="space-y-1 col-span-2">
+                    <label className="text-xs text-muted-foreground font-medium">Notas / Observaciones</label>
+                    <textarea value={formData.notes} onChange={e => setFormData(p => ({ ...p, notes: e.target.value }))} rows={2} placeholder="Referencias, disponibilidad, etc." className="w-full rounded-lg bg-muted/50 border border-border/50 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none" />
                   </div>
                 </div>
                 <div className="flex justify-end gap-3 mt-6">
@@ -388,6 +488,12 @@ const Drivers = () => {
                               password: "",
                               phone: selectedDriver.profile?.phone || "",
                               zone: selectedDriver.zone || "",
+                              signup_method: "email",
+                              vehicle_type: selectedDriver.vehicle_type || "moto",
+                              vehicle_plate: selectedDriver.vehicle_plate || "",
+                              document_id: selectedDriver.document_id || "",
+                              address: selectedDriver.address || "",
+                              notes: selectedDriver.notes || "",
                             });
                             setEditingDriver(selectedDriver);
                             setIsEditing(true);
