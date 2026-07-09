@@ -5,6 +5,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { supabase } from '@/integrations/supabase/client';
 import { useQuery } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
+import { useCompany } from '@/hooks/useCompany';
 
 interface LiveMapProps {
   height?: string;
@@ -49,17 +50,22 @@ const LiveMap: React.FC<LiveMapProps> = ({
   const markersRef = useRef<{ [key: string]: maplibregl.Marker }>({});
   const [isMapReady, setIsMapReady] = useState(false);
   const { current: mapStyle, setStyle } = useMapStyle("dark");
+  const { selectedCompanyId } = useCompany();
 
   // Consulta de drivers
   const { data: drivers = [] } = useQuery({
-    queryKey: ['live-drivers'],
+    queryKey: ['live-drivers', selectedCompanyId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let q = supabase
         .from('driver_profiles')
         .select('id, status, current_load, profiles(full_name)');
+      if (selectedCompanyId) q = q.eq('company_id', selectedCompanyId);
+      const { data, error } = await q;
       if (error) throw error;
       // Also fetch locations
-      const { data: locs } = await supabase.from('driver_locations').select('driver_id, lat, lng');
+      let lq = supabase.from('driver_locations').select('driver_id, lat, lng, company_id');
+      if (selectedCompanyId) lq = lq.eq('company_id', selectedCompanyId);
+      const { data: locs } = await lq;
       const locMap = new Map((locs || []).map((l: any) => [l.driver_id, l]));
       return (data || []).map((d: any) => ({
         ...d,
@@ -68,22 +74,24 @@ const LiveMap: React.FC<LiveMapProps> = ({
       })) as Driver[];
     },
     refetchInterval: 5000,
-    enabled: showDrivers
+    enabled: showDrivers,
   });
 
   // Consulta de entregas activas
   const { data: deliveries = [] } = useQuery({
-    queryKey: ['live-deliveries'],
+    queryKey: ['live-deliveries', selectedCompanyId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let q = supabase
         .from('deliveries')
         .select('*')
         .in('status', ['pendiente', 'aceptado', 'en_camino']);
+      if (selectedCompanyId) q = q.eq('company_id', selectedCompanyId);
+      const { data, error } = await q;
       if (error) throw error;
       return data as Delivery[];
     },
     refetchInterval: 5000,
-    enabled: showDeliveries
+    enabled: showDeliveries,
   });
 
   // Inicializar mapa
@@ -231,18 +239,28 @@ const LiveMap: React.FC<LiveMapProps> = ({
         </div>
       )}
       <div ref={mapContainer} style={{ height, width: '100%' }} />
-      
+
+      <MapStyleSwitcher
+        current={mapStyle}
+        onSelect={(s) => {
+          setStyle(s.id);
+          mapInstance.current?.setStyle(s.url);
+        }}
+        position="top-right"
+        dark={mapStyle.id === 'dark' || mapStyle.id === 'satellite'}
+      />
+
       <div className="absolute bottom-4 left-4 z-10 flex flex-col gap-2 pointer-events-none">
         <div className="bg-black/80 backdrop-blur-md p-3 rounded-lg border border-white/10 shadow-xl">
           <p className="text-[10px] font-bold text-white/50 uppercase tracking-widest mb-2">Estado del Sistema</p>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-primary animate-pulse shadow-[0_0_8px_hsl(var(--primary))]"></span>
-              <span className="text-xs text-white/90 font-medium">${drivers.length} Drivers</span>
+              <span className="text-xs text-white/90 font-medium">{drivers.length} Drivers</span>
             </div>
             <div className="flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-accent shadow-[0_0_8px_hsl(var(--accent))]"></span>
-              <span className="text-xs text-white/90 font-medium">${deliveries.length} Entregas</span>
+              <span className="text-xs text-white/90 font-medium">{deliveries.length} Entregas</span>
             </div>
           </div>
         </div>
