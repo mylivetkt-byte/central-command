@@ -2,11 +2,12 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import { Switch } from "@/components/ui/switch";
-import { Package, History, Power, LogOut, Bike, Home, User, Map as MapIcon, Receipt, Battery, BatteryCharging, Flame, Trophy, Zap, AlertTriangle, AlertCircle, Coins } from "lucide-react";
+import { Package, History, Power, LogOut, Bike, Home, User, Map as MapIcon, Receipt, Battery, BatteryCharging, Flame, Trophy, Zap, AlertTriangle, AlertCircle, Coins, Bell, BellOff } from "lucide-react";
 import { toast } from "sonner";
 import { AnimatePresence, motion } from "framer-motion";
 import { useDriverLocation } from "@/hooks/useDriverLocation";
 import { useOffline } from "@/hooks/useOffline";
+import { useDriverPush } from "@/hooks/useDriverPush";
 import DeliveryHistory from "@/components/driver/DeliveryHistory";
 import NearbyOrdersMap from "@/components/driver/NearbyOrdersMap";
 import ActiveDeliveryView from "@/components/driver/ActiveDeliveryView";
@@ -63,6 +64,7 @@ const DriverApp = () => {
 
   const { isTracking, currentLocation, startTracking, stopTracking, batterySaver, setBatterySaver } = useDriverLocation();
   const { isOffline, queueSize, enqueue, registerHandler, flushQueue } = useOffline();
+  const push = useDriverPush(user?.id);
   const prevCount   = useRef(0);
   const gpsStarted  = useRef(false);
 
@@ -769,6 +771,28 @@ const DriverApp = () => {
                       {batterySaver ? "ACTIVO" : "OFF"}
                     </span>
                   </button>
+
+                  {push.isSupported && (
+                    <button
+                      onClick={() => (push.subscribed ? push.unsubscribe() : push.subscribe())}
+                      disabled={push.busy || push.permission === "denied"}
+                      className="w-full flex items-center justify-between bg-white rounded-2xl border border-slate-200 p-4 disabled:opacity-60"
+                    >
+                      <span className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                        {push.subscribed ? <Bell className="h-4 w-4 text-green-600" /> : <BellOff className="h-4 w-4 text-slate-400" />}
+                        Notificaciones push
+                      </span>
+                      <span className={`text-xs font-black px-3 py-1 rounded-full ${
+                        push.subscribed ? "bg-green-100 text-green-700"
+                        : push.permission === "denied" ? "bg-red-100 text-red-700"
+                        : "bg-slate-100 text-slate-500"
+                      }`}>
+                        {push.subscribed ? "ACTIVAS"
+                          : push.permission === "denied" ? "BLOQUEADAS"
+                          : "ACTIVAR"}
+                      </span>
+                    </button>
+                  )}
 
                   <button
                     onClick={signOut}
