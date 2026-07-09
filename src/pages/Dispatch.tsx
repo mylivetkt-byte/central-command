@@ -7,7 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect } from "react";
-import { Zap, MapPin, Package, Plus, X, Send, UserCheck, Clock, CheckCircle, XCircle, RefreshCw, BellRing, Navigation, Radio, Users } from "lucide-react";
+import { Zap, MapPin, Package, Plus, X, Send, UserCheck, Clock, CheckCircle, XCircle, RefreshCw, BellRing, Navigation, Radio, Users, Pencil, Trash2, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 
 const formatCurrency = (v: number) =>
@@ -49,6 +49,7 @@ const Dispatch = () => {
   const [selectedOrder, setSelectedOrder] = useState<string | null>(null);
   const [dispatchMode, setDispatchMode] = useState<"todos" | "especifico">("todos");
   const [targetDriverId, setTargetDriverId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   // Pedidos activos
@@ -98,6 +99,29 @@ const Dispatch = () => {
 
   const createDelivery = useMutation({
     mutationFn: async (formData: NewDeliveryForm) => {
+      // Si estamos editando, actualiza en lugar de crear
+      if (editingId) {
+        const { error } = await (supabase.from("deliveries") as any)
+          .update({
+            customer_name: formData.customer_name,
+            customer_phone: formData.customer_phone || null,
+            pickup_address: formData.pickup_address,
+            delivery_address: formData.delivery_address,
+            pickup_lat: formData.pickup_lat ?? null,
+            pickup_lng: formData.pickup_lng ?? null,
+            delivery_lat: formData.delivery_lat ?? null,
+            delivery_lng: formData.delivery_lng ?? null,
+            amount: parseFloat(formData.amount) || 0,
+            commission: parseFloat(formData.commission) || 0,
+            estimated_time: parseInt(formData.estimated_time) || 30,
+            zone: formData.zone || null,
+            notes: formData.notes || null,
+          })
+          .eq("id", editingId);
+        if (error) throw error;
+        return { orderId: "", isDirectAssign: false, edited: true };
+      }
+
       const orderId = `DOM-${Date.now().toString().slice(-6)}`;
       const isDirectAssign = dispatchMode === "especifico" && targetDriverId;
 
@@ -165,9 +189,17 @@ const Dispatch = () => {
         }
       }
 
-      return { orderId, isDirectAssign };
+      return { orderId, isDirectAssign, edited: false };
     },
-    onSuccess: ({ orderId, isDirectAssign }) => {
+    onSuccess: ({ orderId, isDirectAssign, edited }) => {
+      if (edited) {
+        toast.success("✅ Pedido actualizado");
+        setForm(emptyForm);
+        setEditingId(null);
+        setShowNewForm(false);
+        queryClient.invalidateQueries({ queryKey: ["dispatch-pending"] });
+        return;
+      }
       const driverName = isDirectAssign
         ? availableDrivers.find((d: any) => d.id === targetDriverId)?.profiles?.full_name ?? "el mensajero"
         : null;
@@ -210,6 +242,67 @@ const Dispatch = () => {
       queryClient.invalidateQueries({ queryKey: ["dispatch-pending"] });
     },
   });
+
+  // Despublicar: quita el pedido del listado disponible para los mensajeros (marca como cancelado)
+  const unpublishDelivery = useMutation({
+    mutationFn: async (deliveryId: string) => {
+      const { error } = await (supabase.from("deliveries") as any)
+        .update({ status: "cancelado", updated_at: new Date().toISOString() })
+        .eq("id", deliveryId)
+        .eq("status", "pendiente");
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Pedido despublicado — ya no es visible para los mensajeros");
+      setSelectedOrder(null);
+      queryClient.invalidateQueries({ queryKey: ["dispatch-pending"] });
+    },
+    onError: (err: any) => toast.error(`Error: ${err.message}`),
+  });
+
+  // Eliminar definitivamente el pedido pendiente
+  const deleteDelivery = useMutation({
+    mutationFn: async (deliveryId: string) => {
+      const { error } = await (supabase.from("deliveries") as any)
+        .delete()
+        .eq("id", deliveryId)
+        .eq("status", "pendiente");
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Pedido eliminado");
+      setSelectedOrder(null);
+      queryClient.invalidateQueries({ queryKey: ["dispatch-pending"] });
+    },
+    onError: (err: any) => toast.error(`Error: ${err.message}`),
+  });
+
+  const startEdit = (d: any) => {
+    setEditingId(d.id);
+    setForm({
+      customer_name: d.customer_name || "",
+      customer_phone: d.customer_phone || "",
+      pickup_address: d.pickup_address || "",
+      delivery_address: d.delivery_address || "",
+      amount: String(d.amount ?? ""),
+      commission: String(d.commission ?? ""),
+      estimated_time: String(d.estimated_time ?? "30"),
+      zone: d.zone || "",
+      notes: d.notes || "",
+      pickup_lat: d.pickup_lat ?? undefined,
+      pickup_lng: d.pickup_lng ?? undefined,
+      delivery_lat: d.delivery_lat ?? undefined,
+      delivery_lng: d.delivery_lng ?? undefined,
+    });
+    setShowNewForm(true);
+    setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 50);
+  };
+
+  const closeForm = () => {
+    setShowNewForm(false);
+    setEditingId(null);
+    setForm(emptyForm);
+  };
 
   const handleFormChange = (field: keyof NewDeliveryForm, value: any) => {
     setForm((prev) => ({ ...prev, [field]: value }));
