@@ -708,12 +708,45 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
 
       <div ref={mapContainer} className="h-full w-full" />
 
+      {/* Selector de estilo de mapa (Oscuro / Claro / Satélite / Calles…) */}
+      <MapStyleSwitcher
+        current={mapStyle}
+        onSelect={(s) => setStyle(s.id)}
+        position="bottom-left"
+        dark={mapStyle.id === 'dark' || mapStyle.id === 'satellite'}
+      />
+
       {/* Controls */}
       <div className="absolute right-3 bottom-52 z-[1001] flex flex-col gap-2">
         <Button
           variant="secondary" size="icon"
+          className="h-10 w-10 rounded-full shadow-lg bg-white text-slate-700 border border-slate-200"
+          onClick={() => mapInstance.current?.zoomIn({ duration: 250 })}
+        >
+          <Plus className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="secondary" size="icon"
+          className="h-10 w-10 rounded-full shadow-lg bg-white text-slate-700 border border-slate-200"
+          onClick={() => mapInstance.current?.zoomOut({ duration: 250 })}
+        >
+          <Minus className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="secondary" size="icon"
           className={`h-12 w-12 rounded-full shadow-lg transition-all border ${followMode ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-700 border-slate-200'}`}
-          onClick={() => setFollowMode(!followMode)}
+          onClick={() => {
+            setFollowMode(true);
+            if (mapInstance.current && currentLocation) {
+              mapInstance.current.easeTo({
+                center: [currentLocation.lng, currentLocation.lat],
+                bearing: currentLocation.heading || 0,
+                zoom: 16.5,
+                pitch: 45,
+                duration: 700,
+              });
+            }
+          }}
         >
           <Target className="h-5 w-5" />
         </Button>
