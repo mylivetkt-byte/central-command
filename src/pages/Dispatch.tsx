@@ -429,7 +429,8 @@ const Dispatch = () => {
                                         />
                                     </div>
 
-                                    {/* MODO DE ENVÍO */}
+                                    {/* MODO DE ENVÍO (solo al crear) */}
+                                    {!editingId && (
                                     <div className="space-y-3">
                                       <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">🚀 Enviar a</label>
                                       <div className="grid grid-cols-2 gap-3">
@@ -495,13 +496,20 @@ const Dispatch = () => {
                                         </div>
                                       )}
                                     </div>
+                                    )}
 
                                     <button
                                       type="submit"
                                       disabled={createDelivery.isPending || (dispatchMode === "especifico" && !targetDriverId)}
                                       className="w-full h-16 rounded-2xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-black transition-all shadow-xl shadow-emerald-100 flex items-center justify-center gap-3"
                                     >
-                                      <Send /> {createDelivery.isPending ? "PROCESANDO..." : dispatchMode === "especifico" && targetDriverId ? "ASIGNAR AL MENSAJERO" : "PUBLICAR SERVICIO AHORA"}
+                                      <Send /> {createDelivery.isPending
+                                        ? "PROCESANDO..."
+                                        : editingId
+                                          ? "GUARDAR CAMBIOS"
+                                          : dispatchMode === "especifico" && targetDriverId
+                                            ? "ASIGNAR AL MENSAJERO"
+                                            : "PUBLICAR SERVICIO AHORA"}
                                     </button>
                                 </form>
                             </div>
