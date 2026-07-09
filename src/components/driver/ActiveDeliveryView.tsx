@@ -160,8 +160,20 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
   useEffect(() => {
     if (initialDelivery?.id) {
       setFocusedDeliveryId(initialDelivery.id);
+      // Al entrar a una entrega nueva o al cambiar de foco, activar modo conducción
+      setFollowMode(true);
+      if (mapInstance.current && currentLocation) {
+        mapInstance.current.easeTo({
+          center: [currentLocation.lng, currentLocation.lat],
+          zoom: 18,
+          pitch: 60,
+          bearing: currentLocation.heading || 0,
+          duration: 900,
+        });
+      }
     }
-  }, [initialDelivery?.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialDelivery?.id, focusedDeliveryId]);
 
   const delivery = allDeliveries.find(d => d.id === focusedDeliveryId) || initialDelivery;
 
