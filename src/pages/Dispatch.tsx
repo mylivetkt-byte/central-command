@@ -336,41 +336,43 @@ const Dispatch = () => {
 
   return (
     <DashboardLayout>
-      <div className="max-w-[1200px] mx-auto space-y-8 animate-in fade-in duration-700">
+      <div className="max-w-[1200px] mx-auto space-y-6 md:space-y-8 animate-in fade-in duration-700 px-2 md:px-0">
         
         {/* Cabecera Admin Premium */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 p-8 bg-white border border-slate-200 rounded-[32px] shadow-lg">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 md:gap-6 p-5 md:p-8 bg-white border border-slate-200 rounded-3xl md:rounded-[32px] shadow-lg">
           <div>
             <div className="flex items-center gap-3 mb-2">
                 <div className="p-2 bg-emerald-100 rounded-xl">
                     <Navigation className="h-6 w-6 text-emerald-600" />
                 </div>
-                <h1 className="text-3xl font-black tracking-tight text-slate-900">Central de Despacho</h1>
+                <h1 className="text-2xl md:text-3xl font-black tracking-tight text-slate-900">Central de Despacho</h1>
             </div>
             <p className="text-sm text-slate-500 font-medium">Gestiona la logística de tu flota en tiempo real.</p>
           </div>
           
           <button
-            onClick={() => setShowNewForm(true)}
-            className="group relative flex items-center gap-3 rounded-2xl bg-emerald-600 px-8 py-4 text-sm font-black text-white hover:bg-emerald-500 transition-all shadow-xl shadow-emerald-600/20 active:scale-95"
+            onClick={() => { setEditingId(null); setForm(emptyForm); setShowNewForm(true); }}
+            className="group relative flex items-center justify-center gap-3 rounded-2xl bg-emerald-600 px-6 md:px-8 py-3.5 md:py-4 text-sm font-black text-white hover:bg-emerald-500 transition-all shadow-xl shadow-emerald-600/20 active:scale-95"
           >
             <Plus className="h-5 w-5" /> PUBLICAR NUEVO ENVÍO
             <div className="absolute -top-1 -right-1 h-4 w-4 bg-green-400 rounded-full animate-ping pointer-events-none" />
           </button>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 md:gap-8">
             
             {/* Listado de Servicios (60%) */}
-            <div className="lg:col-span-8 space-y-6">
+            <div className="lg:col-span-8 space-y-6 min-w-0">
                 
                 <AnimatePresence>
                     {showNewForm && (
                         <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-                            <div className="bg-white rounded-[32px] p-8 shadow-2xl space-y-6 border border-slate-100">
+                            <div className="bg-white rounded-3xl md:rounded-[32px] p-5 md:p-8 shadow-2xl space-y-6 border border-slate-100">
                                 <div className="flex items-center justify-between border-b border-slate-50 pb-5">
-                                    <h2 className="text-xl font-black text-slate-800">Detalles del Servicio</h2>
-                                    <button onClick={() => setShowNewForm(false)} className="h-10 w-10 rounded-full bg-slate-50 flex items-center justify-center text-slate-400 hover:bg-slate-100"><X /></button>
+                                    <h2 className="text-lg md:text-xl font-black text-slate-800">
+                                      {editingId ? "✏️ Editar Servicio" : "Detalles del Servicio"}
+                                    </h2>
+                                    <button type="button" onClick={closeForm} className="h-10 w-10 rounded-full bg-slate-50 flex items-center justify-center text-slate-400 hover:bg-slate-100"><X /></button>
                                 </div>
                                 
                                 <form onSubmit={(e) => { e.preventDefault(); createDelivery.mutate(form); }} className="space-y-6">
