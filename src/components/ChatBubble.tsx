@@ -219,11 +219,18 @@ const ChatBubble = ({
                     ? "bg-indigo-600 text-white rounded-br-md"
                     : m.sender_role === "system"
                     ? "bg-amber-100 text-amber-800 rounded-bl-md text-xs"
+                    : m.sender_role === "customer"
+                    ? "bg-emerald-50 text-emerald-900 border border-emerald-200 rounded-bl-md"
                     : isDriverView
                     ? "bg-slate-100 text-slate-800 rounded-bl-md"
                     : "bg-slate-100 text-slate-800 rounded-bl-md"
                 }`}
               >
+                {m.sender_role === "customer" && (
+                  <p className="text-[9px] font-black uppercase tracking-widest text-emerald-600 mb-0.5">
+                    Cliente
+                  </p>
+                )}
                 <p className="leading-snug">{m.message}</p>
                 <div
                   className={`flex items-center justify-end gap-1 mt-1 ${

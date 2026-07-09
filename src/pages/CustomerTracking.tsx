@@ -8,6 +8,7 @@ import {
   Package, MapPin, Phone, Clock, CheckCircle,
   Navigation, ChevronRight, Loader2, ArrowLeft, Bike
 } from 'lucide-react';
+import CustomerChatPanel from '@/components/CustomerChatPanel';
 
 const BUCARAMANGA_CENTER: [number, number] = [-73.1198, 7.1193];
 
@@ -280,6 +281,13 @@ export default function CustomerTracking() {
           </motion.div>
         </div>
       )}
+
+      {/* Live chat with driver */}
+      <CustomerChatPanel
+        orderId={orderId!}
+        driverName={driver?.profiles?.full_name}
+        disabled={!delivery?.driver_id || ['entregado','cancelado'].includes(delivery.status)}
+      />
     </div>
   );
 }
