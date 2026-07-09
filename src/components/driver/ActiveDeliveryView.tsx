@@ -261,9 +261,28 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
         if (!map.getSource(sourceId)) {
           map.addSource(sourceId, { type: 'geojson', data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates } } });
           map.addSource('route-traveled', { type: 'geojson', data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [] } } });
-          map.addLayer({ id: 'route-case', type: 'line', source: sourceId, layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#a5b4fc', 'line-width': 10, 'line-opacity': 0.4 } });
-          map.addLayer({ id: 'route-line', type: 'line', source: sourceId, layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#4F46E5', 'line-width': 5, 'line-opacity': 1 } });
-          map.addLayer({ id: 'route-traveled-line', type: 'line', source: 'route-traveled', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#94a3b8', 'line-width': 4, 'line-opacity': 0.5, 'line-dasharray': [3, 3] } });
+          // Halo blanco exterior para contraste sobre cualquier estilo de mapa
+          map.addLayer({ id: 'route-halo', type: 'line', source: sourceId, layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#ffffff', 'line-width': 14, 'line-opacity': 0.9 } });
+          // Casing exterior (borde oscuro)
+          map.addLayer({ id: 'route-case', type: 'line', source: sourceId, layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#1e3a8a', 'line-width': 11, 'line-opacity': 1 } });
+          // Línea principal brillante (azul de navegación)
+          map.addLayer({ id: 'route-line', type: 'line', source: sourceId, layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#3b82f6', 'line-width': 7, 'line-opacity': 1 } });
+          // Chevrones/flechas de dirección a lo largo de la ruta
+          map.addLayer({
+            id: 'route-arrows', type: 'symbol', source: sourceId,
+            layout: {
+              'symbol-placement': 'line',
+              'symbol-spacing': 80,
+              'text-field': '▶',
+              'text-size': 14,
+              'text-keep-upright': false,
+              'text-allow-overlap': true,
+              'text-ignore-placement': true,
+            },
+            paint: { 'text-color': '#ffffff', 'text-halo-color': '#1e3a8a', 'text-halo-width': 2 }
+          });
+          // Tramo ya recorrido (gris punteado)
+          map.addLayer({ id: 'route-traveled-line', type: 'line', source: 'route-traveled', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#64748b', 'line-width': 5, 'line-opacity': 0.7, 'line-dasharray': [2, 2] } });
         } else {
           (map.getSource(sourceId) as maplibregl.GeoJSONSource).setData({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates } });
         }
@@ -410,7 +429,13 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
     });
 
     if (followMode) {
-      map.easeTo({ center: [currentLocation.lng, currentLocation.lat], bearing: currentLocation.heading || 0, duration: 800 });
+      map.easeTo({
+        center: [currentLocation.lng, currentLocation.lat],
+        bearing: currentLocation.heading || 0,
+        zoom: 18,
+        pitch: 60,
+        duration: 800,
+      });
     }
 
     // Breadcrumb
