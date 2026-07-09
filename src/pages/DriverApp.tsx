@@ -6,6 +6,7 @@ import { Package, History, Power, LogOut, Bike, Home, User, Map as MapIcon, Rece
 import { toast } from "sonner";
 import { AnimatePresence, motion } from "framer-motion";
 import { useDriverLocation } from "@/hooks/useDriverLocation";
+import { useOffline } from "@/hooks/useOffline";
 import DeliveryHistory from "@/components/driver/DeliveryHistory";
 import NearbyOrdersMap from "@/components/driver/NearbyOrdersMap";
 import ActiveDeliveryView from "@/components/driver/ActiveDeliveryView";
@@ -61,6 +62,7 @@ const DriverApp = () => {
   }, [activeDeliveries.length, selectedActiveIdx]);
 
   const { isTracking, currentLocation, startTracking, stopTracking, batterySaver, setBatterySaver } = useDriverLocation();
+  const { isOffline, queueSize, enqueue, registerHandler, flushQueue } = useOffline();
   const prevCount   = useRef(0);
   const gpsStarted  = useRef(false);
 
@@ -279,6 +281,50 @@ const DriverApp = () => {
     };
   }, [user?.id]);
 
+  // Handler que ejecuta acciones encoladas cuando volvemos a estar online
+  useEffect(() => {
+    registerHandler(async (action) => {
+      if (!user) throw new Error("no user");
+      if (action.type === "accept") {
+        const { data: claimed, error } = await supabase
+          .from("deliveries")
+          .update({
+            driver_id: user.id,
+            status: "aceptado",
+            accepted_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", action.payload.deliveryId)
+          .eq("status", "pendiente")
+          .is("driver_id", null)
+          .select()
+          .maybeSingle();
+        if (error || !claimed) throw error || new Error("ya tomado");
+      } else if (action.type === "reject") {
+        await supabase.from("delivery_audit_log" as any).insert({
+          delivery_id: action.payload.deliveryId,
+          event: "Oferta rechazada",
+          details: action.payload.reason ? `Motivo: ${action.payload.reason}` : "Rechazada (offline)",
+          performed_by: user.id,
+        });
+      } else if (action.type === "status") {
+        const updates: any = { status: action.payload.status, updated_at: new Date().toISOString() };
+        if (action.payload.status === "en_camino") updates.picked_up_at = new Date(action.payload.ts).toISOString();
+        if (action.payload.status === "entregado") updates.delivered_at = new Date(action.payload.ts).toISOString();
+        const { error } = await supabase.from("deliveries").update(updates).eq("id", action.payload.deliveryId);
+        if (error) throw error;
+        await supabase.from("delivery_audit_log" as any).insert({
+          delivery_id: action.payload.deliveryId,
+          event: action.payload.status === "en_camino" ? "En camino" : "Entregado",
+          details: `Estado: ${action.payload.status} (sync offline)`,
+          performed_by: user.id,
+        });
+      }
+    });
+    // Intentar drenar al montar por si quedó algo pendiente de sesión previa
+    if (navigator.onLine) flushQueue();
+  }, [user, registerHandler, flushQueue]);
+
   const toggleAvailability = async () => {
     if (!user || toggling) return;
     if (driverProfile?.status === "pendiente") {
@@ -303,6 +349,12 @@ const DriverApp = () => {
 
   const acceptOrder = async (order: DeliveryOrder) => {
     if (!user) return;
+    if (isOffline) {
+      enqueue("accept", { deliveryId: order.id });
+      toast.success("Aceptación guardada. Se enviará al reconectar 📶");
+      setAlertOrder(null);
+      return;
+    }
     const { data: claimed, error } = await supabase
       .from("deliveries")
       .update({
@@ -358,6 +410,12 @@ const DriverApp = () => {
 
   const rejectFromAlert = async (reason?: string) => {
     if (!alertOrder || !user) { setAlertOrder(null); return; }
+    if (isOffline) {
+      enqueue("reject", { deliveryId: alertOrder.id, reason });
+      toast("Rechazo guardado offline");
+      setAlertOrder(null);
+      return;
+    }
     try {
       await supabase.from("delivery_audit_log" as any).insert({
         delivery_id: alertOrder.id,
@@ -373,6 +431,13 @@ const DriverApp = () => {
     if (!user) return;
     const delivery = activeDeliveries.find(d => d.id === deliveryId);
     if (!delivery) return;
+    if (isOffline) {
+      enqueue("status", { deliveryId: delivery.id, status: s, ts: Date.now() });
+      // Actualización optimista local
+      setActiveDeliveries(prev => prev.map(d => d.id === delivery.id ? { ...d, status: s } : d));
+      toast.success(`Estado "${s}" guardado offline`);
+      return;
+    }
     const updates: any = { status: s, updated_at: new Date().toISOString() };
     if (s === "en_camino")  updates.picked_up_at   = new Date().toISOString();
     if (s === "entregado")  updates.delivered_at   = new Date().toISOString();
@@ -464,6 +529,19 @@ const DriverApp = () => {
 
   return (
     <div className="fixed inset-0 bg-[#f5f6f7] flex flex-col overflow-hidden">
+
+      {/* Banner de conexión offline / cola pendiente */}
+      {(isOffline || queueSize > 0) && (
+        <div
+          className={`px-4 py-1.5 text-[11px] font-bold text-center text-white ${
+            isOffline ? "bg-red-600" : "bg-amber-500"
+          }`}
+        >
+          {isOffline
+            ? `Sin conexión${queueSize > 0 ? ` · ${queueSize} pendientes` : ""} — Se sincronizará al reconectar`
+            : `Sincronizando ${queueSize} acción${queueSize === 1 ? "" : "es"} pendiente${queueSize === 1 ? "" : "s"}…`}
+        </div>
+      )}
 
       {/* ── HEADER CARD (siempre visible salvo en Mapa fullscreen) ── */}
       {activeTab !== "mapa" && (
