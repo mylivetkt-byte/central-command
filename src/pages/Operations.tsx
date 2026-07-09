@@ -2,10 +2,12 @@ import { DashboardLayout } from "@/components/DashboardLayout";
 import { KPICard } from "@/components/KPICard";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Truck, Clock, MapPin, Package, RefreshCw, CheckCircle, XCircle } from "lucide-react";
+import { Truck, Clock, MapPin, Package, RefreshCw, CheckCircle, XCircle, Share2 } from "lucide-react";
 import { motion } from "framer-motion";
 import LiveMap from "@/components/LiveMap";
 import { useCompany } from "@/hooks/useCompany";
+import { useState } from "react";
+import { ShareTrackingDialog } from "@/components/ShareTrackingDialog";
 
 const formatCurrency = (v: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(v);
@@ -21,6 +23,7 @@ const statusColors: Record<string, string> = {
 const Operations = () => {
   const queryClient = useQueryClient();
   const { selectedCompanyId } = useCompany();
+  const [shareOrder, setShareOrder] = useState<{ id: string; name?: string; phone?: string } | null>(null);
 
   const { data: deliveries = [], isLoading } = useQuery({
     queryKey: ["operations-deliveries", selectedCompanyId],
@@ -138,6 +141,13 @@ const Operations = () => {
                     <div className="text-right shrink-0 ml-3">
                       <span className="text-xs font-bold capitalize">{d.status.replace("_", " ")}</span>
                       <p className="text-xs opacity-60 mt-0.5">{formatCurrency(Number(d.amount || 0))}</p>
+                      <button
+                        onClick={() => setShareOrder({ id: d.order_id, name: d.customer_name, phone: d.customer_phone })}
+                        className="mt-1 inline-flex items-center gap-1 text-[10px] text-primary hover:underline"
+                        title="Compartir rastreo"
+                      >
+                        <Share2 className="h-3 w-3" /> Compartir
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -171,6 +181,13 @@ const Operations = () => {
                       <p className="text-[10px] text-muted-foreground/60 mt-0.5">
                         {new Date(d.created_at).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })}
                       </p>
+                      <button
+                        onClick={() => setShareOrder({ id: d.order_id, name: d.customer_name, phone: d.customer_phone })}
+                        className="mt-1 inline-flex items-center gap-1 text-[10px] text-primary hover:underline"
+                        title="Compartir rastreo"
+                      >
+                        <Share2 className="h-3 w-3" /> Compartir
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -178,6 +195,15 @@ const Operations = () => {
             )}
           </motion.div>
         </div>
+        {shareOrder && (
+          <ShareTrackingDialog
+            open={!!shareOrder}
+            onOpenChange={(o) => !o && setShareOrder(null)}
+            orderId={shareOrder.id}
+            customerName={shareOrder.name}
+            customerPhone={shareOrder.phone}
+          />
+        )}
 
         {/* Tabla de repartidores */}
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="glass-card p-5">
