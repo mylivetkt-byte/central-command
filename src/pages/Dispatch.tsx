@@ -372,54 +372,54 @@ const Dispatch = () => {
                                     <h2 className="text-lg md:text-xl font-black text-slate-800">
                                       {editingId ? "✏️ Editar Servicio" : "Detalles del Servicio"}
                                     </h2>
-                                    <button type="button" onClick={closeForm} className="h-10 w-10 rounded-full bg-slate-50 flex items-center justify-center text-slate-400 hover:bg-slate-100"><X /></button>
+                                    <button type="button" onClick={closeForm} className="h-10 w-10 rounded-full bg-slate-50 flex items-center justify-center text-slate-700 hover:bg-slate-100"><X /></button>
                                 </div>
                                 
                                 <form onSubmit={(e) => { e.preventDefault(); createDelivery.mutate(form); }} className="space-y-6">
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                         <div className="space-y-2">
-                                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Cliente Receptor</label>
+                                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-700 ml-1">Cliente Receptor</label>
                                             <input value={form.customer_name} onChange={(e) => handleFormChange("customer_name", e.target.value)} placeholder="Nombre completo" required className="w-full h-14 rounded-2xl bg-slate-50 border-transparent focus:bg-white focus:ring-4 focus:ring-emerald-100 transition-all px-6 text-sm font-bold text-slate-800" />
                                         </div>
                                         <div className="space-y-2">
-                                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Teléfono Contacto</label>
+                                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-700 ml-1">Teléfono Contacto</label>
                                             <input value={form.customer_phone} onChange={(e) => handleFormChange("customer_phone", e.target.value)} placeholder="+57 3..." className="w-full h-14 rounded-2xl bg-slate-50 border-transparent focus:bg-white focus:ring-4 focus:ring-emerald-100 transition-all px-6 text-sm font-bold text-slate-800" />
                                         </div>
                                     </div>
 
                                     <div className="space-y-2">
-                                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">📍 Punto de Recogida (Sugerencias Inteligentes)</label>
+                                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-700 ml-1">📍 Punto de Recogida (Sugerencias Inteligentes)</label>
                                         <AddressAutocomplete value={form.pickup_address} onChange={(a, c) => { handleFormChange("pickup_address", a); if(c){ handleFormChange("pickup_lat", c.lat); handleFormChange("pickup_lng", c.lng); } }} placeholder="Escribe la dirección y selecciona de la lista..." className="dispatch-autocomplete" />
                                     </div>
 
                                     <div className="space-y-2">
-                                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">🏁 Destino de Entrega (Sugerencias Inteligentes)</label>
+                                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-700 ml-1">🏁 Destino de Entrega (Sugerencias Inteligentes)</label>
                                         <AddressAutocomplete value={form.delivery_address} onChange={(a, c) => { handleFormChange("delivery_address", a); if(c){ handleFormChange("delivery_lat", c.lat); handleFormChange("delivery_lng", c.lng); } }} placeholder="Busca la dirección exacta del cliente..." className="dispatch-autocomplete" />
                                     </div>
 
                                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pb-4">
                                         <div className="space-y-2">
-                                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Cobro Cliente</label>
+                                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-700 ml-1">Cobro Cliente</label>
                                             <div className="relative">
-                                                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 font-bold">$</span>
+                                                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-600 font-bold">$</span>
                                                 <input type="number" value={form.amount} onChange={(e) => handleFormChange("amount", e.target.value)} className="w-full h-14 rounded-2xl bg-slate-50 pl-8 pr-4 text-sm font-black text-slate-800" placeholder="0" />
                                             </div>
                                         </div>
                                         <div className="space-y-2">
-                                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Pago Mensajero</label>
+                                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-700 ml-1">Pago Mensajero</label>
                                             <div className="relative">
                                                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-300 font-bold">$</span>
                                                 <input type="number" value={form.commission} onChange={(e) => handleFormChange("commission", e.target.value)} className="w-full h-14 rounded-2xl bg-slate-50 pl-8 pr-4 text-sm font-black text-emerald-600" placeholder="0" />
                                             </div>
                                         </div>
                                         <div className="space-y-2">
-                                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Minutos Est.</label>
+                                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-700 ml-1">Minutos Est.</label>
                                             <input type="number" value={form.estimated_time} onChange={(e) => handleFormChange("estimated_time", e.target.value)} className="w-full h-14 rounded-2xl bg-slate-50 px-6 text-sm font-black text-slate-800" />
                                         </div>
                                     </div>
 
                                     <div className="space-y-2">
-                                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">📝 Nota para el mensajero (opcional)</label>
+                                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-700 ml-1">📝 Nota para el mensajero (opcional)</label>
                                         <textarea
                                           value={form.notes}
                                           onChange={(e) => handleFormChange("notes", e.target.value)}
@@ -432,7 +432,7 @@ const Dispatch = () => {
                                     {/* MODO DE ENVÍO (solo al crear) */}
                                     {!editingId && (
                                     <div className="space-y-3">
-                                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">🚀 Enviar a</label>
+                                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-700 ml-1">🚀 Enviar a</label>
                                       <div className="grid grid-cols-2 gap-3">
                                         <button
                                           type="button"
@@ -464,7 +464,7 @@ const Dispatch = () => {
                                       {dispatchMode === "especifico" && (
                                         <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
                                           {availableDrivers.length === 0 && (
-                                            <p className="text-xs text-slate-400 text-center py-4">No hay mensajeros activos ahora mismo.</p>
+                                            <p className="text-xs text-slate-700 text-center py-4">No hay mensajeros activos ahora mismo.</p>
                                           )}
                                           {availableDrivers.map((d: any) => (
                                             <button
@@ -485,7 +485,7 @@ const Dispatch = () => {
                                                 </div>
                                                 <div className="text-left">
                                                   <p className="text-sm font-black text-slate-800">{d.profiles?.full_name}</p>
-                                                  <p className="text-[10px] text-slate-400 font-bold">⭐ {d.rating || 5.0} · {d.current_load} pedidos activos</p>
+                                                  <p className="text-[10px] text-slate-700 font-bold">⭐ {d.rating || 5.0} · {d.current_load} pedidos activos</p>
                                                 </div>
                                               </div>
                                               {targetDriverId === d.id && (
@@ -519,10 +519,10 @@ const Dispatch = () => {
 
                 <div className="bg-white border border-slate-200 rounded-[32px] p-6 space-y-4 shadow-lg">
                     <div className="flex items-center justify-between px-4 pb-2">
-                        <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest">Envíos en Curso</h3>
+                        <h3 className="text-sm font-black text-slate-700 uppercase tracking-widest">Envíos en Curso</h3>
                         <div className="flex items-center gap-2">
-                            <RefreshCw className={`h-3.5 w-3.5 text-slate-400 ${loadingPending ? 'animate-spin' : ''}`} />
-                            <span className="text-xs font-black text-slate-400">{pending.length}</span>
+                            <RefreshCw className={`h-3.5 w-3.5 text-slate-700 ${loadingPending ? 'animate-spin' : ''}`} />
+                            <span className="text-xs font-black text-slate-700">{pending.length}</span>
                         </div>
                     </div>
                     
@@ -539,7 +539,7 @@ const Dispatch = () => {
                                     </div>
                                     <div className="text-right shrink-0 ml-2">
                                         <p className="text-sm font-black text-emerald-600">{formatCurrency(d.commission)}</p>
-                                        <p className="text-[10px] text-slate-400 font-bold">GANANCIA</p>
+                                        <p className="text-[10px] text-slate-700 font-bold">GANANCIA</p>
                                     </div>
                                 </div>
                                 <div className="space-y-2 border-t border-slate-100 pt-4">
@@ -599,7 +599,7 @@ const Dispatch = () => {
             {/* Sidebar de Repartidores (40%) */}
             <div className="lg:col-span-4 space-y-6">
                 <div className="bg-white border border-slate-200 rounded-[32px] p-6 shadow-lg h-full">
-                    <h3 className="text-sm font-black text-slate-400 uppercase tracking-widest mb-6 flex items-center gap-2">
+                    <h3 className="text-sm font-black text-slate-700 uppercase tracking-widest mb-6 flex items-center gap-2">
                         <UserCheck className="h-4 w-4" /> Mensajeros Online
                     </h3>
                     
