@@ -161,8 +161,8 @@ const Financial = () => {
                       <td className="py-3 pr-4 font-medium text-foreground">{d.name}</td>
                       <td className="py-3 pr-4">{d.deliveries}</td>
                       <td className="py-3 pr-4">{formatCurrency(d.ganancia)}</td>
-                      <td className="py-3 pr-4 text-accent">{formatCurrency(d.comision)}</td>
-                      <td className="py-3"><span className="rounded-full bg-accent/10 px-2 py-0.5 text-xs font-medium text-accent">Registrado</span></td>
+                      <td className="py-3 pr-4 text-emerald-700">{formatCurrency(d.comision)}</td>
+                      <td className="py-3"><span className="rounded-full bg-accent/10 px-2 py-0.5 text-xs font-medium text-emerald-700">Registrado</span></td>
                     </tr>
                   ))}
                 </tbody>

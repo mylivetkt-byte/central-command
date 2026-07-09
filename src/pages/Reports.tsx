@@ -226,7 +226,7 @@ const Reports = () => {
             <p className="text-sm text-muted-foreground">Informes operativos con exportación real a CSV</p>
           </div>
           <div className="flex gap-2">
-            <button onClick={exportDeliveriesCSV} className="flex items-center gap-1.5 rounded-lg bg-accent/10 px-3 py-2 text-xs font-medium text-accent hover:bg-accent/20 transition-colors">
+            <button onClick={exportDeliveriesCSV} className="flex items-center gap-1.5 rounded-lg bg-accent/10 px-3 py-2 text-xs font-medium text-emerald-700 hover:bg-accent/20 transition-colors">
               <Table className="h-3.5 w-3.5" /> Exportar pedidos
             </button>
             <button onClick={exportDriversCSV} className="flex items-center gap-1.5 rounded-lg bg-primary/10 px-3 py-2 text-xs font-medium text-primary hover:bg-primary/20 transition-colors">
@@ -254,10 +254,10 @@ const Reports = () => {
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
           {[
             { label: "Pedidos",     value: totals.pedidos,                     color: "text-foreground" },
-            { label: "Entregados",  value: totals.entregados,                  color: "text-accent" },
+            { label: "Entregados",  value: totals.entregados,                  color: "text-emerald-700" },
             { label: "Cancelados",  value: totals.cancelados,                  color: "text-destructive" },
-            { label: "Ingresos",    value: formatCurrency(totals.ingresos),    color: "text-accent" },
-            { label: "Tasa entrega",value: `${tasaEntrega}%`,                  color: tasaEntrega >= 80 ? "text-accent" : "text-warning" },
+            { label: "Ingresos",    value: formatCurrency(totals.ingresos),    color: "text-emerald-700" },
+            { label: "Tasa entrega",value: `${tasaEntrega}%`,                  color: tasaEntrega >= 80 ? "text-emerald-700" : "text-warning" },
           ].map(k => (
             <div key={k.label} className="glass-card p-4 text-center">
               <p className={`text-xl font-extrabold ${k.color}`}>{k.value}</p>
@@ -363,8 +363,8 @@ const Reports = () => {
                             <td className="py-3 pr-4 font-bold text-primary">{i + 1}</td>
                             <td className="py-3 pr-4 font-medium text-foreground">{d.profiles?.full_name || "Sin nombre"}</td>
                             <td className="py-3 pr-4">{d.total_deliveries || 0}</td>
-                            <td className="py-3 pr-4 text-amber-500">⭐ {d.rating || "—"}</td>
-                            <td className="py-3 pr-4 text-accent">{d.acceptance_rate || 0}%</td>
+                            <td className="py-3 pr-4 text-amber-600">⭐ {d.rating || "—"}</td>
+                            <td className="py-3 pr-4 text-emerald-700">{d.acceptance_rate || 0}%</td>
                             <td className="py-3 pr-4 text-destructive">{d.cancellation_rate || 0}%</td>
                             <td className="py-3 capitalize text-muted-foreground">{d.status || "inactivo"}</td>
                           </tr>
@@ -403,7 +403,7 @@ const Reports = () => {
                       }));
                       downloadCSV(rows, `reporte_diario_${selectedDate}.csv`);
                     }}
-                    className="flex items-center gap-1.5 rounded-lg bg-accent/10 px-3 py-1.5 text-xs font-medium text-accent hover:bg-accent/20 transition-colors"
+                    className="flex items-center gap-1.5 rounded-lg bg-accent/10 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-accent/20 transition-colors"
                   >
                     <Download className="h-3.5 w-3.5" /> Exportar CSV
                   </button>
@@ -432,7 +432,7 @@ const Reports = () => {
                           </div>
                         </div>
                         <div className="text-right">
-                          <p className="text-lg font-extrabold text-accent">{formatCurrency(r.totalCommission)}</p>
+                          <p className="text-lg font-extrabold text-emerald-700">{formatCurrency(r.totalCommission)}</p>
                           <p className="text-[10px] text-muted-foreground">Comisión ganada</p>
                         </div>
                       </div>
@@ -442,19 +442,19 @@ const Reports = () => {
                           <p className="text-[9px] text-muted-foreground mt-1">Total pedidos</p>
                         </div>
                         <div className="rounded-xl bg-accent/10 p-2 text-center">
-                          <p className="text-lg font-extrabold text-accent leading-none">{formatCurrency(r.totalAmount)}</p>
+                          <p className="text-lg font-extrabold text-emerald-700 leading-none">{formatCurrency(r.totalAmount)}</p>
                           <p className="text-[9px] text-muted-foreground mt-1">Cobro cliente</p>
                         </div>
                         <div className="rounded-xl bg-emerald-500/10 p-2 text-center">
-                          <p className="text-lg font-extrabold text-emerald-400 leading-none">{formatCurrency(r.collected)}</p>
+                          <p className="text-lg font-extrabold text-emerald-700 leading-none">{formatCurrency(r.collected)}</p>
                           <p className="text-[9px] text-muted-foreground mt-1">Ya cobrado</p>
                         </div>
                         <div className="rounded-xl bg-amber-500/10 p-2 text-center">
-                          <p className="text-lg font-extrabold text-amber-400 leading-none">{formatCurrency(r.pendingAmount)}</p>
+                          <p className="text-lg font-extrabold text-amber-600 leading-none">{formatCurrency(r.pendingAmount)}</p>
                           <p className="text-[9px] text-muted-foreground mt-1">Pendiente cobro</p>
                         </div>
                         <div className="rounded-xl bg-rose-500/10 p-2 text-center">
-                          <p className="text-lg font-extrabold text-rose-400 leading-none">{formatCurrency(r.amountToCentral)}</p>
+                          <p className="text-lg font-extrabold text-rose-700 leading-none">{formatCurrency(r.amountToCentral)}</p>
                           <p className="text-[9px] text-muted-foreground mt-1">A entregar central</p>
                         </div>
                       </div>
@@ -469,19 +469,19 @@ const Reports = () => {
                         <p className="text-[9px] text-muted-foreground mt-1">Envíos totales</p>
                       </div>
                       <div className="text-center">
-                        <p className="text-xl font-extrabold text-accent leading-none">{formatCurrency(dailyTotals.totalAmount)}</p>
+                        <p className="text-xl font-extrabold text-emerald-700 leading-none">{formatCurrency(dailyTotals.totalAmount)}</p>
                         <p className="text-[9px] text-muted-foreground mt-1">Total cobro cliente</p>
                       </div>
                       <div className="text-center">
-                        <p className="text-xl font-extrabold text-emerald-400 leading-none">{formatCurrency(dailyTotals.totalCollected)}</p>
+                        <p className="text-xl font-extrabold text-emerald-700 leading-none">{formatCurrency(dailyTotals.totalCollected)}</p>
                         <p className="text-[9px] text-muted-foreground mt-1">Total cobrado</p>
                       </div>
                       <div className="text-center">
-                        <p className="text-xl font-extrabold text-amber-400 leading-none">{formatCurrency(dailyTotals.totalPending)}</p>
+                        <p className="text-xl font-extrabold text-amber-600 leading-none">{formatCurrency(dailyTotals.totalPending)}</p>
                         <p className="text-[9px] text-muted-foreground mt-1">Pendiente cobro</p>
                       </div>
                       <div className="text-center">
-                        <p className="text-xl font-extrabold text-rose-400 leading-none">{formatCurrency(dailyTotals.totalCentral)}</p>
+                        <p className="text-xl font-extrabold text-rose-700 leading-none">{formatCurrency(dailyTotals.totalCentral)}</p>
                         <p className="text-[9px] text-muted-foreground mt-1">A entregar central</p>
                       </div>
                     </div>
@@ -499,7 +499,7 @@ const Reports = () => {
               <h3 className="text-sm font-semibold text-foreground">
                 Pedidos del período ({filteredDeliveries.length})
               </h3>
-              <button onClick={exportDeliveriesCSV} className="flex items-center gap-1 text-xs text-accent hover:underline">
+              <button onClick={exportDeliveriesCSV} className="flex items-center gap-1 text-xs text-emerald-700 hover:underline">
                 <Download className="h-3 w-3" /> Descargar CSV
               </button>
             </div>
@@ -522,13 +522,13 @@ const Reports = () => {
                       <td className="py-2 pr-3 text-foreground">{d.customer_name}</td>
                       <td className="py-2 pr-3">
                         <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                          d.status === "entregado" ? "bg-accent/10 text-accent" :
+                          d.status === "entregado" ? "bg-accent/10 text-emerald-700" :
                           d.status === "cancelado" ? "bg-destructive/10 text-destructive" :
                           "bg-muted text-muted-foreground"
                         }`}>{d.status}</span>
                       </td>
                       <td className="py-2 pr-3">{formatCurrency(Number(d.amount || 0))}</td>
-                      <td className="py-2 pr-3 text-accent">{formatCurrency(Number(d.commission || 0))}</td>
+                      <td className="py-2 pr-3 text-emerald-700">{formatCurrency(Number(d.commission || 0))}</td>
                       <td className="py-2 text-muted-foreground">
                         {new Date(d.created_at).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })}
                       </td>
