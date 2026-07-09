@@ -1,6 +1,3 @@
-import { streamText, convertToModelMessages, type UIMessage } from "npm:ai@5.0.0";
-import { createOpenAICompatible } from "npm:@ai-sdk/openai-compatible@1.0.0";
-
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
@@ -27,21 +24,36 @@ Deno.serve(async (req) => {
       });
     }
 
-    const { messages }: { messages: UIMessage[] } = await req.json();
+    const { messages } = (await req.json()) as {
+      messages: Array<{ role: "user" | "assistant"; content: string }>;
+    };
 
-    const gateway = createOpenAICompatible({
-      name: "lovable",
-      baseURL: "https://ai.gateway.lovable.dev/v1",
-      headers: { "Lovable-API-Key": LOVABLE_API_KEY },
+    const res = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Lovable-API-Key": LOVABLE_API_KEY,
+      },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash",
+        messages: [{ role: "system", content: SYSTEM_PROMPT }, ...(messages || [])],
+      }),
     });
 
-    const result = streamText({
-      model: gateway("google/gemini-2.5-flash"),
-      system: SYSTEM_PROMPT,
-      messages: await convertToModelMessages(messages),
-    });
+    if (!res.ok) {
+      const errText = await res.text();
+      return new Response(
+        JSON.stringify({ error: "gateway_error", status: res.status, details: errText }),
+        { status: res.status, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
-    return result.toUIMessageStreamResponse({ headers: corsHeaders });
+    const data = await res.json();
+    const content = data?.choices?.[0]?.message?.content ?? "";
+    return new Response(JSON.stringify({ content }), {
+      status: 200,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   } catch (e) {
     const msg = e instanceof Error ? e.message : "error";
     return new Response(JSON.stringify({ error: msg }), {
