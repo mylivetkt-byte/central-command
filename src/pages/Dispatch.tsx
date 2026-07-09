@@ -138,8 +138,30 @@ const Dispatch = () => {
               setTimeout(() => supabase.removeChannel(ch), 500);
             }
           });
+          // Push al mensajero específico
+          supabase.functions.invoke("notify-drivers-push", {
+            body: {
+              driver_id: targetDriverId,
+              title: "Nuevo pedido asignado",
+              body: `${orderId} — ${formData.pickup_address} → ${formData.delivery_address}`,
+              url: "/driver",
+              delivery_id: inserted.id,
+            },
+          }).catch(() => {});
         } else {
           await broadcastNewOrder(inserted.id);
+          // Push a todos los mensajeros activos de la empresa
+          if (selectedCompanyId) {
+            supabase.functions.invoke("notify-drivers-push", {
+              body: {
+                company_id: selectedCompanyId,
+                title: "Nuevo pedido disponible",
+                body: `${orderId} — ${formData.zone || "Sin zona"} · Recogida: ${formData.pickup_address}`,
+                url: "/driver",
+                delivery_id: inserted.id,
+              },
+            }).catch(() => {});
+          }
         }
       }
 
