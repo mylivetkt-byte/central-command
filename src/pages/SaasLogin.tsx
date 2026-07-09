@@ -8,6 +8,10 @@ import { Label } from "@/components/ui/label";
 import { Building2, Mail, Lock, AlertCircle } from "lucide-react";
 
 const SaasLogin = () => {
+  useEffect(() => {
+    try { localStorage.setItem("gomoto:lastApp", "saas"); } catch {}
+  }, []);
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);

@@ -10,6 +10,11 @@ import { toast } from "sonner";
 import { isValidPhone, phoneToSyntheticEmail } from "@/lib/phoneAuth";
 
 const DriverLogin = () => {
+  // Recordar que este dispositivo es del mensajero, para que al recargar en "/" vuelva aquí.
+  useEffect(() => {
+    try { localStorage.setItem("gomoto:lastApp", "driver"); } catch {}
+  }, []);
+
   const [email, setEmail]                       = useState("");
   const [password, setPassword]                 = useState("");
   const [submitting, setSubmitting]             = useState(false);
