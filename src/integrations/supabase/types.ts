@@ -401,6 +401,50 @@ export type Database = {
           },
         ]
       }
+      driver_push_subscriptions: {
+        Row: {
+          auth_key: string
+          company_id: string | null
+          created_at: string
+          driver_id: string
+          endpoint: string
+          id: string
+          last_used_at: string
+          p256dh: string
+          user_agent: string | null
+        }
+        Insert: {
+          auth_key: string
+          company_id?: string | null
+          created_at?: string
+          driver_id: string
+          endpoint: string
+          id?: string
+          last_used_at?: string
+          p256dh: string
+          user_agent?: string | null
+        }
+        Update: {
+          auth_key?: string
+          company_id?: string | null
+          created_at?: string
+          driver_id?: string
+          endpoint?: string
+          id?: string
+          last_used_at?: string
+          p256dh?: string
+          user_agent?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "driver_push_subscriptions_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "saas_companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
