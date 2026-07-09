@@ -89,6 +89,8 @@ const maneuverIcon = (type?: string, modifier?: string) => {
 
 // Texto en español para el anuncio de voz
 const maneuverText = (step: any): string => {
+  // Si Google ya nos dio una instrucción localizada en español, úsala.
+  if (step?.instruction && typeof step.instruction === 'string') return step.instruction;
   const t = step?.maneuver?.type;
   const m = (step?.maneuver?.modifier || '').toLowerCase();
   const street = step?.name || '';
