@@ -466,7 +466,7 @@ const Drivers = () => {
                         <button
                           onClick={() => updateStatus.mutate({ driverId: selectedDriver.id, status: "activo" })}
                           disabled={updateStatus.isPending}
-                          className="flex items-center gap-1 rounded-lg bg-accent/10 px-3 py-2 text-xs font-medium text-accent hover:bg-accent/20 transition-colors"
+                          className="flex items-center gap-1 rounded-lg bg-warning/20 px-3 py-2 text-xs font-medium text-warning-foreground hover:bg-warning/30 transition-colors"
                         >
                           <UserCheck className="h-3 w-3" /> Activar
                         </button>
