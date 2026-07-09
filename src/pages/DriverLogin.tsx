@@ -33,10 +33,10 @@ const DriverLogin = () => {
     { key: "upper", label: "Una letra mayúscula (A-Z)",       test: (p: string) => /[A-Z]/.test(p) },
     { key: "lower", label: "Una letra minúscula (a-z)",       test: (p: string) => /[a-z]/.test(p) },
     { key: "num",   label: "Un número (0-9)",                 test: (p: string) => /\d/.test(p) },
-    { key: "sym",   label: "Un símbolo (!@#$%…)",             test: (p: string) => /[^A-Za-z0-9]/.test(p) },
+    { key: "sym",   label: "Un símbolo (!@#$%…) — opcional",  test: (p: string) => /[^A-Za-z0-9]/.test(p), optional: true },
   ];
   const pwdChecks = pwdRules.map(r => ({ ...r, ok: r.test(password) }));
-  const pwdAllOk  = pwdChecks.every(c => c.ok);
+  const pwdAllOk  = pwdChecks.every(c => c.ok || (c as any).optional);
 
   useEffect(() => {
     if (isSignUp) {
