@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import maplibregl from 'maplibre-gl';
 import { MapStyleSwitcher, useMapStyle, MapStyle } from '@/components/MapStyleSwitcher';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -194,16 +194,16 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
 
   const isPickingUp = delivery.status === "aceptado";
 
-  const rawStops: Stop[] = delivery.stops ?? [
+  const rawStops: Stop[] = useMemo(() => delivery.stops ?? [
     { type: 'pickup', label: 'Recoger', address: delivery.pickup_address || '', lat: delivery.pickup_lat, lng: delivery.pickup_lng, completed: !isPickingUp },
     { type: 'delivery', label: 'Entregar', address: delivery.delivery_address, lat: delivery.delivery_lat, lng: delivery.delivery_lng, completed: false },
-  ];
+  ], [delivery.stops, delivery.pickup_address, delivery.pickup_lat, delivery.pickup_lng, delivery.delivery_address, delivery.delivery_lat, delivery.delivery_lng, isPickingUp]);
 
-  const stops: Stop[] = rawStops.map((s) => {
+  const stops: Stop[] = useMemo(() => rawStops.map((s) => {
     const key = `${delivery.id}:${s.type}`;
     const resolved = resolvedCoords[key];
     return isValidCoord(s.lat, s.lng) || !resolved ? s : { ...s, lat: resolved.lat, lng: resolved.lng };
-  });
+  }), [rawStops, resolvedCoords, delivery.id]);
 
   const routeCacheKey = `route-${delivery.id}`;
 
