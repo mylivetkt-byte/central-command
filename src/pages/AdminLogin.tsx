@@ -9,6 +9,10 @@ import { Truck, Mail, Lock, AlertCircle, ArrowLeft, CheckCircle } from "lucide-r
 import { toast } from "sonner";
 
 const AdminLogin = () => {
+  useEffect(() => {
+    try { localStorage.setItem("gomoto:lastApp", "admin"); } catch {}
+  }, []);
+
   const [email, setEmail]                   = useState("");
   const [password, setPassword]             = useState("");
   const [submitting, setSubmitting]         = useState(false);
