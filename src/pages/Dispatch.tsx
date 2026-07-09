@@ -650,6 +650,7 @@ const Dispatch = () => {
                       currentUserId={user.id}
                       isDriverView={false}
                       initialOpen={true}
+                      driverId={order.driver_id}
                     />
                   </div>
                 </div>
