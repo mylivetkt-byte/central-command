@@ -13,6 +13,7 @@ import NearbyOrdersMap from "@/components/driver/NearbyOrdersMap";
 import ActiveDeliveryView from "@/components/driver/ActiveDeliveryView";
 import NewOrderAlert from "@/components/driver/NewOrderAlert";
 import { VersionBadge } from "@/components/driver/VersionBadge";
+import DriverSplash from "@/components/DriverSplash";
 
 interface DeliveryOrder {
   id: string;
@@ -41,6 +42,7 @@ const WEEKLY_GOAL_EARNINGS = 500000;
 const STREAK_BONUS_THRESHOLD = 5;
 
 const DriverApp = () => {
+  const [showSplash, setShowSplash] = useState(true);
   const { user, signOut } = useAuth();
   const [pendingOrders, setPendingOrders]     = useState<DeliveryOrder[]>([]);
   const [activeDeliveries, setActiveDeliveries] = useState<DeliveryOrder[]>([]);
