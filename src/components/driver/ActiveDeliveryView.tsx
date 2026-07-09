@@ -120,14 +120,16 @@ interface ActiveDeliveryViewProps {
   onPickedUp: (deliveryId: string) => void;
   onDelivered: (deliveryId: string) => void;
   allDeliveries?: Delivery[];
+  driverLocation?: { lat: number; lng: number; heading: number | null; speed?: number | null; accuracy?: number | null } | null;
 }
 
 const fmt = (v: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(v);
 
-const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initialDelivery, onPickedUp, onDelivered, allDeliveries = [] }) => {
+const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initialDelivery, onPickedUp, onDelivered, allDeliveries = [], driverLocation }) => {
   const { user } = useAuth();
-  const { currentLocation } = useDriverLocation();
+  const { currentLocation: localLocation } = useDriverLocation();
+  const currentLocation = driverLocation ?? localLocation;
   const { isOffline, cacheData, getCachedData } = useOffline();
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<maplibregl.Map | null>(null);

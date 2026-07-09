@@ -43,7 +43,7 @@ const STREAK_BONUS_THRESHOLD = 5;
 
 const DriverApp = () => {
   const [showSplash, setShowSplash] = useState(true);
-  const { user, signOut } = useAuth();
+  const { user, role, signOut } = useAuth();
   const [pendingOrders, setPendingOrders]     = useState<DeliveryOrder[]>([]);
   const [activeDeliveries, setActiveDeliveries] = useState<DeliveryOrder[]>([]);
   const [activeTab, setActiveTab]             = useState<"inicio" | "pedidos" | "mapa" | "historial" | "cuenta">("inicio");
@@ -134,11 +134,11 @@ const DriverApp = () => {
   }, []);
 
   useEffect(() => {
-    if (user && !gpsStarted.current && !isTracking) {
+    if (user && role === "driver" && !gpsStarted.current && !isTracking) {
       gpsStarted.current = true;
       startTracking();
     }
-  }, [user, isTracking, startTracking]);
+  }, [user, role, isTracking, startTracking]);
 
   useEffect(() => {
     if (!user) return;
@@ -378,6 +378,11 @@ const DriverApp = () => {
       return;
     }
     toast.success("¡Pedido tomado! Ve al punto de recogida 🛵");
+    setSelectedActiveIdx(0);
+    setActiveDeliveries(prev => {
+      const next = [claimed as any, ...prev.filter(d => d.id !== claimed.id)];
+      return next.sort((a: any, b: any) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
+    });
     await supabase.from("delivery_audit_log" as any).insert({
       delivery_id: order.id,
       event: "Pedido aceptado",
@@ -407,7 +412,15 @@ const DriverApp = () => {
         .select()
         .maybeSingle();
       if (error || !claimed) toast.error("El pedido ya fue tomado");
-      else { toast.success("¡Pedido tomado!"); fetchData(); }
+      else {
+        toast.success("¡Pedido tomado!");
+        setSelectedActiveIdx(0);
+        setActiveDeliveries(prev => {
+          const next = [claimed as any, ...prev.filter(d => d.id !== claimed.id)];
+          return next.sort((a: any, b: any) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
+        });
+        fetchData();
+      }
     }
     setAlertOrder(null);
   };
@@ -522,6 +535,7 @@ const DriverApp = () => {
             onPickedUp={(id) => updateStatus(id, "en_camino")}
             onDelivered={(id) => updateStatus(id, "entregado")}
             allDeliveries={activeDeliveries as any}
+            driverLocation={currentLocation}
           />
         </div>
 
