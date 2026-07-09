@@ -11,6 +11,8 @@ interface Company {
   status: string;
   max_drivers: number;
   plan: string;
+  primary_color?: string | null;
+  logo_url?: string | null;
 }
 
 interface CompanyContextType {
