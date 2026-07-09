@@ -434,6 +434,12 @@ const Drivers = () => {
                               password: "",
                               phone: selectedDriver.profile?.phone || "",
                               zone: selectedDriver.zone || "",
+                              signup_method: "email",
+                              vehicle_type: selectedDriver.vehicle_type || "moto",
+                              vehicle_plate: selectedDriver.vehicle_plate || "",
+                              document_id: selectedDriver.document_id || "",
+                              address: selectedDriver.address || "",
+                              notes: selectedDriver.notes || "",
                             });
                             setEditingDriver(selectedDriver);
                             setIsEditing(true);
