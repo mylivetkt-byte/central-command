@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import maplibregl from 'maplibre-gl';
 import { MapStyleSwitcher, useMapStyle, MapStyle } from '@/components/MapStyleSwitcher';
 import 'maplibre-gl/dist/maplibre-gl.css';
@@ -45,6 +45,8 @@ interface Delivery {
   created_at?: string;
   stops?: Stop[];
 }
+
+type Coord = { lat: number; lng: number };
 
 const CANCEL_REASONS = [
   "Cliente no responde",
@@ -126,9 +128,12 @@ interface ActiveDeliveryViewProps {
 const fmt = (v: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(v);
 
+const isValidCoord = (lat?: number | null, lng?: number | null) =>
+  typeof lat === 'number' && typeof lng === 'number' && Number.isFinite(lat) && Number.isFinite(lng);
+
 const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initialDelivery, onPickedUp, onDelivered, allDeliveries = [], driverLocation }) => {
   const { user } = useAuth();
-  const { currentLocation: localLocation } = useDriverLocation();
+  const { currentLocation: localLocation, isTracking: localTracking, startTracking: startLocalTracking, error: gpsError } = useDriverLocation();
   const currentLocation = driverLocation ?? localLocation;
   const { isOffline, cacheData, getCachedData } = useOffline();
   const mapContainer = useRef<HTMLDivElement>(null);
@@ -154,10 +159,18 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
   const [traveledCoords, setTraveledCoords] = useState<[number, number][]>([]);
   const prevPosRef = useRef<{ lat: number; lng: number; t: number } | null>(null);
   const [etaProgress, setEtaProgress] = useState(1);
+  const [resolvedCoords, setResolvedCoords] = useState<Record<string, Coord>>({});
+  const [routeStatus, setRouteStatus] = useState<"idle" | "locating" | "geocoding" | "routing" | "ready" | "unavailable">("idle");
   const { current: mapStyle, setStyle } = useMapStyle("dark");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [focusedDeliveryId, setFocusedDeliveryId] = useState(initialDelivery.id);
+
+  useEffect(() => {
+    if (!driverLocation && !localLocation && !localTracking) {
+      startLocalTracking();
+    }
+  }, [driverLocation, localLocation, localTracking, startLocalTracking]);
 
   useEffect(() => {
     if (initialDelivery?.id) {
@@ -181,12 +194,50 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
 
   const isPickingUp = delivery.status === "aceptado";
 
-  const stops: Stop[] = delivery.stops ?? [
+  const rawStops: Stop[] = useMemo(() => delivery.stops ?? [
     { type: 'pickup', label: 'Recoger', address: delivery.pickup_address || '', lat: delivery.pickup_lat, lng: delivery.pickup_lng, completed: !isPickingUp },
     { type: 'delivery', label: 'Entregar', address: delivery.delivery_address, lat: delivery.delivery_lat, lng: delivery.delivery_lng, completed: false },
-  ];
+  ], [delivery.stops, delivery.pickup_address, delivery.pickup_lat, delivery.pickup_lng, delivery.delivery_address, delivery.delivery_lat, delivery.delivery_lng, isPickingUp]);
+
+  const stops: Stop[] = useMemo(() => rawStops.map((s) => {
+    const key = `${delivery.id}:${s.type}`;
+    const resolved = resolvedCoords[key];
+    return isValidCoord(s.lat, s.lng) || !resolved ? s : { ...s, lat: resolved.lat, lng: resolved.lng };
+  }), [rawStops, resolvedCoords, delivery.id]);
 
   const routeCacheKey = `route-${delivery.id}`;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const resolveMissingCoords = async () => {
+      const missing = rawStops.filter(s => !isValidCoord(s.lat, s.lng) && s.address?.trim());
+      if (missing.length === 0) return;
+      setRouteStatus(currentLocation ? "geocoding" : "locating");
+
+      const next: Record<string, Coord> = {};
+      for (const stop of missing) {
+        const key = `${delivery.id}:${stop.type}`;
+        if (resolvedCoords[key]) continue;
+        try {
+          const response = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(stop.address)}&lat=7.1193&lon=-73.1198&limit=1&lang=es`);
+          const data = await response.json();
+          const first = data?.features?.[0]?.geometry?.coordinates;
+          if (Array.isArray(first) && isValidCoord(first[1], first[0])) {
+            next[key] = { lat: first[1], lng: first[0] };
+          }
+        } catch {}
+      }
+
+      if (!cancelled && Object.keys(next).length > 0) {
+        setResolvedCoords(prev => ({ ...prev, ...next }));
+      }
+    };
+
+    resolveMissingCoords();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [delivery.id, delivery.pickup_address, delivery.delivery_address, delivery.pickup_lat, delivery.pickup_lng, delivery.delivery_lat, delivery.delivery_lng]);
 
   // Wake Lock
   useEffect(() => {
@@ -239,18 +290,26 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
 
   // Fetch Route (with offline fallback)
   const fetchRouteDetails = useCallback(async () => {
-    if (!isMapReady || !mapInstance.current || !currentLocation) return;
+    if (!isMapReady || !mapInstance.current) return;
+    if (!currentLocation) {
+      setRouteStatus("locating");
+      return;
+    }
     const map = mapInstance.current;
 
     // Build waypoints: current location + focused delivery stops only
     let waypoints = `${currentLocation.lng},${currentLocation.lat}`;
     stops.forEach(s => {
-      if (s.lat && s.lng) waypoints += `;${s.lng},${s.lat}`;
+      if (isValidCoord(s.lat, s.lng)) waypoints += `;${s.lng},${s.lat}`;
     });
 
-    if (waypoints === `${currentLocation.lng},${currentLocation.lat}`) return;
+    if (waypoints === `${currentLocation.lng},${currentLocation.lat}`) {
+      setRouteStatus("unavailable");
+      return;
+    }
 
     try {
+      setRouteStatus("routing");
       let data;
       if (isOffline) {
         const cached = getCachedData<any>(routeCacheKey);
@@ -311,8 +370,13 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
           nextStreet: '',
           nextManeuver: '',
         });
+        setRouteStatus("ready");
+      } else {
+        setRouteStatus("unavailable");
       }
-    } catch {}
+    } catch {
+      setRouteStatus("unavailable");
+    }
   }, [isMapReady, currentLocation, isOffline, routeCacheKey, stops]);
 
   useEffect(() => {
@@ -424,7 +488,7 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
 
     // Stop markers — only show focused delivery stops
     stops.forEach((s, i) => {
-      if (!s.lat || !s.lng) return;
+      if (!isValidCoord(s.lat, s.lng)) return;
       const color = s.type === 'pickup' ? '#10b981' : '#4F46E5';
       const emoji = s.type === 'pickup' ? '📦' : '🏠';
       const label = `${i + 1}`;
@@ -581,6 +645,29 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
         )}
       </AnimatePresence>
 
+      {!routeInfo && routeStatus !== "idle" && (
+        <div className="absolute top-0 inset-x-0 z-[1001] safe-top">
+          <div className="bg-white mx-3 mt-3 rounded-2xl p-4 shadow-xl border border-slate-100 flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-indigo-50 flex items-center justify-center">
+              <Navigation className="h-5 w-5 text-indigo-600" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-black text-slate-900">
+                {routeStatus === "locating" && "Activando GPS"}
+                {routeStatus === "geocoding" && "Ubicando direcciones"}
+                {routeStatus === "routing" && "Calculando ruta"}
+                {routeStatus === "unavailable" && "Ruta sin coordenadas"}
+              </p>
+              <p className="text-xs font-semibold text-slate-500 truncate">
+                {gpsError || (routeStatus === "unavailable"
+                  ? "Selecciona direcciones sugeridas en despacho para navegación exacta."
+                  : "El mapa entrará en conducción automáticamente.")}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Speed badge */}
       {speedKmh !== null && (
         <div className="absolute top-28 left-4 z-[1001] bg-white rounded-xl shadow-lg px-3 py-2 flex items-baseline gap-1 border border-slate-100">
@@ -646,8 +733,8 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
           {/* ETA bar */}
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-baseline gap-2">
-              <span className="text-4xl font-black text-slate-900 tracking-tight">{routeInfo?.duration || "--"}</span>
-              <span className="text-base font-bold text-slate-400">{routeInfo?.distance || "--"}</span>
+              <span className="text-4xl font-black text-slate-900 tracking-tight">{routeInfo?.duration || (routeStatus === "routing" ? "..." : "--")}</span>
+              <span className="text-base font-bold text-slate-400">{routeInfo?.distance || (routeStatus === "locating" ? "GPS" : "--")}</span>
             </div>
             <div className="bg-indigo-50 px-4 py-2 rounded-xl">
               <span className="text-sm font-black text-indigo-600">#{delivery.order_id.slice(-4).toUpperCase()}</span>

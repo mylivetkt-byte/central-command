@@ -37,6 +37,11 @@ interface DeliveryOrder {
 const fmt = (v: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(v);
 
+const sortDeliveriesByCreatedAt = (deliveries: DeliveryOrder[]) =>
+  [...deliveries].sort((a: any, b: any) =>
+    new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
+  );
+
 const DAILY_GOAL_DELIVERIES = 10;
 const WEEKLY_GOAL_EARNINGS = 500000;
 const STREAK_BONUS_THRESHOLD = 5;
@@ -243,6 +248,38 @@ const DriverApp = () => {
     }
   }, [user, isAvailable, activeDeliveries.length, alertOrder]);
 
+  const loadDeliveryById = useCallback(async (deliveryId: string) => {
+    const { data } = await supabase
+      .from("deliveries")
+      .select("*")
+      .eq("id", deliveryId)
+      .maybeSingle();
+    return data as DeliveryOrder | null;
+  }, []);
+
+  const activateDelivery = useCallback((delivery: DeliveryOrder) => {
+    if (!isTracking) startTracking();
+    setSelectedActiveIdx(0);
+    setActiveTab("mapa");
+    setActiveDeliveries(prev => {
+      const next = [delivery, ...prev.filter(d => d.id !== delivery.id)];
+      return sortDeliveriesByCreatedAt(next);
+    });
+    setPendingOrders(prev => prev.filter(d => d.id !== delivery.id));
+  }, [isTracking, startTracking]);
+
+  const claimDelivery = useCallback(async (order: DeliveryOrder) => {
+    const { data: result, error } = await supabase.rpc("claim_delivery", { p_delivery_id: order.id });
+    const payload = result as { ok?: boolean; error?: string; delivery_id?: string } | null;
+
+    if (error || !payload?.ok) {
+      throw new Error(payload?.error || error?.message || "Pedido no disponible");
+    }
+
+    const claimed = await loadDeliveryById(payload.delivery_id || order.id);
+    return claimed || ({ ...order, status: "aceptado", driver_id: user?.id, accepted_at: new Date().toISOString() } as any);
+  }, [loadDeliveryById, user?.id]);
+
   const fetchDataRef = useRef(fetchData);
   useEffect(() => {
     fetchDataRef.current = fetchData;
@@ -272,6 +309,10 @@ const DriverApp = () => {
         }
         fetchDataRef.current();
       })
+      .on("broadcast", { event: "order-assigned" }, (payload: any) => {
+        if (payload.payload?.driverId && payload.payload.driverId !== user.id) return;
+        fetchDataRef.current();
+      })
       .subscribe();
 
     const interval = setInterval(() => {
@@ -290,20 +331,9 @@ const DriverApp = () => {
     registerHandler(async (action) => {
       if (!user) throw new Error("no user");
       if (action.type === "accept") {
-        const { data: claimed, error } = await supabase
-          .from("deliveries")
-          .update({
-            driver_id: user.id,
-            status: "aceptado",
-            accepted_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", action.payload.deliveryId)
-          .eq("status", "pendiente")
-          .is("driver_id", null)
-          .select()
-          .maybeSingle();
-        if (error || !claimed) throw error || new Error("ya tomado");
+        const { data: result, error } = await supabase.rpc("claim_delivery", { p_delivery_id: action.payload.deliveryId });
+        const payload = result as { ok?: boolean; error?: string } | null;
+        if (error || !payload?.ok) throw new Error(payload?.error || error?.message || "ya tomado");
       } else if (action.type === "reject") {
         await supabase.from("delivery_audit_log" as any).insert({
           delivery_id: action.payload.deliveryId,
@@ -359,30 +389,15 @@ const DriverApp = () => {
       setAlertOrder(null);
       return;
     }
-    const { data: claimed, error } = await supabase
-      .from("deliveries")
-      .update({
-        driver_id: user.id,
-        status: "aceptado",
-        accepted_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", order.id)
-      .eq("status", "pendiente")
-      .is("driver_id", null)
-      .select()
-      .maybeSingle();
-    if (error || !claimed) {
-      toast.error("Otro mensajero fue más rápido");
+    try {
+      const claimed = await claimDelivery(order);
+      activateDelivery(claimed as DeliveryOrder);
+      toast.success("¡Pedido tomado! Abriendo conducción 🛵");
+    } catch (error: any) {
+      toast.error(error?.message || "Otro mensajero fue más rápido");
       fetchData();
       return;
     }
-    toast.success("¡Pedido tomado! Ve al punto de recogida 🛵");
-    setSelectedActiveIdx(0);
-    setActiveDeliveries(prev => {
-      const next = [claimed as any, ...prev.filter(d => d.id !== claimed.id)];
-      return next.sort((a: any, b: any) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
-    });
     await supabase.from("delivery_audit_log" as any).insert({
       delivery_id: order.id,
       event: "Pedido aceptado",
@@ -398,28 +413,13 @@ const DriverApp = () => {
     const found = pendingOrders.find(o => o.id === alertOrder.id || o.order_id === alertOrder.order_id);
     if (found) await acceptOrder(found);
     else if (alertOrder.id) {
-      const { data: claimed, error } = await supabase
-        .from("deliveries")
-        .update({
-          driver_id: user.id,
-          status: "aceptado",
-          accepted_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", alertOrder.id)
-        .eq("status", "pendiente")
-        .is("driver_id", null)
-        .select()
-        .maybeSingle();
-      if (error || !claimed) toast.error("El pedido ya fue tomado");
-      else {
-        toast.success("¡Pedido tomado!");
-        setSelectedActiveIdx(0);
-        setActiveDeliveries(prev => {
-          const next = [claimed as any, ...prev.filter(d => d.id !== claimed.id)];
-          return next.sort((a: any, b: any) => new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime());
-        });
+      try {
+        const claimed = await claimDelivery(alertOrder as DeliveryOrder);
+        activateDelivery(claimed as DeliveryOrder);
+        toast.success("¡Pedido tomado! Abriendo conducción 🛵");
         fetchData();
+      } catch (error: any) {
+        toast.error(error?.message || "El pedido ya fue tomado");
       }
     }
     setAlertOrder(null);
