@@ -19,20 +19,66 @@ Deno.serve(async (req) => {
     // ---------- POST: customer sends chat message ----------
     if (req.method === "POST") {
       const body = await req.json().catch(() => ({}));
+      const action = String(body.action || "chat");
       const orderId = String(body.order_id || "").slice(0, 64);
-      const message = String(body.message || "").trim().slice(0, 500);
-      if (!orderId || !message) {
-        return new Response(JSON.stringify({ error: "order_id and message required" }), {
+      if (!orderId) {
+        return new Response(JSON.stringify({ error: "order_id required" }), {
           status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
       const { data: d } = await supabase
         .from("deliveries")
-        .select("id, company_id, status")
+        .select("id, company_id, status, driver_id")
         .eq("order_id", orderId).maybeSingle();
       if (!d) {
         return new Response(JSON.stringify({ error: "not_found" }), {
           status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // ---- Rating action ----
+      if (action === "rate") {
+        if (String((d as any).status) !== "entregado") {
+          return new Response(JSON.stringify({ error: "not_delivered" }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        const score = Math.round(Number(body.score));
+        if (!Number.isInteger(score) || score < 1 || score > 5) {
+          return new Response(JSON.stringify({ error: "invalid_score" }), {
+            status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        const comment = body.comment ? String(body.comment).trim().slice(0, 500) : null;
+        const tip = Math.max(0, Math.min(1_000_000, Number(body.tip_amount || 0)));
+
+        const { data: existing } = await supabase
+          .from("delivery_ratings").select("id").eq("delivery_id", (d as any).id).maybeSingle();
+        if (existing) {
+          return new Response(JSON.stringify({ error: "already_rated" }), {
+            status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+        const { data: rating, error: rErr } = await supabase
+          .from("delivery_ratings").insert({
+            delivery_id: (d as any).id,
+            driver_id: (d as any).driver_id,
+            company_id: (d as any).company_id,
+            score,
+            comment,
+            tip_amount: tip,
+          }).select("id, score, comment, tip_amount, created_at").single();
+        if (rErr) throw rErr;
+        return new Response(JSON.stringify({ ok: true, rating }), {
+          status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      // ---- Chat action (default) ----
+      const message = String(body.message || "").trim().slice(0, 500);
+      if (!message) {
+        return new Response(JSON.stringify({ error: "message required" }), {
+          status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
       if (["entregado", "cancelado"].includes(String((d as any).status))) {
@@ -44,7 +90,7 @@ Deno.serve(async (req) => {
         .from("chat_messages")
         .insert({
           delivery_id: (d as any).id,
-          sender_id: (d as any).id,           // synthetic customer id (delivery.id)
+          sender_id: (d as any).id,
           sender_role: "customer",
           message,
           company_id: (d as any).company_id,
@@ -79,6 +125,13 @@ Deno.serve(async (req) => {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    // Existing rating (so UI knows whether to show the form)
+    const { data: existingRating } = await supabase
+      .from("delivery_ratings")
+      .select("score, comment, tip_amount, created_at")
+      .eq("delivery_id", (d as any).id)
+      .maybeSingle();
 
     // Chat-only fast path
     if (wantChat) {
@@ -127,7 +180,7 @@ Deno.serve(async (req) => {
       if (loc) location = loc;
     }
 
-    return new Response(JSON.stringify({ delivery: d, driver, location }), {
+    return new Response(JSON.stringify({ delivery: d, driver, location, rating: existingRating || null }), {
       status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {

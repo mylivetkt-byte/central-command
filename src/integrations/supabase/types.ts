@@ -290,6 +290,68 @@ export type Database = {
           },
         ]
       }
+      delivery_ratings: {
+        Row: {
+          comment: string | null
+          company_id: string | null
+          created_at: string
+          delivery_id: string
+          driver_id: string | null
+          id: string
+          score: number
+          tip_amount: number | null
+        }
+        Insert: {
+          comment?: string | null
+          company_id?: string | null
+          created_at?: string
+          delivery_id: string
+          driver_id?: string | null
+          id?: string
+          score: number
+          tip_amount?: number | null
+        }
+        Update: {
+          comment?: string | null
+          company_id?: string | null
+          created_at?: string
+          delivery_id?: string
+          driver_id?: string | null
+          id?: string
+          score?: number
+          tip_amount?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "delivery_ratings_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "saas_companies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "delivery_ratings_delivery_id_fkey"
+            columns: ["delivery_id"]
+            isOneToOne: true
+            referencedRelation: "deliveries"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "delivery_ratings_delivery_id_fkey"
+            columns: ["delivery_id"]
+            isOneToOne: true
+            referencedRelation: "pending_delivery_offers"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "delivery_ratings_driver_id_fkey"
+            columns: ["driver_id"]
+            isOneToOne: false
+            referencedRelation: "driver_profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       driver_locations: {
         Row: {
           company_id: string | null
