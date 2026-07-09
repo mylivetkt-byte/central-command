@@ -13,6 +13,7 @@ import NearbyOrdersMap from "@/components/driver/NearbyOrdersMap";
 import ActiveDeliveryView from "@/components/driver/ActiveDeliveryView";
 import NewOrderAlert from "@/components/driver/NewOrderAlert";
 import { VersionBadge } from "@/components/driver/VersionBadge";
+import DriverSplash from "@/components/DriverSplash";
 
 interface DeliveryOrder {
   id: string;
@@ -41,6 +42,7 @@ const WEEKLY_GOAL_EARNINGS = 500000;
 const STREAK_BONUS_THRESHOLD = 5;
 
 const DriverApp = () => {
+  const [showSplash, setShowSplash] = useState(true);
   const { user, signOut } = useAuth();
   const [pendingOrders, setPendingOrders]     = useState<DeliveryOrder[]>([]);
   const [activeDeliveries, setActiveDeliveries] = useState<DeliveryOrder[]>([]);
@@ -465,10 +467,19 @@ const DriverApp = () => {
   const name     = user?.user_metadata?.full_name || "Mensajero";
   const initials = name.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2);
 
+  // Splash overlay renderer (shared by all return paths)
+  const splashOverlay = (
+    <AnimatePresence>
+      {showSplash && <DriverSplash onDone={() => setShowSplash(false)} />}
+    </AnimatePresence>
+  );
+
   // Active delivery view (supports multi-stop)
   if (activeDeliveries.length > 0) {
     const selectedDelivery = activeDeliveries[selectedActiveIdx] || activeDeliveries[0];
     return (
+      <>
+      {splashOverlay}
       <div className="fixed inset-0 bg-slate-950 flex flex-col">
         <header className="bg-slate-900/90 backdrop-blur-xl border-b border-white/5 px-4 py-2 flex items-center justify-between z-50">
           <div className="flex items-center gap-2">
@@ -522,6 +533,7 @@ const DriverApp = () => {
           onReject={rejectFromAlert}
         />
       </div>
+      </>
     );
   }
 
@@ -530,6 +542,8 @@ const DriverApp = () => {
   const hasStreakBonus = deliveryStreak > 0 && deliveryStreak % STREAK_BONUS_THRESHOLD === 0;
 
   return (
+    <>
+    {splashOverlay}
     <div className="fixed inset-0 bg-[#f5f6f7] flex flex-col overflow-hidden">
 
       {/* Banner de conexión offline / cola pendiente */}
@@ -882,6 +896,7 @@ const DriverApp = () => {
         </div>
       )}
     </div>
+    </>
   );
 };
 
