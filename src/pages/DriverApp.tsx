@@ -533,6 +533,7 @@ const DriverApp = () => {
           onReject={rejectFromAlert}
         />
       </div>
+      </>
     );
   }
 
@@ -541,6 +542,8 @@ const DriverApp = () => {
   const hasStreakBonus = deliveryStreak > 0 && deliveryStreak % STREAK_BONUS_THRESHOLD === 0;
 
   return (
+    <>
+    {splashOverlay}
     <div className="fixed inset-0 bg-[#f5f6f7] flex flex-col overflow-hidden">
 
       {/* Banner de conexión offline / cola pendiente */}
