@@ -1,10 +1,41 @@
 create extension if not exists postgis;
 
--- 1. Storage bucket
+-- 1. Asegurar RLS en spatial_ref_sys para evitar accesos de escritura no restringidos
+do $$
+begin
+  if exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'spatial_ref_sys') then
+    alter table public.spatial_ref_sys enable row level security;
+    drop policy if exists "spatial_ref_sys_read_only" on public.spatial_ref_sys;
+    create policy "spatial_ref_sys_read_only" on public.spatial_ref_sys for select using (true);
+  end if;
+end;
+$$;
+
+-- 2. Storage bucket 'avatars' y políticas RLS para storage.objects
 insert into storage.buckets (id, name, public) values ('avatars', 'avatars', true)
 on conflict (id) do nothing;
 
--- 2. Profiles Table
+drop policy if exists "avatar_read_public" on storage.objects;
+drop policy if exists "avatar_insert_own" on storage.objects;
+drop policy if exists "avatar_update_own" on storage.objects;
+drop policy if exists "avatar_delete_own" on storage.objects;
+
+create policy "avatar_read_public" on storage.objects for select
+  using (bucket_id = 'avatars');
+
+create policy "avatar_insert_own" on storage.objects for insert
+  to authenticated
+  with check (bucket_id = 'avatars' and (auth.uid()::text = (storage.foldername(name))[1] or name like auth.uid()::text || '%'));
+
+create policy "avatar_update_own" on storage.objects for update
+  to authenticated
+  using (bucket_id = 'avatars' and (auth.uid()::text = (storage.foldername(name))[1] or name like auth.uid()::text || '%'));
+
+create policy "avatar_delete_own" on storage.objects for delete
+  to authenticated
+  using (bucket_id = 'avatars' and (auth.uid()::text = (storage.foldername(name))[1] or name like auth.uid()::text || '%'));
+
+-- 3. Profiles Table
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   role text not null check (role in ('cliente','conductor','admin')) default 'cliente',
@@ -29,8 +60,28 @@ alter table public.profiles add column if not exists created_at timestamptz defa
 
 alter table public.profiles enable row level security;
 
+-- Trigger para prevenir que un usuario común se auto-escale a 'admin' o altere su 'role'
+create or replace function public.prevent_self_role_escalation()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+begin
+  -- Si no es admin y el rol está cambiando, bloquear la operación
+  if old.role is distinct from new.role and (select role from public.profiles where id = auth.uid()) is distinct from 'admin' then
+    raise exception 'No tienes permisos para modificar tu propio rol.';
+  end if;
+  return new;
+end;
+$$;
 
--- Helper security definer function to get current user role with fixed search_path
+drop trigger if exists trg_prevent_self_role_escalation on public.profiles;
+create trigger trg_prevent_self_role_escalation
+  before update on public.profiles
+  for each row execute function public.prevent_self_role_escalation();
+
+-- Helper function segura para obtener rol del usuario actual
 create or replace function public.get_current_user_role()
 returns text
 language sql
@@ -41,7 +92,6 @@ as $$
   select role from public.profiles where id = auth.uid();
 $$;
 
--- Revoke public / anon execute and grant only to authenticated
 revoke execute on function public.get_current_user_role() from public, anon;
 grant execute on function public.get_current_user_role() to authenticated;
 
@@ -51,7 +101,6 @@ drop policy if exists "profiles_insert_own" on public.profiles;
 drop policy if exists "profiles_update_own" on public.profiles;
 drop policy if exists "profiles_select_policy" on public.profiles;
 
--- Allow users to read own profile, admins to read all, or drivers/clients involved in active trips
 create policy "profiles_select_policy" on public.profiles for select
   to authenticated
   using (
@@ -72,7 +121,7 @@ create policy "profiles_update_own" on public.profiles for update
   to authenticated
   using (auth.uid() = id or public.get_current_user_role() = 'admin');
 
--- 3. Driver Locations Table
+-- 4. Driver Locations Table
 create table if not exists public.driver_locations (
   driver_id uuid primary key references public.profiles(id) on delete cascade,
   lat double precision not null,
@@ -82,7 +131,6 @@ create table if not exists public.driver_locations (
   updated_at timestamptz default now()
 );
 
--- Asegurar columnas si la tabla ya existía
 alter table public.driver_locations add column if not exists location geography(point, 4326);
 alter table public.driver_locations add column if not exists heading real default 0;
 
@@ -93,7 +141,6 @@ drop policy if exists "loc_insert_own" on public.driver_locations;
 drop policy if exists "loc_update_own" on public.driver_locations;
 drop policy if exists "loc_select_policy" on public.driver_locations;
 
--- Solo el conductor propietario, el administrador o el cliente asignado al viaje en curso pueden ver la ubicación exacta
 create policy "loc_select_policy" on public.driver_locations for select
   to authenticated
   using (
@@ -115,7 +162,7 @@ create policy "loc_update_own" on public.driver_locations for update
   to authenticated
   using (auth.uid() = driver_id);
 
--- 4. Trips Table
+-- 5. Trips Table
 create table if not exists public.trips (
   id uuid primary key default gen_random_uuid(),
   client_id uuid not null references public.profiles(id) on delete cascade,
@@ -147,7 +194,6 @@ drop policy if exists "trips_select" on public.trips;
 drop policy if exists "trips_insert" on public.trips;
 drop policy if exists "trips_update" on public.trips;
 
--- Solo clientes del viaje, conductores asignados, admins, o conductores activos para viajes en búsqueda
 create policy "trips_select" on public.trips for select
   to authenticated
   using (
@@ -170,7 +216,7 @@ create policy "trips_update" on public.trips for update
     or (status = 'searching' and public.get_current_user_role() = 'conductor')
   );
 
--- 5. Notifications Table
+-- 6. Notifications Table
 create table if not exists public.notifications (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
@@ -227,7 +273,7 @@ alter publication supabase_realtime add table public.trips;
 alter publication supabase_realtime add table public.driver_locations;
 alter publication supabase_realtime add table public.notifications;
 
--- 6. Funciones con search_path explícito y permisos controlados
+-- 7. Funciones espaciales y triggers
 create or replace function public.get_nearby_drivers(lat double precision, lng double precision, radius_m int default 30000)
 returns table (driver_id uuid, lat double precision, lng double precision, distance_m double precision)
 language sql stable
