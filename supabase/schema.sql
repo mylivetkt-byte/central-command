@@ -1,0 +1,232 @@
+create extension if not exists postgis;
+
+insert into storage.buckets (id, name, public) values ('avatars', 'avatars', true)
+on conflict (id) do nothing;
+
+create table if not exists public.profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  role text not null check (role in ('cliente','conductor','admin')) default 'cliente',
+  full_name text,
+  phone text,
+  photo_url text,
+  vehicle text,
+  rating numeric(3,2) default 5.00,
+  trips_done int default 0,
+  created_at timestamptz default now()
+);
+
+alter table public.profiles enable row level security;
+
+drop policy if exists "profiles_read" on public.profiles;
+drop policy if exists "profiles_insert_own" on public.profiles;
+drop policy if exists "profiles_update_own" on public.profiles;
+create policy "profiles_read" on public.profiles for select using (true);
+create policy "profiles_insert_own" on public.profiles for insert with check (auth.uid() = id);
+create policy "profiles_update_own" on public.profiles for update using (auth.uid() = id);
+
+create table if not exists public.driver_locations (
+  driver_id uuid primary key references public.profiles(id) on delete cascade,
+  lat double precision not null,
+  lng double precision not null,
+  heading real default 0,
+  location geography(point, 4326),
+  updated_at timestamptz default now()
+);
+
+alter table public.driver_locations enable row level security;
+
+drop policy if exists "loc_read" on public.driver_locations;
+drop policy if exists "loc_insert_own" on public.driver_locations;
+drop policy if exists "loc_update_own" on public.driver_locations;
+create policy "loc_read" on public.driver_locations for select using (true);
+create policy "loc_insert_own" on public.driver_locations for insert with check (auth.uid() = driver_id);
+create policy "loc_update_own" on public.driver_locations for update using (auth.uid() = driver_id);
+
+create table if not exists public.trips (
+  id uuid primary key default gen_random_uuid(),
+  client_id uuid not null references public.profiles(id) on delete cascade,
+  driver_id uuid references public.profiles(id),
+  status text not null default 'searching'
+    check (status in ('searching','driver_assigned','in_progress','completed','cancelled')),
+  origin_name text,
+  origin_lat double precision not null,
+  origin_lng double precision not null,
+  dest_name text,
+  dest_lat double precision not null,
+  dest_lng double precision not null,
+  price numeric(10,2) not null,
+  distance_m int,
+  duration_s int,
+  driver_lat double precision,
+  driver_lng double precision,
+  requested_at timestamptz default now(),
+  started_at timestamptz,
+  completed_at timestamptz,
+  cancelled_by text check (cancelled_by in ('cliente','conductor')),
+  client_rating int check (client_rating between 1 and 5),
+  driver_rating int check (driver_rating between 1 and 5)
+);
+
+alter table public.trips enable row level security;
+
+drop policy if exists "trips_select" on public.trips;
+drop policy if exists "trips_insert" on public.trips;
+drop policy if exists "trips_update" on public.trips;
+create policy "trips_select" on public.trips for select
+  using (auth.uid() = client_id or auth.uid() = driver_id or status = 'searching');
+create policy "trips_insert" on public.trips for insert
+  with check (auth.uid() = client_id);
+create policy "trips_update" on public.trips for update
+  using (auth.uid() = client_id or auth.uid() = driver_id);
+
+create table if not exists public.notifications (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  title text not null,
+  message text not null,
+  type text not null default 'info'
+    check (type in ('info','success','warning','error')),
+  trip_id uuid references public.trips(id) on delete cascade,
+  read boolean default false,
+  created_at timestamptz default now()
+);
+
+alter table public.notifications enable row level security;
+
+drop policy if exists "notif_select_own" on public.notifications;
+drop policy if exists "notif_insert_own" on public.notifications;
+create policy "notif_select_own" on public.notifications for select
+  using (auth.uid() = user_id);
+create policy "notif_insert_own" on public.notifications for insert
+  with check (auth.uid() = user_id);
+
+create index if not exists idx_trips_status on public.trips(status);
+create index if not exists idx_trips_client on public.trips(client_id);
+create index if not exists idx_trips_driver on public.trips(driver_id);
+create index if not exists idx_loc_geo on public.driver_locations using gist(location);
+create index if not exists idx_notifications_user on public.notifications(user_id, created_at desc);
+
+do $$
+begin
+  if exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname || '.' || tablename = 'public.trips') then
+    alter publication supabase_realtime drop table public.trips;
+  end if;
+  if exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname || '.' || tablename = 'public.driver_locations') then
+    alter publication supabase_realtime drop table public.driver_locations;
+  end if;
+  if exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname || '.' || tablename = 'public.notifications') then
+    alter publication supabase_realtime drop table public.notifications;
+  end if;
+end;
+$$;
+
+alter publication supabase_realtime add table public.trips;
+alter publication supabase_realtime add table public.driver_locations;
+alter publication supabase_realtime add table public.notifications;
+
+create or replace function public.get_nearby_drivers(lat double precision, lng double precision, radius_m int default 30000)
+returns table (driver_id uuid, lat double precision, lng double precision, distance_m double precision)
+language sql stable
+as $$
+  select dl.driver_id,
+         st_y(dl.location::geometry) as lat,
+         st_x(dl.location::geometry) as lng,
+         round(st_distance(dl.location, st_setsrid(st_makepoint(lng, lat), 4326)::geography)::numeric) as distance_m
+  from public.driver_locations dl
+  where dl.location is not null
+    and st_dwithin(dl.location, st_setsrid(st_makepoint(lng, lat), 4326)::geography, radius_m)
+  order by distance_m;
+$$;
+
+create or replace function public.sync_driver_location()
+returns trigger language plpgsql
+as $$
+begin
+  new.location = st_setsrid(st_makepoint(new.lng, new.lat), 4326)::geography;
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_sync_driver_location on public.driver_locations;
+create trigger trg_sync_driver_location
+  before insert or update of lat, lng on public.driver_locations
+  for each row execute function public.sync_driver_location();
+
+create or replace function public.on_trip_completed()
+returns trigger language plpgsql
+as $$
+begin
+  if new.status = 'completed' and old.status is distinct from 'completed' then
+    if new.driver_rating is not null then
+      update public.profiles
+        set rating = (rating * trips_done + new.driver_rating) / (trips_done + 1)
+        where id = new.driver_id;
+    end if;
+    update public.profiles
+      set trips_done = trips_done + 1
+      where id = new.driver_id;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_on_trip_completed on public.trips;
+create trigger trg_on_trip_completed
+  after update of status on public.trips
+  for each row execute function public.on_trip_completed();
+
+create or replace function public.notify_trip_update()
+returns trigger language plpgsql
+as $$
+declare
+  v_client uuid;
+  v_driver uuid;
+begin
+  v_client := new.client_id;
+  v_driver := new.driver_id;
+
+  if new.status = 'driver_assigned' and old.status = 'searching' then
+    insert into public.notifications (user_id, title, message, type, trip_id)
+    values (v_client, 'Conductor asignado', 'Un conductor acepto tu solicitud', 'success', new.id);
+    if v_driver is not null then
+      insert into public.notifications (user_id, title, message, type, trip_id)
+      values (v_driver, 'Solicitud aceptada', 'Ya tenes un viaje asignado', 'success', new.id);
+    end if;
+  end if;
+
+  if new.status = 'in_progress' and old.status = 'driver_assigned' then
+    insert into public.notifications (user_id, title, message, type, trip_id)
+    values (v_client, 'Viaje iniciado', 'El conductor inicio el viaje', 'info', new.id);
+    if v_driver is not null then
+      insert into public.notifications (user_id, title, message, type, trip_id)
+      values (v_driver, 'Viaje iniciado', 'El viaje esta en curso', 'info', new.id);
+    end if;
+  end if;
+
+  if new.status = 'completed' and old.status is distinct from 'completed' then
+    insert into public.notifications (user_id, title, message, type, trip_id)
+    values (v_client, 'Viaje completado', 'Califica a tu conductor', 'success', new.id);
+    if v_driver is not null then
+      insert into public.notifications (user_id, title, message, type, trip_id)
+      values (v_driver, 'Viaje completado', 'El viaje finalizo correctamente', 'success', new.id);
+    end if;
+  end if;
+
+  if new.status = 'cancelled' and old.status is distinct from 'cancelled' then
+    insert into public.notifications (user_id, title, message, type, trip_id)
+    values (v_client, 'Viaje cancelado', 'La solicitud fue cancelada', 'error', new.id);
+    if v_driver is not null then
+      insert into public.notifications (user_id, title, message, type, trip_id)
+      values (v_driver, 'Viaje cancelado', 'El cliente cancelo el viaje', 'error', new.id);
+    end if;
+  end if;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_notify_trip_update on public.trips;
+create trigger trg_notify_trip_update
+  after update of status on public.trips
+  for each row execute function public.notify_trip_update();
