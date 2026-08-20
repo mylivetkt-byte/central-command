@@ -7,7 +7,7 @@ import { Package, Truck, Clock, DollarSign, Users, AlertTriangle, CheckCircle, X
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import { motion } from "framer-motion";
 
-const COLORS = ["hsl(217,91%,60%)", "hsl(160,84%,39%)", "hsl(38,92%,50%)", "hsl(0,84%,60%)"];
+const COLORS = ["#FFFFFF", "#D4D4D4", "#737373", "#404040"];
 
 const formatCurrency = (v: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(v);
@@ -101,13 +101,13 @@ const Dashboard = () => {
         <div className="flex gap-3">
           <button 
             onClick={() => navigate("/dispatch")}
-            className="flex items-center gap-2 rounded-xl bg-primary px-6 py-3 text-sm font-bold text-primary-foreground shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
+            className="flex items-center gap-2 rounded-none bg-primary px-6 py-3 text-sm font-bold text-primary-foreground hover:bg-neutral-200 active:scale-[0.98] transition-all"
           >
             <Zap className="h-4 w-4" /> Publicar Nuevo Envío
           </button>
           <button 
             onClick={() => navigate("/map-tracking")}
-            className="flex items-center gap-2 rounded-xl bg-card border border-border px-6 py-3 text-sm font-bold text-foreground hover:bg-muted transition-all"
+            className="flex items-center gap-2 rounded-none bg-card border border-border px-6 py-3 text-sm font-bold text-foreground hover:bg-muted transition-all"
           >
             <MapPin className="h-4 w-4 text-primary" /> Ver Mapa en Vivo
           </button>
@@ -136,7 +136,7 @@ const Dashboard = () => {
                 <XAxis dataKey="date" tick={{ fontSize: 11, fill: "hsl(215,20%,55%)" }} tickFormatter={v => v.slice(5)} />
                 <YAxis tick={{ fontSize: 11, fill: "hsl(215,20%,55%)" }} allowDecimals={false} />
                 <Tooltip contentStyle={tooltipStyle} />
-                <Bar dataKey="deliveries" fill="hsl(217,91%,60%)" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="deliveries" fill="#FFFFFF" radius={[2, 2, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </motion.div>

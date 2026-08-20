@@ -42,7 +42,7 @@
     --input: 0 0% 15%;
     --ring: 0 0% 100%;
 
-    --radius: 0.25rem;
+    --radius: 0rem;
 
     --sidebar-background: 0 0% 2%;
     --sidebar-foreground: 0 0% 90%;
@@ -54,15 +54,15 @@
     --sidebar-ring: 0 0% 100%;
 
     --chart-1: 0 0% 100%;
-    --chart-2: 147 94% 33%;
-    --chart-3: 45 100% 50%;
-    --chart-4: 0 0% 60%;
-    --chart-5: 0 100% 41%;
+    --chart-2: 0 0% 70%;
+    --chart-3: 0 0% 40%;
+    --chart-4: 0 0% 20%;
+    --chart-5: 0 0% 90%;
 
-    --gradient-primary: linear-gradient(to right, #ffffff, #a3a3a3);
-    --gradient-success: linear-gradient(to right, #05a357, #026b39);
-    --gradient-warning: linear-gradient(to right, #ffc000, #b28600);
-    --gradient-danger: linear-gradient(to right, #e11900, #8a0f00);
+    --gradient-primary: linear-gradient(to right, #ffffff, #737373);
+    --gradient-success: linear-gradient(to right, #10b981, #059669);
+    --gradient-warning: linear-gradient(to right, #f59e0b, #d97706);
+    --gradient-danger: linear-gradient(to right, #ef4444, #dc2626);
   }
 }
 
