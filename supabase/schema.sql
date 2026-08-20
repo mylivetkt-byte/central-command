@@ -33,6 +33,11 @@ create table if not exists public.driver_locations (
   updated_at timestamptz default now()
 );
 
+-- Asegurar que la columna location exista en caso de que la tabla ya haya sido creada previamente
+alter table public.driver_locations add column if not exists location geography(point, 4326);
+alter table public.driver_locations add column if not exists heading real default 0;
+
+
 alter table public.driver_locations enable row level security;
 
 drop policy if exists "loc_read" on public.driver_locations;
