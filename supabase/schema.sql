@@ -17,7 +17,18 @@ create table if not exists public.profiles (
   created_at timestamptz default now()
 );
 
+-- Asegurar columnas en profiles si la tabla ya existía previamente
+alter table public.profiles add column if not exists role text not null default 'cliente' check (role in ('cliente','conductor','admin'));
+alter table public.profiles add column if not exists full_name text;
+alter table public.profiles add column if not exists phone text;
+alter table public.profiles add column if not exists photo_url text;
+alter table public.profiles add column if not exists vehicle text;
+alter table public.profiles add column if not exists rating numeric(3,2) default 5.00;
+alter table public.profiles add column if not exists trips_done int default 0;
+alter table public.profiles add column if not exists created_at timestamptz default now();
+
 alter table public.profiles enable row level security;
+
 
 -- Helper security definer function to get current user role with fixed search_path
 create or replace function public.get_current_user_role()
