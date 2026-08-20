@@ -1,15 +1,6 @@
+-- 1. Extensiones requeridas
 create extension if not exists postgis;
 
--- 1. Asegurar RLS en spatial_ref_sys para evitar accesos de escritura no restringidos
-do $$
-begin
-  if exists (select 1 from information_schema.tables where table_schema = 'public' and table_name = 'spatial_ref_sys') then
-    alter table public.spatial_ref_sys enable row level security;
-    drop policy if exists "spatial_ref_sys_read_only" on public.spatial_ref_sys;
-    create policy "spatial_ref_sys_read_only" on public.spatial_ref_sys for select using (true);
-  end if;
-end;
-$$;
 
 -- 2. Storage bucket 'avatars' y políticas RLS para storage.objects
 insert into storage.buckets (id, name, public) values ('avatars', 'avatars', true)
