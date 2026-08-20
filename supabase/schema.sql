@@ -1,8 +1,10 @@
 create extension if not exists postgis;
 
+-- 1. Storage bucket
 insert into storage.buckets (id, name, public) values ('avatars', 'avatars', true)
 on conflict (id) do nothing;
 
+-- 2. Profiles Table
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   role text not null check (role in ('cliente','conductor','admin')) default 'cliente',
@@ -17,13 +19,49 @@ create table if not exists public.profiles (
 
 alter table public.profiles enable row level security;
 
+-- Helper security definer function to get current user role with fixed search_path
+create or replace function public.get_current_user_role()
+returns text
+language sql
+stable
+security definer
+set search_path = public, pg_temp
+as $$
+  select role from public.profiles where id = auth.uid();
+$$;
+
+-- Revoke public / anon execute and grant only to authenticated
+revoke execute on function public.get_current_user_role() from public, anon;
+grant execute on function public.get_current_user_role() to authenticated;
+
+-- Policies for profiles
 drop policy if exists "profiles_read" on public.profiles;
 drop policy if exists "profiles_insert_own" on public.profiles;
 drop policy if exists "profiles_update_own" on public.profiles;
-create policy "profiles_read" on public.profiles for select using (true);
-create policy "profiles_insert_own" on public.profiles for insert with check (auth.uid() = id);
-create policy "profiles_update_own" on public.profiles for update using (auth.uid() = id);
+drop policy if exists "profiles_select_policy" on public.profiles;
 
+-- Allow users to read own profile, admins to read all, or drivers/clients involved in active trips
+create policy "profiles_select_policy" on public.profiles for select
+  to authenticated
+  using (
+    auth.uid() = id
+    or public.get_current_user_role() = 'admin'
+    or exists (
+      select 1 from public.trips
+      where (client_id = auth.uid() and driver_id = public.profiles.id)
+         or (driver_id = auth.uid() and client_id = public.profiles.id)
+    )
+  );
+
+create policy "profiles_insert_own" on public.profiles for insert
+  to authenticated
+  with check (auth.uid() = id);
+
+create policy "profiles_update_own" on public.profiles for update
+  to authenticated
+  using (auth.uid() = id or public.get_current_user_role() = 'admin');
+
+-- 3. Driver Locations Table
 create table if not exists public.driver_locations (
   driver_id uuid primary key references public.profiles(id) on delete cascade,
   lat double precision not null,
@@ -33,20 +71,40 @@ create table if not exists public.driver_locations (
   updated_at timestamptz default now()
 );
 
--- Asegurar que la columna location exista en caso de que la tabla ya haya sido creada previamente
+-- Asegurar columnas si la tabla ya existía
 alter table public.driver_locations add column if not exists location geography(point, 4326);
 alter table public.driver_locations add column if not exists heading real default 0;
-
 
 alter table public.driver_locations enable row level security;
 
 drop policy if exists "loc_read" on public.driver_locations;
 drop policy if exists "loc_insert_own" on public.driver_locations;
 drop policy if exists "loc_update_own" on public.driver_locations;
-create policy "loc_read" on public.driver_locations for select using (true);
-create policy "loc_insert_own" on public.driver_locations for insert with check (auth.uid() = driver_id);
-create policy "loc_update_own" on public.driver_locations for update using (auth.uid() = driver_id);
+drop policy if exists "loc_select_policy" on public.driver_locations;
 
+-- Solo el conductor propietario, el administrador o el cliente asignado al viaje en curso pueden ver la ubicación exacta
+create policy "loc_select_policy" on public.driver_locations for select
+  to authenticated
+  using (
+    auth.uid() = driver_id
+    or public.get_current_user_role() = 'admin'
+    or exists (
+      select 1 from public.trips
+      where driver_id = public.driver_locations.driver_id
+        and client_id = auth.uid()
+        and status in ('driver_assigned', 'in_progress')
+    )
+  );
+
+create policy "loc_insert_own" on public.driver_locations for insert
+  to authenticated
+  with check (auth.uid() = driver_id);
+
+create policy "loc_update_own" on public.driver_locations for update
+  to authenticated
+  using (auth.uid() = driver_id);
+
+-- 4. Trips Table
 create table if not exists public.trips (
   id uuid primary key default gen_random_uuid(),
   client_id uuid not null references public.profiles(id) on delete cascade,
@@ -77,13 +135,31 @@ alter table public.trips enable row level security;
 drop policy if exists "trips_select" on public.trips;
 drop policy if exists "trips_insert" on public.trips;
 drop policy if exists "trips_update" on public.trips;
-create policy "trips_select" on public.trips for select
-  using (auth.uid() = client_id or auth.uid() = driver_id or status = 'searching');
-create policy "trips_insert" on public.trips for insert
-  with check (auth.uid() = client_id);
-create policy "trips_update" on public.trips for update
-  using (auth.uid() = client_id or auth.uid() = driver_id);
 
+-- Solo clientes del viaje, conductores asignados, admins, o conductores activos para viajes en búsqueda
+create policy "trips_select" on public.trips for select
+  to authenticated
+  using (
+    auth.uid() = client_id
+    or auth.uid() = driver_id
+    or public.get_current_user_role() = 'admin'
+    or (status = 'searching' and public.get_current_user_role() = 'conductor')
+  );
+
+create policy "trips_insert" on public.trips for insert
+  to authenticated
+  with check (auth.uid() = client_id or public.get_current_user_role() = 'admin');
+
+create policy "trips_update" on public.trips for update
+  to authenticated
+  using (
+    auth.uid() = client_id
+    or auth.uid() = driver_id
+    or public.get_current_user_role() = 'admin'
+    or (status = 'searching' and public.get_current_user_role() = 'conductor')
+  );
+
+-- 5. Notifications Table
 create table if not exists public.notifications (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references public.profiles(id) on delete cascade,
@@ -100,17 +176,28 @@ alter table public.notifications enable row level security;
 
 drop policy if exists "notif_select_own" on public.notifications;
 drop policy if exists "notif_insert_own" on public.notifications;
-create policy "notif_select_own" on public.notifications for select
-  using (auth.uid() = user_id);
-create policy "notif_insert_own" on public.notifications for insert
-  with check (auth.uid() = user_id);
+drop policy if exists "notif_update_own" on public.notifications;
 
+create policy "notif_select_own" on public.notifications for select
+  to authenticated
+  using (auth.uid() = user_id or public.get_current_user_role() = 'admin');
+
+create policy "notif_insert_own" on public.notifications for insert
+  to authenticated
+  with check (auth.uid() = user_id or public.get_current_user_role() = 'admin');
+
+create policy "notif_update_own" on public.notifications for update
+  to authenticated
+  using (auth.uid() = user_id or public.get_current_user_role() = 'admin');
+
+-- Índices
 create index if not exists idx_trips_status on public.trips(status);
 create index if not exists idx_trips_client on public.trips(client_id);
 create index if not exists idx_trips_driver on public.trips(driver_id);
 create index if not exists idx_loc_geo on public.driver_locations using gist(location);
 create index if not exists idx_notifications_user on public.notifications(user_id, created_at desc);
 
+-- Realtime
 do $$
 begin
   if exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and schemaname || '.' || tablename = 'public.trips') then
@@ -129,9 +216,12 @@ alter publication supabase_realtime add table public.trips;
 alter publication supabase_realtime add table public.driver_locations;
 alter publication supabase_realtime add table public.notifications;
 
+-- 6. Funciones con search_path explícito y permisos controlados
 create or replace function public.get_nearby_drivers(lat double precision, lng double precision, radius_m int default 30000)
 returns table (driver_id uuid, lat double precision, lng double precision, distance_m double precision)
 language sql stable
+security invoker
+set search_path = public, pg_temp
 as $$
   select dl.driver_id,
          st_y(dl.location::geometry) as lat,
@@ -143,8 +233,14 @@ as $$
   order by distance_m;
 $$;
 
+revoke execute on function public.get_nearby_drivers(double precision, double precision, int) from public, anon;
+grant execute on function public.get_nearby_drivers(double precision, double precision, int) to authenticated;
+
 create or replace function public.sync_driver_location()
-returns trigger language plpgsql
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
 as $$
 begin
   new.location = st_setsrid(st_makepoint(new.lng, new.lat), 4326)::geography;
@@ -159,7 +255,10 @@ create trigger trg_sync_driver_location
   for each row execute function public.sync_driver_location();
 
 create or replace function public.on_trip_completed()
-returns trigger language plpgsql
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
 as $$
 begin
   if new.status = 'completed' and old.status is distinct from 'completed' then
@@ -182,7 +281,10 @@ create trigger trg_on_trip_completed
   for each row execute function public.on_trip_completed();
 
 create or replace function public.notify_trip_update()
-returns trigger language plpgsql
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
 as $$
 declare
   v_client uuid;
