@@ -117,27 +117,39 @@ export default function DriverHome() {
     return () => { if (watchId.current !== null) navigator.geolocation.clearWatch(watchId.current); };
   }, [available, session, activeTrip]);
 
+  const posRef = useRef(null);
+  const voiceEnabledRef = useRef(voiceEnabled);
+
+  useEffect(() => {
+    posRef.current = pos;
+  }, [pos]);
+
+  useEffect(() => {
+    voiceEnabledRef.current = voiceEnabled;
+  }, [voiceEnabled]);
+
   // Escuchar solicitudes de viaje en tiempo real con aviso de voz
   useEffect(() => {
     if (!session) return;
     const channel = supabase
-      .channel("driver-requests")
+      .channel(`driver-requests-${session.user.id}`)
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "trips", filter: "status=eq.searching" }, (payload) => {
         const trip = payload.new;
-        if (pos) {
-          const d = Math.sqrt((pos.lat - trip.origin_lat) ** 2 + (pos.lng - trip.origin_lng) ** 2) * 111000;
-          setRequests((prev) => [{ ...trip, _dist: Math.round(d) }, ...prev].slice(0, 10));
+        const currentPos = posRef.current;
+        if (currentPos) {
+          const d = Math.sqrt((currentPos.lat - trip.origin_lat) ** 2 + (currentPos.lng - trip.origin_lng) ** 2) * 111000;
+          setRequests((prev) => [{ ...trip, _dist: Math.round(d) }, ...prev.filter(r => r.id !== trip.id)].slice(0, 10));
         } else {
-          setRequests((prev) => [trip, ...prev].slice(0, 10));
+          setRequests((prev) => [trip, ...prev.filter(r => r.id !== trip.id)].slice(0, 10));
         }
         
         notifyDriverNewRequest(session.user.id, trip.id);
         addToast({ title: "Nueva solicitud", message: `${trip.origin_name} → ${trip.dest_name}`, type: "info" });
 
-        // Aviso por VOZ al entrar un nuevo pedido
-        if (voiceEnabled) {
+        // Aviso por VOZ al entrar un nuevo pedido (solo 1 vez por pedido)
+        if (voiceEnabledRef.current) {
           const destino = trip.dest_name ? trip.dest_name.split(",")[0] : "destino indicado";
-          speakAlert(`Nuevo pedido. Hacia: ${destino}. Tarifa: ${fmtMoney(trip.price)}`);
+          speakAlert(`Nuevo pedido hacia ${destino}. Tarifa ${fmtMoney(trip.price)}`);
         }
       })
       .on("postgres_changes", { event: "UPDATE", schema: "public", table: "trips", filter: `driver_id=eq.${session.user.id}` }, (payload) => {
@@ -145,17 +157,19 @@ export default function DriverHome() {
         setActiveTrip(updated);
         if (updated.status === "in_progress") {
           addToast({ title: "Viaje iniciado", message: "Dirígete al destino", type: "info" });
-          if (voiceEnabled) speakAlert("Viaje iniciado. Conduce con precaución hacia el destino.");
         }
         if (updated.status === "completed") {
           notifyDriverTripCompleted(session.user.id);
           addToast({ title: "Viaje completado", message: "El viaje finalizó", type: "success" });
-          if (voiceEnabled) speakAlert("Viaje completado exitosamente.");
         }
       })
       .subscribe();
-    return () => supabase.removeChannel(channel);
-  }, [session, pos, addToast, voiceEnabled]);
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [session, addToast]);
+
 
   const ensureProfile = useCallback(async () => {
     if (!session?.user?.id) return;
