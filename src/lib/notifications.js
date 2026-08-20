@@ -41,3 +41,25 @@ export async function notifyDriverTripAssigned(driverId, tripId) {
 export async function notifyDriverTripCompleted(driverId) {
   await notify(driverId, "Viaje completado", "El viaje finalizó correctamente", "success");
 }
+
+// Función de voz por síntesis para alertar al conductor
+export function speakAlert(text) {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+  try {
+    window.speechSynthesis.cancel(); // Cancelar cualquier audio anterior
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "es-ES";
+    utterance.rate = 1.05;
+    utterance.pitch = 1.0;
+    
+    // Intentar buscar una voz en español
+    const voices = window.speechSynthesis.getVoices();
+    const esVoice = voices.find((v) => v.lang.startsWith("es") || v.lang.includes("es-"));
+    if (esVoice) utterance.voice = esVoice;
+
+    window.speechSynthesis.speak(utterance);
+  } catch (err) {
+    console.warn("Error reproduciendo voz:", err);
+  }
+}
+
