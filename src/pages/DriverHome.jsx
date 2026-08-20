@@ -3,6 +3,7 @@ import NavBar from "../components/NavBar";
 import MapView from "../components/MapView";
 import TripCard from "../components/TripCard";
 import RatingModal from "../components/RatingModal";
+import VersionBadge from "../components/driver/VersionBadge";
 import { supabase } from "../lib/supabase";
 import { getCurrentPosition, fmtDistance, fmtMoney, getRoute } from "../lib/geo";
 import { useAuth } from "../context/AuthContext";
@@ -315,6 +316,8 @@ export default function DriverHome() {
                   )}
                 </div>
               )}
+
+              <VersionBadge />
             </div>
           </div>
         )}
