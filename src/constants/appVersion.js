@@ -1,6 +1,14 @@
-export const APP_VERSION = "0.5.1";
+export const APP_VERSION = "0.5.2";
 
 export const CHANGELOG = [
+  {
+    version: "0.5.2",
+    changes: [
+      "Corrección de repetición de voz y estabilización de alertas sonoras",
+      "Optimización en la suscripción en tiempo real de pedidos para conductores",
+      "Mejora en la precisión del trazo de navegación en el mapa",
+    ],
+  },
   {
     version: "0.5.1",
     changes: [
