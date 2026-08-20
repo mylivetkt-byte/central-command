@@ -23,6 +23,6 @@ dist-ssr
 *.sln
 *.sw?
 
-# Environment variables
-.env
+# Environment variables (solo archivos de producción con secretos reales)
 .env.production
+.env.local
