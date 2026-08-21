@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, MapPin, Loader2, X, Navigation } from 'lucide-react';
+import { Search, MapPin, Loader2, X, Navigation, Crosshair } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface Suggestion {
@@ -20,12 +20,12 @@ interface AddressAutocompleteProps {
   className?: string;
 }
 
-// Normalizador inteligente de nomenclaturas de direcciones en Colombia y Latinoamérica
-function normalizeColombianAddress(raw: string): string {
-  if (!raw) return '';
+// Normalizador y formateador inteligente de direcciones estilo Colombia/LatAm
+function parseAndFormatColombianAddress(raw: string): { formatted: string; isStructured: boolean } {
+  if (!raw) return { formatted: '', isStructured: false };
   let text = raw.trim();
-  
-  // Reemplazar abreviaturas comunes al inicio o en palabras aisladas
+
+  // 1. Reemplazar abreviaturas comunes de vías principales
   text = text.replace(/\b(dg|diag|diago)\.?\b/gi, 'Diagonal');
   text = text.replace(/\b(cll|cl|call)\.?\b/gi, 'Calle');
   text = text.replace(/\b(cra|cr|kr|carr)\.?\b/gi, 'Carrera');
@@ -34,8 +34,33 @@ function normalizeColombianAddress(raw: string): string {
   text = text.replace(/\b(auto|autop)\.?\b/gi, 'Autopista');
   text = text.replace(/\b(cir|circ)\.?\b/gi, 'Circular');
   text = text.replace(/\b(manz|mz)\.?\b/gi, 'Manzana');
-  
-  return text;
+
+  // 2. Formatear automáticamente 3 grupos numéricos: "Carrera 23 33 39" -> "Carrera 23 #33-39"
+  const match3 = text.match(/^([a-záéíóúñ\s]+)\s+(\d+[a-z]?)\s+([#\s]*\d+[a-z]?)\s+[-#\s]*(\d+)/i);
+  if (match3) {
+    const via = match3[1].trim();
+    const numVia = match3[2].trim();
+    const numGen = match3[3].replace(/[^\d\w]/g, '').trim();
+    const numPlaca = match3[4].trim();
+    return {
+      formatted: `${via} ${numVia} #${numGen}-${numPlaca}`,
+      isStructured: true
+    };
+  }
+
+  // 3. Formatear 2 grupos numéricos: "Carrera 23 33" -> "Carrera 23 #33"
+  const match2 = text.match(/^([a-záéíóúñ\s]+)\s+(\d+[a-z]?)\s+([#\s]*\d+[a-z]?)$/i);
+  if (match2) {
+    const via = match2[1].trim();
+    const numVia = match2[2].trim();
+    const numGen = match2[3].replace(/[^\d\w]/g, '').trim();
+    return {
+      formatted: `${via} ${numVia} #${numGen}`,
+      isStructured: true
+    };
+  }
+
+  return { formatted: text, isStructured: false };
 }
 
 const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({ 
@@ -48,11 +73,37 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
+  const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [cityName, setCityName] = useState<string>("Bucaramanga"); // Ciudad por defecto si GPS está desactivado
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setQuery(value);
   }, [value]);
+
+  // Obtener geolocalización GPS del navegador para sesgar la búsqueda a la ubicación actual del usuario
+  useEffect(() => {
+    if (typeof window !== 'undefined' && 'geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          setUserLocation({ lat, lng });
+
+          try {
+            const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lng}&format=json`);
+            if (res.ok) {
+              const data = await res.json();
+              const city = data?.address?.city || data?.address?.town || data?.address?.municipality || data?.address?.county;
+              if (city) setCityName(city);
+            }
+          } catch {}
+        },
+        () => console.log('[GPS] Geolocalización no disponible, usando contexto por ciudad'),
+        { timeout: 4000 }
+      );
+    }
+  }, []);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -72,20 +123,26 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
       return;
     }
 
-    const normalized = normalizeColombianAddress(cleanText);
+    const { formatted, isStructured } = parseAndFormatColombianAddress(cleanText);
     setIsLoading(true);
 
     try {
       const results: Suggestion[] = [];
+      const lat = userLocation?.lat ?? 7.1193; // Bucaramanga / Colombia por defecto
+      const lng = userLocation?.lng ?? -73.1198;
 
-      // 1. Consulta en paralelo: Nominatim (Excelente para direcciones de Colombia) y Photon (Komoot)
+      // Definir área de vista sesgada para Nominatim (+/- 0.3 grados alrededor de la ubicación actual)
+      const viewbox = `${lng - 0.3},${lat + 0.3},${lng + 0.3},${lat - 0.3}`;
+
+      // 1. Consulta en paralelo con Nominatim (con sesgo de ubicación) y Photon (Komoot)
+      const nominatimQuery = `${formatted}, ${cityName}, Colombia`;
       const nominatimPromise = fetch(
-        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(normalized + ', Colombia')}&format=json&addressdetails=1&limit=5&countrycodes=co`,
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(nominatimQuery)}&format=json&addressdetails=1&limit=5&countrycodes=co&viewbox=${viewbox}&bounded=0`,
         { headers: { 'Accept-Language': 'es' } }
       ).then(res => res.ok ? res.json() : []).catch(() => []);
 
       const photonPromise = fetch(
-        `https://photon.komoot.io/api/?q=${encodeURIComponent(normalized)}&lat=7.1193&lon=-73.1198&limit=5&lang=es`
+        `https://photon.komoot.io/api/?q=${encodeURIComponent(formatted + ' ' + cityName)}&lat=${lat}&lon=${lng}&limit=5&lang=es`
       ).then(res => res.ok ? res.json() : { features: [] }).catch(() => ({ features: [] }));
 
       const [nomData, photonData] = await Promise.all([nominatimPromise, photonPromise]);
@@ -96,7 +153,7 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
           const addr = item.address || {};
           const road = addr.road || addr.pedestrian || addr.suburb || item.display_name.split(',')[0];
           const house = addr.house_number ? ` #${addr.house_number}` : '';
-          const city = addr.city || addr.town || addr.village || addr.municipality || 'Colombia';
+          const city = addr.city || addr.town || addr.village || addr.municipality || cityName;
           const name = `${road}${house}`;
           const full = `${name}, ${city}`;
 
@@ -118,7 +175,7 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
           const p = f.properties;
           const name = p.name || p.street || '';
           const house = p.housenumber ? ` #${p.housenumber}` : '';
-          const city = p.city || p.county || p.state || '';
+          const city = p.city || p.county || p.state || cityName;
           const full = `${name}${house}${city ? `, ${city}` : ''}`;
 
           if (name && !results.some(r => r.full_address === full || r.name === `${name}${house}`)) {
@@ -133,22 +190,24 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
         });
       }
 
-      // 2. Opción inteligente personalizada siempre disponible para asegurar uso continuo estilo delivery
+      // 2. Crear sugerencia con formato colombiano perfecto (ej. "Carrera 23 #33-39, Bucaramanga")
+      const formattedTitle = isStructured ? formatted : cleanText;
       const customOption: Suggestion = {
-        name: normalized,
-        full_address: `${normalized} (Usar dirección exacta ingresada)`,
-        isCustom: true
+        name: formattedTitle,
+        full_address: `${formattedTitle}, ${cityName}`,
+        isCustom: true,
+        lat,
+        lng
       };
 
-      // Colocamos la sugerencia personalizada al inicio si es una dirección específica
+      // Colocamos la dirección formateada en primer lugar
       setSuggestions([customOption, ...results.slice(0, 5)]);
       setShowDropdown(true);
     } catch (error) {
       console.error('Error buscando direcciones:', error);
-      // Fallback siempre activo en caso de fallo de red
       const fallback: Suggestion = {
-        name: normalized,
-        full_address: `${normalized} (Usar dirección ingresada)`,
+        name: formatted,
+        full_address: `${formatted}, ${cityName}`,
         isCustom: true
       };
       setSuggestions([fallback]);
@@ -168,10 +227,10 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
       }
     }, 250);
     return () => clearTimeout(timer);
-  }, [query]);
+  }, [query, cityName, userLocation]);
 
   const handleSelect = (s: Suggestion) => {
-    const finalAddress = s.isCustom ? s.name : s.full_address;
+    const finalAddress = s.full_address;
     const coords = s.lat && s.lng ? { lat: s.lat, lng: s.lng } : undefined;
     
     onChange(finalAddress, coords);
@@ -226,13 +285,13 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
                   onClick={() => handleSelect(s)}
                   className={`flex w-full items-center gap-3 px-4 py-3 text-left rounded-xl transition-all ${
                     s.isCustom
-                      ? "bg-emerald-50/70 hover:bg-emerald-100/80 text-emerald-950 font-medium"
+                      ? "bg-emerald-50/80 hover:bg-emerald-100 text-emerald-950 font-medium"
                       : "hover:bg-slate-100 text-slate-700"
                   }`}
                 >
                   {s.isCustom ? (
                     <div className="h-8 w-8 rounded-lg bg-emerald-500/20 text-emerald-600 flex items-center justify-center shrink-0">
-                      <Navigation className="h-4 w-4" />
+                      <Crosshair className="h-4 w-4" />
                     </div>
                   ) : (
                     <div className="h-8 w-8 rounded-lg bg-slate-100 text-emerald-600 flex items-center justify-center shrink-0">
@@ -244,8 +303,8 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-bold truncate text-slate-900">{s.name}</span>
                       {s.isCustom && (
-                        <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-600 text-white">
-                          Dirección Directa
+                        <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-emerald-600 text-white shrink-0">
+                          Formato Colombia
                         </span>
                       )}
                     </div>
@@ -264,4 +323,5 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
 };
 
 export default AddressAutocomplete;
+
 
