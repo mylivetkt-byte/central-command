@@ -160,10 +160,13 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
 
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (query && query !== value) {
+      if (query.trim().length >= 2) {
         searchAddresses(query);
+      } else {
+        setSuggestions([]);
+        setShowDropdown(false);
       }
-    }, 300);
+    }, 250);
     return () => clearTimeout(timer);
   }, [query]);
 
@@ -213,7 +216,7 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 4, scale: 0.98 }}
             transition={{ duration: 0.15 }}
-            className="absolute z-50 mt-2 w-full overflow-hidden rounded-2xl border border-slate-100 bg-white text-slate-800 shadow-2xl backdrop-blur-xl"
+            className="absolute z-[9999] mt-2 w-full overflow-hidden rounded-2xl border border-slate-100 bg-white text-slate-800 shadow-2xl backdrop-blur-xl"
           >
             <div className="max-h-[280px] overflow-y-auto p-1.5 space-y-1">
               {suggestions.map((s, i) => (

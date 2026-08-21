@@ -366,7 +366,7 @@ const Dispatch = () => {
                 
                 <AnimatePresence>
                     {showNewForm && (
-                        <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                        <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} className="overflow-visible z-20 relative">
                             <div className="bg-white rounded-3xl md:rounded-[32px] p-5 md:p-8 shadow-2xl space-y-6 border border-slate-100">
                                 <div className="flex items-center justify-between border-b border-slate-50 pb-5">
                                     <h2 className="text-lg md:text-xl font-black text-slate-800">
