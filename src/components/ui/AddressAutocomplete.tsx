@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Search, MapPin, Loader2, X, Navigation, Crosshair } from 'lucide-react';
+import { Search, MapPin, Loader2, X, Navigation, Crosshair, Building2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { supabase } from "@/integrations/supabase/client";
 
 interface Suggestion {
   name: string;
@@ -11,6 +12,7 @@ interface Suggestion {
   lng?: number;
   full_address: string;
   isCustom?: boolean;
+  place_id?: string;
 }
 
 interface AddressAutocompleteProps {
@@ -131,66 +133,92 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
       const lat = userLocation?.lat ?? 7.1193; // Bucaramanga / Colombia por defecto
       const lng = userLocation?.lng ?? -73.1198;
 
-      // Definir área de vista sesgada para Nominatim (+/- 0.3 grados alrededor de la ubicación actual)
-      const viewbox = `${lng - 0.3},${lat + 0.3},${lng + 0.3},${lat - 0.3}`;
-
-      // 1. Consulta en paralelo con Nominatim (con sesgo de ubicación) y Photon (Komoot)
-      const nominatimQuery = `${formatted}, ${cityName}, Colombia`;
-      const nominatimPromise = fetch(
-        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(nominatimQuery)}&format=json&addressdetails=1&limit=5&countrycodes=co&viewbox=${viewbox}&bounded=0`,
-        { headers: { 'Accept-Language': 'es' } }
-      ).then(res => res.ok ? res.json() : []).catch(() => []);
-
-      const photonPromise = fetch(
-        `https://photon.komoot.io/api/?q=${encodeURIComponent(formatted + ' ' + cityName)}&lat=${lat}&lon=${lng}&limit=5&lang=es`
-      ).then(res => res.ok ? res.json() : { features: [] }).catch(() => ({ features: [] }));
-
-      const [nomData, photonData] = await Promise.all([nominatimPromise, photonPromise]);
-
-      // Procesar resultados de Nominatim
-      if (Array.isArray(nomData)) {
-        nomData.forEach((item: any) => {
-          const addr = item.address || {};
-          const road = addr.road || addr.pedestrian || addr.suburb || item.display_name.split(',')[0];
-          const house = addr.house_number ? ` #${addr.house_number}` : '';
-          const city = addr.city || addr.town || addr.village || addr.municipality || cityName;
-          const name = `${road}${house}`;
-          const full = `${name}, ${city}`;
-
-          if (name && !results.some(r => r.full_address === full)) {
-            results.push({
-              name,
-              full_address: full,
-              city,
-              lat: parseFloat(item.lat),
-              lng: parseFloat(item.lon)
-            });
+      // 1. Intentar primero Google Places (que conoce todos los barrios, locales, centros comerciales, lugares y vías)
+      try {
+        const { data: gData, error: gErr } = await supabase.functions.invoke('google-navigation', {
+          body: {
+            action: 'autocomplete',
+            input: formatted,
+            biasLat: lat,
+            biasLng: lng
           }
         });
-      }
 
-      // Procesar resultados de Photon
-      if (photonData?.features && Array.isArray(photonData.features)) {
-        photonData.features.forEach((f: any) => {
-          const p = f.properties;
-          const name = p.name || p.street || '';
-          const house = p.housenumber ? ` #${p.housenumber}` : '';
-          const city = p.city || p.county || p.state || cityName;
-          const full = `${name}${house}${city ? `, ${city}` : ''}`;
-
-          if (name && !results.some(r => r.full_address === full || r.name === `${name}${house}`)) {
+        if (!gErr && gData?.predictions && Array.isArray(gData.predictions) && gData.predictions.length > 0) {
+          gData.predictions.forEach((p: any) => {
+            const mainText = p.structured_formatting?.main_text || p.description.split(',')[0];
+            const secondaryText = p.structured_formatting?.secondary_text || p.description;
             results.push({
-              name: `${name}${house}`,
-              full_address: full,
-              city,
-              lat: f.geometry.coordinates[1],
-              lng: f.geometry.coordinates[0]
+              name: mainText,
+              full_address: `${mainText}, ${secondaryText}`,
+              city: secondaryText,
+              place_id: p.place_id,
             });
-          }
-        });
+          });
+        }
+      } catch (e) {
+        console.log('[Google Places] No disponible o error, usando fallback OSM');
       }
 
-      // 2. Crear sugerencia con formato colombiano perfecto (ej. "Carrera 23 #33-39, Bucaramanga")
+      // 2. Consulta en paralelo con Nominatim y Photon si Google Places dio pocos o ningún resultado
+      if (results.length < 4) {
+        const viewbox = `${lng - 0.3},${lat + 0.3},${lng + 0.3},${lat - 0.3}`;
+        const nominatimQuery = `${formatted}, ${cityName}, Colombia`;
+        
+        const nominatimPromise = fetch(
+          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(nominatimQuery)}&format=json&addressdetails=1&limit=5&countrycodes=co&viewbox=${viewbox}&bounded=0`,
+          { headers: { 'Accept-Language': 'es' } }
+        ).then(res => res.ok ? res.json() : []).catch(() => []);
+
+        const photonPromise = fetch(
+          `https://photon.komoot.io/api/?q=${encodeURIComponent(formatted + ' ' + cityName)}&lat=${lat}&lon=${lng}&limit=5&lang=es`
+        ).then(res => res.ok ? res.json() : { features: [] }).catch(() => ({ features: [] }));
+
+        const [nomData, photonData] = await Promise.all([nominatimPromise, photonPromise]);
+
+        if (Array.isArray(nomData)) {
+          nomData.forEach((item: any) => {
+            const addr = item.address || {};
+            const road = addr.road || addr.pedestrian || addr.suburb || item.display_name.split(',')[0];
+            const house = addr.house_number ? ` #${addr.house_number}` : '';
+            const city = addr.city || addr.town || addr.village || addr.municipality || cityName;
+            const name = `${road}${house}`;
+            const full = `${name}, ${city}`;
+
+            if (name && !results.some(r => r.full_address === full || r.name === name)) {
+              results.push({
+                name,
+                full_address: full,
+                city,
+                lat: parseFloat(item.lat),
+                lng: parseFloat(item.lon)
+              });
+            }
+          });
+        }
+
+        if (photonData?.features && Array.isArray(photonData.features)) {
+          photonData.features.forEach((f: any) => {
+            const p = f.properties;
+            const name = p.name || p.street || '';
+            const house = p.housenumber ? ` #${p.housenumber}` : '';
+            const city = p.city || p.county || p.state || cityName;
+            const full = `${name}${house}${city ? `, ${city}` : ''}`;
+
+            if (name && !results.some(r => r.full_address === full || r.name === `${name}${house}`)) {
+              results.push({
+                name: `${name}${house}`,
+                full_address: full,
+                city,
+                lat: f.geometry.coordinates[1],
+                lng: f.geometry.coordinates[0]
+              });
+            }
+          });
+        }
+      }
+
+      // 3. Crear sugerencia personalizada con formato colombiano directo (ej. "Carrera 23 #33-39, Bucaramanga")
       const formattedTitle = isStructured ? formatted : cleanText;
       const customOption: Suggestion = {
         name: formattedTitle,
@@ -200,8 +228,7 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
         lng
       };
 
-      // Colocamos la dirección formateada en primer lugar
-      setSuggestions([customOption, ...results.slice(0, 5)]);
+      setSuggestions([customOption, ...results.slice(0, 6)]);
       setShowDropdown(true);
     } catch (error) {
       console.error('Error buscando direcciones:', error);
@@ -229,10 +256,27 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
     return () => clearTimeout(timer);
   }, [query, cityName, userLocation]);
 
-  const handleSelect = (s: Suggestion) => {
-    const finalAddress = s.full_address;
-    const coords = s.lat && s.lng ? { lat: s.lat, lng: s.lng } : undefined;
-    
+  const handleSelect = async (s: Suggestion) => {
+    let finalAddress = s.full_address;
+    let coords = s.lat && s.lng ? { lat: s.lat, lng: s.lng } : undefined;
+
+    // Si viene de Google Places Autocomplete, obtenemos la dirección formateada y coordenadas exactas mediante Place Details
+    if (s.place_id && !coords) {
+      setIsLoading(true);
+      try {
+        const { data: dData } = await supabase.functions.invoke('google-navigation', {
+          body: { action: 'details', place_id: s.place_id }
+        });
+        if (dData?.result?.formatted_address) {
+          finalAddress = dData.result.formatted_address;
+        }
+        if (dData?.result?.lat && dData?.result?.lng) {
+          coords = { lat: dData.result.lat, lng: dData.result.lng };
+        }
+      } catch {}
+      setIsLoading(false);
+    }
+
     onChange(finalAddress, coords);
     setQuery(finalAddress);
     setShowDropdown(false);

@@ -153,6 +153,47 @@ async function computeRoute(
   };
 }
 
+async function placeAutocomplete(input: string, biasLat?: number, biasLng?: number) {
+  const params = new URLSearchParams({
+    input,
+    components: 'country:co',
+    language: 'es',
+  });
+  if (typeof biasLat === 'number' && typeof biasLng === 'number') {
+    params.set('location', `${biasLat},${biasLng}`);
+    params.set('radius', '35000');
+  }
+  const r = await fetch(`${GATEWAY_URL}/maps/api/place/autocomplete/json?${params.toString()}`, {
+    headers: gwHeaders(),
+  });
+  const text = await r.text();
+  if (!r.ok) throw new Error(`autocomplete [${r.status}]: ${text}`);
+  const data = JSON.parse(text);
+  return data?.predictions || [];
+}
+
+async function placeDetails(placeId: string) {
+  const params = new URLSearchParams({
+    place_id: placeId,
+    fields: 'geometry,formatted_address,name',
+    language: 'es',
+  });
+  const r = await fetch(`${GATEWAY_URL}/maps/api/place/details/json?${params.toString()}`, {
+    headers: gwHeaders(),
+  });
+  const text = await r.text();
+  if (!r.ok) throw new Error(`placeDetails [${r.status}]: ${text}`);
+  const data = JSON.parse(text);
+  const result = data?.result;
+  if (!result) return null;
+  const loc = result.geometry?.location;
+  return {
+    formatted_address: result.formatted_address || result.name,
+    lat: loc?.lat,
+    lng: loc?.lng,
+  };
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
@@ -162,6 +203,24 @@ Deno.serve(async (req) => {
     }
     const payload = await req.json();
     const action = payload?.action;
+
+    if (action === 'autocomplete') {
+      const input = String(payload.input || '').trim();
+      if (!input) throw new Error('input required');
+      const predictions = await placeAutocomplete(input, payload.biasLat, payload.biasLng);
+      return new Response(JSON.stringify({ predictions }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
+
+    if (action === 'details') {
+      const placeId = String(payload.place_id || '').trim();
+      if (!placeId) throw new Error('place_id required');
+      const result = await placeDetails(placeId);
+      return new Response(JSON.stringify({ result }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      });
+    }
 
     if (action === 'geocode') {
       const address = String(payload.address || '').trim();
