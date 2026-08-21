@@ -154,59 +154,85 @@ async function computeRoute(
 }
 
 async function placeAutocomplete(input: string, biasLat?: number, biasLng?: number) {
-  const params = new URLSearchParams({
-    input,
-    components: 'country:co',
-    language: 'es',
-  });
-  if (typeof biasLat === 'number' && typeof biasLng === 'number') {
-    params.set('location', `${biasLat},${biasLng}`);
-    params.set('radius', '35000');
+  try {
+    const params = new URLSearchParams({
+      input,
+      components: 'country:co',
+      language: 'es',
+    });
+    if (typeof biasLat === 'number' && typeof biasLng === 'number') {
+      params.set('location', `${biasLat},${biasLng}`);
+      params.set('radius', '35000');
+    }
+    const r = await fetch(`${GATEWAY_URL}/maps/api/place/autocomplete/json?${params.toString()}`, {
+      headers: gwHeaders(),
+    });
+    const text = await r.text();
+    if (!r.ok) {
+      console.warn(`autocomplete [${r.status}]: ${text}`);
+      return [];
+    }
+    const data = JSON.parse(text);
+    return data?.predictions || [];
+  } catch (err) {
+    console.warn('[google-navigation] placeAutocomplete fallback:', err);
+    return [];
   }
-  const r = await fetch(`${GATEWAY_URL}/maps/api/place/autocomplete/json?${params.toString()}`, {
-    headers: gwHeaders(),
-  });
-  const text = await r.text();
-  if (!r.ok) throw new Error(`autocomplete [${r.status}]: ${text}`);
-  const data = JSON.parse(text);
-  return data?.predictions || [];
 }
 
 async function placeDetails(placeId: string) {
-  const params = new URLSearchParams({
-    place_id: placeId,
-    fields: 'geometry,formatted_address,name',
-    language: 'es',
-  });
-  const r = await fetch(`${GATEWAY_URL}/maps/api/place/details/json?${params.toString()}`, {
-    headers: gwHeaders(),
-  });
-  const text = await r.text();
-  if (!r.ok) throw new Error(`placeDetails [${r.status}]: ${text}`);
-  const data = JSON.parse(text);
-  const result = data?.result;
-  if (!result) return null;
-  const loc = result.geometry?.location;
-  return {
-    formatted_address: result.formatted_address || result.name,
-    lat: loc?.lat,
-    lng: loc?.lng,
-  };
+  try {
+    const params = new URLSearchParams({
+      place_id: placeId,
+      fields: 'geometry,formatted_address,name',
+      language: 'es',
+    });
+    const r = await fetch(`${GATEWAY_URL}/maps/api/place/details/json?${params.toString()}`, {
+      headers: gwHeaders(),
+    });
+    const text = await r.text();
+    if (!r.ok) {
+      console.warn(`placeDetails [${r.status}]: ${text}`);
+      return null;
+    }
+    const data = JSON.parse(text);
+    const result = data?.result;
+    if (!result) return null;
+    const loc = result.geometry?.location;
+    return {
+      formatted_address: result.formatted_address || result.name,
+      lat: loc?.lat,
+      lng: loc?.lng,
+    };
+  } catch (err) {
+    console.warn('[google-navigation] placeDetails fallback:', err);
+    return null;
+  }
 }
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   try {
-    if (!LOVABLE_API_KEY || !GOOGLE_MAPS_API_KEY) {
-      throw new Error('Missing Google Maps connector credentials');
-    }
-    const payload = await req.json();
+    const payload = await req.json().catch(() => ({}));
     const action = payload?.action;
+
+    if (!LOVABLE_API_KEY || !GOOGLE_MAPS_API_KEY) {
+      console.warn('Missing Google Maps connector credentials, using fallback mode');
+      if (action === 'autocomplete') {
+        return new Response(JSON.stringify({ predictions: [] }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
+    }
 
     if (action === 'autocomplete') {
       const input = String(payload.input || '').trim();
-      if (!input) throw new Error('input required');
+      if (!input) {
+        return new Response(JSON.stringify({ predictions: [] }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
       const predictions = await placeAutocomplete(input, payload.biasLat, payload.biasLng);
       return new Response(JSON.stringify({ predictions }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -215,7 +241,11 @@ Deno.serve(async (req) => {
 
     if (action === 'details') {
       const placeId = String(payload.place_id || '').trim();
-      if (!placeId) throw new Error('place_id required');
+      if (!placeId) {
+        return new Response(JSON.stringify({ result: null }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
       const result = await placeDetails(placeId);
       return new Response(JSON.stringify({ result }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -243,14 +273,14 @@ Deno.serve(async (req) => {
       });
     }
 
-    return new Response(JSON.stringify({ error: 'unknown action' }), {
-      status: 400,
+    return new Response(JSON.stringify({ predictions: [] }), {
+      status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (e: any) {
     console.error('[google-navigation] error:', e?.message || e);
-    return new Response(JSON.stringify({ error: e?.message || 'internal error' }), {
-      status: 500,
+    return new Response(JSON.stringify({ predictions: [], error: e?.message || 'internal error' }), {
+      status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   }
