@@ -6,27 +6,31 @@ import { useNavigate } from "react-router-dom";
 import { Package, Truck, Clock, DollarSign, Users, AlertTriangle, CheckCircle, XCircle, Zap, MapPin } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from "recharts";
 import { motion } from "framer-motion";
+import { useCompany } from "@/hooks/useCompany";
 
-const COLORS = ["#FFFFFF", "#D4D4D4", "#737373", "#404040"];
+const COLORS = ["hsl(217,91%,60%)", "hsl(160,84%,39%)", "hsl(38,92%,50%)", "hsl(0,84%,60%)"];
 
 const formatCurrency = (v: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(v);
 
-const tooltipStyle = { background: "hsl(222,47%,9%)", border: "1px solid hsl(217,33%,17%)", borderRadius: 8, color: "hsl(210,40%,96%)" };
+const tooltipStyle = { background: "white", border: "1px solid hsl(214.3, 31.8%, 91.4%)", borderRadius: 8, color: "black" };
 
 const Dashboard = () => {
   const navigate = useNavigate();
+  const { selectedCompanyId, company } = useCompany();
   // Pedidos de hoy
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
   const { data: deliveries = [] } = useQuery({
-    queryKey: ["dashboard-deliveries"],
+    queryKey: ["dashboard-deliveries", selectedCompanyId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let q: any = supabase
         .from("deliveries")
         .select("*")
         .order("created_at", { ascending: false });
+      if (selectedCompanyId) q = q.eq("company_id", selectedCompanyId);
+      const { data, error } = await q;
       if (error) throw error;
       return data || [];
     },
@@ -34,20 +38,26 @@ const Dashboard = () => {
   });
 
   const { data: drivers = [] } = useQuery({
-    queryKey: ["dashboard-drivers"],
+    queryKey: ["dashboard-drivers", selectedCompanyId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let q: any = supabase
         .from("driver_profiles")
-        .select(`id, status, total_deliveries, rating, acceptance_rate, current_load, zone, profiles (full_name)`) as any;
+        .select(`id, status, total_deliveries, rating, acceptance_rate, current_load, zone, profiles (full_name)`);
+      if (selectedCompanyId) q = q.eq("company_id", selectedCompanyId);
+      const { data, error } = await q;
       if (error) throw error;
       return data || [];
     },
     refetchInterval: 30000,
   });
 
+  const getDeliveryRefDate = (d: any) => {
+    return new Date(d.status === "entregado" ? (d.delivered_at || d.created_at) : d.created_at);
+  };
+
   // KPIs calculados desde datos reales
   const todayDeliveries = deliveries.filter((d: any) =>
-    new Date(d.created_at) >= today
+    getDeliveryRefDate(d) >= today
   );
 
   const kpis = {
@@ -74,10 +84,10 @@ const Dashboard = () => {
     date.setDate(date.getDate() - (6 - i));
     date.setHours(0, 0, 0, 0);
     const nextDay = new Date(date);
-    nextDay.setDate(nextDay.getDate() + 1);
+    nextDay.setDate(date.getDate() + 1);
     const count = deliveries.filter((d: any) => {
-      const created = new Date(d.created_at);
-      return created >= date && created < nextDay;
+      const refDate = getDeliveryRefDate(d);
+      return refDate >= date && refDate < nextDay;
     }).length;
     return {
       date: date.toISOString().slice(0, 10),
@@ -92,22 +102,24 @@ const Dashboard = () => {
     <DashboardLayout>
       <div className="space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-foreground">Panel Central</h1>
-          <p className="text-sm text-muted-foreground">
-            Datos en tiempo real desde Supabase — {new Date().toLocaleDateString("es-CO", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
+          <h1 className="text-2xl font-bold text-foreground">
+            Panel Central{company?.name ? ` · ${company.name}` : ""}
+          </h1>
+          <p className="text-sm text-slate-700 font-medium">
+            Datos en tiempo real desde Central — {new Date().toLocaleDateString("es-CO", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
           </p>
         </div>
         
         <div className="flex gap-3">
           <button 
             onClick={() => navigate("/dispatch")}
-            className="flex items-center gap-2 rounded-none bg-primary px-6 py-3 text-sm font-bold text-primary-foreground hover:bg-neutral-200 active:scale-[0.98] transition-all"
+            className="flex items-center gap-2 rounded-xl bg-primary px-6 py-3 text-sm font-bold text-primary-foreground shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
           >
             <Zap className="h-4 w-4" /> Publicar Nuevo Envío
           </button>
           <button 
             onClick={() => navigate("/map-tracking")}
-            className="flex items-center gap-2 rounded-none bg-card border border-border px-6 py-3 text-sm font-bold text-foreground hover:bg-muted transition-all"
+            className="flex items-center gap-2 rounded-xl bg-card border border-border px-6 py-3 text-sm font-bold text-foreground hover:bg-muted transition-all"
           >
             <MapPin className="h-4 w-4 text-primary" /> Ver Mapa en Vivo
           </button>
@@ -136,7 +148,7 @@ const Dashboard = () => {
                 <XAxis dataKey="date" tick={{ fontSize: 11, fill: "hsl(215,20%,55%)" }} tickFormatter={v => v.slice(5)} />
                 <YAxis tick={{ fontSize: 11, fill: "hsl(215,20%,55%)" }} allowDecimals={false} />
                 <Tooltip contentStyle={tooltipStyle} />
-                <Bar dataKey="deliveries" fill="#FFFFFF" radius={[2, 2, 0, 0]} />
+                <Bar dataKey="deliveries" fill="hsl(217,91%,60%)" radius={[6, 6, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </motion.div>

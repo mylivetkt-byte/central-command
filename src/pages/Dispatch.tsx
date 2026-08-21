@@ -1,4 +1,5 @@
 import { useAuth } from "@/hooks/useAuth";
+import { useCompany } from "@/hooks/useCompany";
 import { DashboardLayout } from "@/components/DashboardLayout";
 import AddressAutocomplete from "@/components/ui/AddressAutocomplete";
 import ChatBubble from "@/components/ChatBubble";
@@ -6,7 +7,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect } from "react";
-import { Zap, MapPin, Package, Plus, X, Send, UserCheck, Clock, CheckCircle, XCircle, RefreshCw, BellRing, Navigation } from "lucide-react";
+import { Zap, MapPin, Package, Plus, X, Send, UserCheck, Clock, CheckCircle, XCircle, RefreshCw, BellRing, Navigation, Radio, Users, Pencil, Trash2, EyeOff } from "lucide-react";
 import { toast } from "sonner";
 
 const formatCurrency = (v: number) =>
@@ -42,9 +43,13 @@ const emptyForm: NewDeliveryForm = {
 
 const Dispatch = () => {
   const { user } = useAuth();
+  const { selectedCompanyId } = useCompany();
   const [showNewForm, setShowNewForm] = useState(false);
   const [form, setForm] = useState<NewDeliveryForm>(emptyForm);
   const [selectedOrder, setSelectedOrder] = useState<string | null>(null);
+  const [dispatchMode, setDispatchMode] = useState<"todos" | "especifico">("todos");
+  const [targetDriverId, setTargetDriverId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   // Pedidos activos
@@ -76,28 +81,53 @@ const Dispatch = () => {
     refetchInterval: 10000,
   });
 
-  // BROADCAST PARA LOS MENSAJEROS
-  const broadcastNewOrder = async () => {
+  // BROADCAST PARA LOS MENSAJEROS — envía el ID real de la orden
+  const broadcastNewOrder = async (deliveryId: string) => {
     const channel = supabase.channel("dispatch-notifications");
     await channel.subscribe(async (status) => {
       if (status === "SUBSCRIBED") {
         await channel.send({
           type: "broadcast",
           event: "new-order",
-          payload: { message: "Nuevo pedido publicado" }
+          payload: { id: deliveryId }
         });
-        console.log("Broadcast sent!");
-        supabase.removeChannel(channel);
+        console.log("Broadcast sent for:", deliveryId);
+        setTimeout(() => supabase.removeChannel(channel), 500);
       }
     });
   };
 
   const createDelivery = useMutation({
     mutationFn: async (formData: NewDeliveryForm) => {
+      // Si estamos editando, actualiza en lugar de crear
+      if (editingId) {
+        const { error } = await (supabase.from("deliveries") as any)
+          .update({
+            customer_name: formData.customer_name,
+            customer_phone: formData.customer_phone || null,
+            pickup_address: formData.pickup_address,
+            delivery_address: formData.delivery_address,
+            pickup_lat: formData.pickup_lat ?? null,
+            pickup_lng: formData.pickup_lng ?? null,
+            delivery_lat: formData.delivery_lat ?? null,
+            delivery_lng: formData.delivery_lng ?? null,
+            amount: parseFloat(formData.amount) || 0,
+            commission: parseFloat(formData.commission) || 0,
+            estimated_time: parseInt(formData.estimated_time) || 30,
+            zone: formData.zone || null,
+            notes: formData.notes || null,
+          })
+          .eq("id", editingId);
+        if (error) throw error;
+        return { orderId: "", isDirectAssign: false, edited: true };
+      }
+
       const orderId = `DOM-${Date.now().toString().slice(-6)}`;
-      
-      const { error } = await (supabase.from("deliveries") as any).insert({
+      const isDirectAssign = dispatchMode === "especifico" && targetDriverId;
+
+      const { data: inserted, error } = await (supabase.from("deliveries") as any).insert({
         order_id: orderId,
+        company_id: selectedCompanyId ?? undefined,
         customer_name: formData.customer_name,
         customer_phone: formData.customer_phone || null,
         pickup_address: formData.pickup_address,
@@ -110,21 +140,77 @@ const Dispatch = () => {
         commission: parseFloat(formData.commission) || 0,
         estimated_time: parseInt(formData.estimated_time) || 30,
         zone: formData.zone || null,
-        status: "pendiente",
+        // Si es asignación directa: ya va con driver y estado aceptado
+        status: isDirectAssign ? "aceptado" : "pendiente",
+        driver_id: isDirectAssign ? targetDriverId : null,
+        accepted_at: isDirectAssign ? new Date().toISOString() : null,
         notes: formData.notes || null,
-      });
+      }).select("id").maybeSingle();
       if (error) throw error;
-      
-      // Enviar señal a los mensajeros
-      await broadcastNewOrder();
-      
-      return orderId;
+
+      if (inserted?.id) {
+        if (isDirectAssign) {
+          // Broadcast solo al mensajero asignado
+          const ch = supabase.channel("dispatch-notifications");
+          await ch.subscribe(async (status) => {
+            if (status === "SUBSCRIBED") {
+              await ch.send({
+                type: "broadcast",
+                event: "new-order",
+                payload: { id: inserted.id, driverId: targetDriverId },
+              });
+              setTimeout(() => supabase.removeChannel(ch), 500);
+            }
+          });
+          // Push al mensajero específico
+          supabase.functions.invoke("notify-drivers-push", {
+            body: {
+              driver_id: targetDriverId,
+              title: "Nuevo pedido asignado",
+              body: `${orderId} — ${formData.pickup_address} → ${formData.delivery_address}`,
+              url: "/driver",
+              delivery_id: inserted.id,
+            },
+          }).catch(() => {});
+        } else {
+          await broadcastNewOrder(inserted.id);
+          // Push a todos los mensajeros activos de la empresa
+          if (selectedCompanyId) {
+            supabase.functions.invoke("notify-drivers-push", {
+              body: {
+                company_id: selectedCompanyId,
+                title: "Nuevo pedido disponible",
+                body: `${orderId} — ${formData.zone || "Sin zona"} · Recogida: ${formData.pickup_address}`,
+                url: "/driver",
+                delivery_id: inserted.id,
+              },
+            }).catch(() => {});
+          }
+        }
+      }
+
+      return { orderId, isDirectAssign, edited: false };
     },
-    onSuccess: (orderId) => {
+    onSuccess: ({ orderId, isDirectAssign, edited }) => {
+      if (edited) {
+        toast.success("✅ Pedido actualizado");
+        setForm(emptyForm);
+        setEditingId(null);
+        setShowNewForm(false);
+        queryClient.invalidateQueries({ queryKey: ["dispatch-pending"] });
+        return;
+      }
+      const driverName = isDirectAssign
+        ? availableDrivers.find((d: any) => d.id === targetDriverId)?.profiles?.full_name ?? "el mensajero"
+        : null;
       toast.success(`✅ ¡PEDIDO PUBLICADO!`, {
-        description: `El servicio ${orderId} ya está disponible para los mensajeros.`,
+        description: isDirectAssign
+          ? `El servicio ${orderId} fue asignado directamente a ${driverName}.`
+          : `El servicio ${orderId} ya está disponible para todos los mensajeros.`,
       });
       setForm(emptyForm);
+      setDispatchMode("todos");
+      setTargetDriverId(null);
       setShowNewForm(false);
       queryClient.invalidateQueries({ queryKey: ["dispatch-pending"] });
     },
@@ -137,6 +223,18 @@ const Dispatch = () => {
         .update({ driver_id: driverId, status: "aceptado", accepted_at: new Date().toISOString() })
         .eq("id", deliveryId);
       if (error) throw error;
+      // Notificar al conductor asignado
+      const ch = supabase.channel("dispatch-notifications");
+      await ch.subscribe(async (status) => {
+        if (status === "SUBSCRIBED") {
+          await ch.send({
+            type: "broadcast",
+            event: "order-assigned",
+            payload: { deliveryId, driverId }
+          });
+          setTimeout(() => supabase.removeChannel(ch), 500);
+        }
+      });
     },
     onSuccess: () => {
       toast.success("Mensajero asignado con éxito");
@@ -145,94 +243,273 @@ const Dispatch = () => {
     },
   });
 
+  // Despublicar: quita el pedido del listado disponible para los mensajeros (marca como cancelado)
+  const unpublishDelivery = useMutation({
+    mutationFn: async (deliveryId: string) => {
+      const { error } = await (supabase.from("deliveries") as any)
+        .update({ status: "cancelado", updated_at: new Date().toISOString() })
+        .eq("id", deliveryId)
+        .eq("status", "pendiente");
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Pedido despublicado — ya no es visible para los mensajeros");
+      setSelectedOrder(null);
+      queryClient.invalidateQueries({ queryKey: ["dispatch-pending"] });
+    },
+    onError: (err: any) => toast.error(`Error: ${err.message}`),
+  });
+
+  // Eliminar definitivamente el pedido pendiente
+  const deleteDelivery = useMutation({
+    mutationFn: async (deliveryId: string) => {
+      const { error } = await (supabase.from("deliveries") as any)
+        .delete()
+        .eq("id", deliveryId)
+        .eq("status", "pendiente");
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast.success("Pedido eliminado");
+      setSelectedOrder(null);
+      queryClient.invalidateQueries({ queryKey: ["dispatch-pending"] });
+    },
+    onError: (err: any) => toast.error(`Error: ${err.message}`),
+  });
+
+  const startEdit = (d: any) => {
+    setEditingId(d.id);
+    setForm({
+      customer_name: d.customer_name || "",
+      customer_phone: d.customer_phone || "",
+      pickup_address: d.pickup_address || "",
+      delivery_address: d.delivery_address || "",
+      amount: String(d.amount ?? ""),
+      commission: String(d.commission ?? ""),
+      estimated_time: String(d.estimated_time ?? "30"),
+      zone: d.zone || "",
+      notes: d.notes || "",
+      pickup_lat: d.pickup_lat ?? undefined,
+      pickup_lng: d.pickup_lng ?? undefined,
+      delivery_lat: d.delivery_lat ?? undefined,
+      delivery_lng: d.delivery_lng ?? undefined,
+    });
+    setShowNewForm(true);
+    setTimeout(() => window.scrollTo({ top: 0, behavior: "smooth" }), 50);
+  };
+
+  const closeForm = () => {
+    setShowNewForm(false);
+    setEditingId(null);
+    setForm(emptyForm);
+  };
+
   const handleFormChange = (field: keyof NewDeliveryForm, value: any) => {
     setForm((prev) => ({ ...prev, [field]: value }));
   };
 
+  const handleRepublish = async (deliveryId: string) => {
+    const channel = supabase.channel("dispatch-notifications");
+    await channel.subscribe(async (status) => {
+      if (status === "SUBSCRIBED") {
+        await channel.send({
+          type: "broadcast",
+          event: "new-order",
+          payload: { republished_delivery_id: deliveryId },
+        });
+        setTimeout(() => supabase.removeChannel(channel), 500);
+      }
+    });
+
+    const { error } = await supabase
+      .from("deliveries")
+      .update({ updated_at: new Date().toISOString() })
+      .eq("id", deliveryId);
+
+    if (error) {
+      toast.error("Error al republicar envío: " + error.message);
+    } else {
+      toast.success("Envío republicado a todos los mensajeros");
+      queryClient.invalidateQueries({ queryKey: ["dispatch-pending"] });
+    }
+  };
+
   return (
     <DashboardLayout>
-      <div className="max-w-[1200px] mx-auto space-y-8 animate-in fade-in duration-700">
+      <div className="max-w-[1200px] mx-auto space-y-6 md:space-y-8 animate-in fade-in duration-700 px-2 md:px-0">
         
         {/* Cabecera Admin Premium */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 p-8 bg-card border border-white/5 rounded-[32px] shadow-2xl">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 md:gap-6 p-5 md:p-8 bg-white border border-slate-200 rounded-3xl md:rounded-[32px] shadow-lg">
           <div>
             <div className="flex items-center gap-3 mb-2">
-                <div className="p-2 bg-indigo-500/20 rounded-xl">
-                    <Navigation className="h-6 w-6 text-indigo-500" />
+                <div className="p-2 bg-emerald-100 rounded-xl">
+                    <Navigation className="h-6 w-6 text-emerald-600" />
                 </div>
-                <h1 className="text-3xl font-black tracking-tight text-white">Central de Despacho</h1>
+                <h1 className="text-2xl md:text-3xl font-black tracking-tight text-slate-900">Central de Despacho</h1>
             </div>
-            <p className="text-sm text-white/40 font-medium">Gestiona la logística de tu flota en tiempo real.</p>
+            <p className="text-sm text-slate-500 font-medium">Gestiona la logística de tu flota en tiempo real.</p>
           </div>
           
           <button
-            onClick={() => setShowNewForm(true)}
-            className="group relative flex items-center gap-3 rounded-2xl bg-indigo-600 px-8 py-4 text-sm font-black text-white hover:bg-indigo-500 transition-all shadow-xl shadow-indigo-600/20 active:scale-95"
+            onClick={() => { setEditingId(null); setForm(emptyForm); setShowNewForm(true); }}
+            className="group relative flex items-center justify-center gap-3 rounded-2xl bg-emerald-600 px-6 md:px-8 py-3.5 md:py-4 text-sm font-black text-white hover:bg-emerald-500 transition-all shadow-xl shadow-emerald-600/20 active:scale-95"
           >
             <Plus className="h-5 w-5" /> PUBLICAR NUEVO ENVÍO
-            <div className="absolute -top-1 -right-1 h-4 w-4 bg-emerald-500 rounded-full animate-ping pointer-events-none" />
+            <div className="absolute -top-1 -right-1 h-4 w-4 bg-green-400 rounded-full animate-ping pointer-events-none" />
           </button>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 md:gap-8">
             
             {/* Listado de Servicios (60%) */}
-            <div className="lg:col-span-8 space-y-6">
+            <div className="lg:col-span-8 space-y-6 min-w-0">
                 
                 <AnimatePresence>
                     {showNewForm && (
                         <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
-                            <div className="bg-white rounded-[32px] p-8 shadow-2xl space-y-6 border border-slate-100">
+                            <div className="bg-white rounded-3xl md:rounded-[32px] p-5 md:p-8 shadow-2xl space-y-6 border border-slate-100">
                                 <div className="flex items-center justify-between border-b border-slate-50 pb-5">
-                                    <h2 className="text-xl font-black text-slate-800">Detalles del Servicio</h2>
-                                    <button onClick={() => setShowNewForm(false)} className="h-10 w-10 rounded-full bg-slate-50 flex items-center justify-center text-slate-400 hover:bg-slate-100"><X /></button>
+                                    <h2 className="text-lg md:text-xl font-black text-slate-800">
+                                      {editingId ? "✏️ Editar Servicio" : "Detalles del Servicio"}
+                                    </h2>
+                                    <button type="button" onClick={closeForm} className="h-10 w-10 rounded-full bg-slate-50 flex items-center justify-center text-slate-700 hover:bg-slate-100"><X /></button>
                                 </div>
                                 
                                 <form onSubmit={(e) => { e.preventDefault(); createDelivery.mutate(form); }} className="space-y-6">
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                         <div className="space-y-2">
-                                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Cliente Receptor</label>
-                                            <input value={form.customer_name} onChange={(e) => handleFormChange("customer_name", e.target.value)} placeholder="Nombre completo" required className="w-full h-14 rounded-2xl bg-slate-50 border-transparent focus:bg-white focus:ring-4 focus:ring-indigo-100 transition-all px-6 text-sm font-bold text-slate-800" />
+                                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-700 ml-1">Cliente Receptor</label>
+                                            <input value={form.customer_name} onChange={(e) => handleFormChange("customer_name", e.target.value)} placeholder="Nombre completo" required className="w-full h-14 rounded-2xl bg-slate-50 border-transparent focus:bg-white focus:ring-4 focus:ring-emerald-100 transition-all px-6 text-sm font-bold text-slate-800" />
                                         </div>
                                         <div className="space-y-2">
-                                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Teléfono Contacto</label>
-                                            <input value={form.customer_phone} onChange={(e) => handleFormChange("customer_phone", e.target.value)} placeholder="+57 3..." className="w-full h-14 rounded-2xl bg-slate-50 border-transparent focus:bg-white focus:ring-4 focus:ring-indigo-100 transition-all px-6 text-sm font-bold text-slate-800" />
+                                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-700 ml-1">Teléfono Contacto</label>
+                                            <input value={form.customer_phone} onChange={(e) => handleFormChange("customer_phone", e.target.value)} placeholder="+57 3..." className="w-full h-14 rounded-2xl bg-slate-50 border-transparent focus:bg-white focus:ring-4 focus:ring-emerald-100 transition-all px-6 text-sm font-bold text-slate-800" />
                                         </div>
                                     </div>
 
                                     <div className="space-y-2">
-                                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">📍 Punto de Recogida (Sugerencias Inteligentes)</label>
+                                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-700 ml-1">📍 Punto de Recogida (Sugerencias Inteligentes)</label>
                                         <AddressAutocomplete value={form.pickup_address} onChange={(a, c) => { handleFormChange("pickup_address", a); if(c){ handleFormChange("pickup_lat", c.lat); handleFormChange("pickup_lng", c.lng); } }} placeholder="Escribe la dirección y selecciona de la lista..." className="dispatch-autocomplete" />
                                     </div>
 
                                     <div className="space-y-2">
-                                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">🏁 Destino de Entrega (Sugerencias Inteligentes)</label>
+                                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-700 ml-1">🏁 Destino de Entrega (Sugerencias Inteligentes)</label>
                                         <AddressAutocomplete value={form.delivery_address} onChange={(a, c) => { handleFormChange("delivery_address", a); if(c){ handleFormChange("delivery_lat", c.lat); handleFormChange("delivery_lng", c.lng); } }} placeholder="Busca la dirección exacta del cliente..." className="dispatch-autocomplete" />
                                     </div>
 
-                                    <div className="grid grid-cols-3 gap-4 pb-4">
+                                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pb-4">
                                         <div className="space-y-2">
-                                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Cobro Cliente</label>
+                                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-700 ml-1">Cobro Cliente</label>
                                             <div className="relative">
-                                                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300 font-bold">$</span>
+                                                <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-600 font-bold">$</span>
                                                 <input type="number" value={form.amount} onChange={(e) => handleFormChange("amount", e.target.value)} className="w-full h-14 rounded-2xl bg-slate-50 pl-8 pr-4 text-sm font-black text-slate-800" placeholder="0" />
                                             </div>
                                         </div>
                                         <div className="space-y-2">
-                                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Pago Mensajero</label>
+                                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-700 ml-1">Pago Mensajero</label>
                                             <div className="relative">
                                                 <span className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-300 font-bold">$</span>
                                                 <input type="number" value={form.commission} onChange={(e) => handleFormChange("commission", e.target.value)} className="w-full h-14 rounded-2xl bg-slate-50 pl-8 pr-4 text-sm font-black text-emerald-600" placeholder="0" />
                                             </div>
                                         </div>
                                         <div className="space-y-2">
-                                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Minutos Est.</label>
+                                            <label className="text-[10px] font-black uppercase tracking-widest text-slate-700 ml-1">Minutos Est.</label>
                                             <input type="number" value={form.estimated_time} onChange={(e) => handleFormChange("estimated_time", e.target.value)} className="w-full h-14 rounded-2xl bg-slate-50 px-6 text-sm font-black text-slate-800" />
                                         </div>
                                     </div>
 
-                                    <button type="submit" disabled={createDelivery.isPending} className="w-full h-16 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-black transition-all shadow-xl shadow-indigo-100 flex items-center justify-center gap-3">
-                                        <Send /> {createDelivery.isPending ? "PROCESANDO..." : "PUBLICAR SERVICIO AHORA"}
+                                    <div className="space-y-2">
+                                        <label className="text-[10px] font-black uppercase tracking-widest text-slate-700 ml-1">📝 Nota para el mensajero (opcional)</label>
+                                        <textarea
+                                          value={form.notes}
+                                          onChange={(e) => handleFormChange("notes", e.target.value)}
+                                          placeholder="Instrucciones especiales: apartamento, referencia, indicaciones de entrega, etc."
+                                          rows={3}
+                                          className="w-full rounded-2xl bg-slate-50 border-transparent focus:bg-white focus:ring-4 focus:ring-emerald-100 transition-all px-6 py-4 text-sm font-medium text-slate-800 resize-none"
+                                        />
+                                    </div>
+
+                                    {/* MODO DE ENVÍO (solo al crear) */}
+                                    {!editingId && (
+                                    <div className="space-y-3">
+                                      <label className="text-[10px] font-black uppercase tracking-widest text-slate-700 ml-1">🚀 Enviar a</label>
+                                      <div className="grid grid-cols-2 gap-3">
+                                        <button
+                                          type="button"
+                                          onClick={() => { setDispatchMode("todos"); setTargetDriverId(null); }}
+                                          className={`flex items-center gap-2 p-4 rounded-2xl border-2 transition-all text-sm font-black ${
+                                            dispatchMode === "todos"
+                                              ? "border-emerald-500 bg-emerald-50 text-emerald-700"
+                                              : "border-slate-200 bg-slate-50 text-slate-500 hover:border-slate-300"
+                                          }`}
+                                        >
+                                          <Users className="h-4 w-4 flex-shrink-0" />
+                                          Todos los mensajeros
+                                        </button>
+                                        <button
+                                          type="button"
+                                          onClick={() => setDispatchMode("especifico")}
+                                          className={`flex items-center gap-2 p-4 rounded-2xl border-2 transition-all text-sm font-black ${
+                                            dispatchMode === "especifico"
+                                              ? "border-emerald-500 bg-emerald-50 text-emerald-700"
+                                              : "border-slate-200 bg-slate-50 text-slate-500 hover:border-slate-300"
+                                          }`}
+                                        >
+                                          <Radio className="h-4 w-4 flex-shrink-0" />
+                                          Mensajero específico
+                                        </button>
+                                      </div>
+
+                                      {/* Lista de mensajeros si modo específico */}
+                                      {dispatchMode === "especifico" && (
+                                        <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                                          {availableDrivers.length === 0 && (
+                                            <p className="text-xs text-slate-700 text-center py-4">No hay mensajeros activos ahora mismo.</p>
+                                          )}
+                                          {availableDrivers.map((d: any) => (
+                                            <button
+                                              key={d.id}
+                                              type="button"
+                                              onClick={() => setTargetDriverId(d.id)}
+                                              className={`w-full flex items-center justify-between p-3 rounded-2xl border-2 transition-all ${
+                                                targetDriverId === d.id
+                                                  ? "border-emerald-500 bg-emerald-50"
+                                                  : "border-slate-100 bg-slate-50 hover:border-slate-200"
+                                              }`}
+                                            >
+                                              <div className="flex items-center gap-3">
+                                                <div className={`h-9 w-9 rounded-xl flex items-center justify-center font-black text-sm capitalize ${
+                                                  targetDriverId === d.id ? "bg-emerald-500 text-white" : "bg-slate-200 text-slate-600"
+                                                }`}>
+                                                  {d.profiles?.full_name?.[0] || "M"}
+                                                </div>
+                                                <div className="text-left">
+                                                  <p className="text-sm font-black text-slate-800">{d.profiles?.full_name}</p>
+                                                  <p className="text-[10px] text-slate-700 font-bold">⭐ {d.rating || 5.0} · {d.current_load} pedidos activos</p>
+                                                </div>
+                                              </div>
+                                              {targetDriverId === d.id && (
+                                                <span className="text-[10px] font-black text-emerald-600 bg-emerald-100 px-2 py-1 rounded-full">SELECCIONADO</span>
+                                              )}
+                                            </button>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                    )}
+
+                                    <button
+                                      type="submit"
+                                      disabled={createDelivery.isPending || (dispatchMode === "especifico" && !targetDriverId)}
+                                      className="w-full h-16 rounded-2xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed text-white font-black transition-all shadow-xl shadow-emerald-100 flex items-center justify-center gap-3"
+                                    >
+                                      <Send /> {createDelivery.isPending
+                                        ? "PROCESANDO..."
+                                        : editingId
+                                          ? "GUARDAR CAMBIOS"
+                                          : dispatchMode === "especifico" && targetDriverId
+                                            ? "ASIGNAR AL MENSAJERO"
+                                            : "PUBLICAR SERVICIO AHORA"}
                                     </button>
                                 </form>
                             </div>
@@ -240,41 +517,79 @@ const Dispatch = () => {
                     )}
                 </AnimatePresence>
 
-                <div className="bg-card border border-white/5 rounded-[32px] p-6 space-y-4 shadow-xl">
+                <div className="bg-white border border-slate-200 rounded-[32px] p-6 space-y-4 shadow-lg">
                     <div className="flex items-center justify-between px-4 pb-2">
-                        <h3 className="text-sm font-black text-white/30 uppercase tracking-widest">Envíos en Curso</h3>
+                        <h3 className="text-sm font-black text-slate-700 uppercase tracking-widest">Envíos en Curso</h3>
                         <div className="flex items-center gap-2">
-                            <RefreshCw className={`h-3.5 w-3.5 text-white/20 ${loadingPending ? 'animate-spin' : ''}`} />
-                            <span className="text-xs font-black text-white/20">{pending.length}</span>
+                            <RefreshCw className={`h-3.5 w-3.5 text-slate-700 ${loadingPending ? 'animate-spin' : ''}`} />
+                            <span className="text-xs font-black text-slate-700">{pending.length}</span>
                         </div>
                     </div>
                     
-                    <div className="space-y-3 max-h-[600px] overflow-y-auto custom-scrollbar pr-2">
+                    <div className="space-y-3 max-h-[600px] overflow-y-auto custom-scrollbar pr-1 md:pr-2">
                         {pending.map((d: any) => (
-                            <motion.div key={d.id} className={`p-5 rounded-3xl border transition-all cursor-pointer ${selectedOrder === d.id ? 'bg-indigo-500/10 border-indigo-500 shadow-xl' : 'bg-white/5 border-transparent hover:bg-white/10'}`} onClick={() => setSelectedOrder(selectedOrder === d.id ? null : d.id)}>
+                            <motion.div key={d.id} className={`p-4 md:p-5 rounded-3xl border transition-all cursor-pointer ${selectedOrder === d.id ? 'bg-emerald-50 border-emerald-500 shadow-md' : 'bg-slate-50 border-slate-100 hover:bg-slate-100 hover:border-slate-200'}`} onClick={() => setSelectedOrder(selectedOrder === d.id ? null : d.id)}>
                                 <div className="flex items-center justify-between mb-4">
                                     <div className="flex items-center gap-3">
-                                        <div className="h-10 w-10 rounded-xl bg-slate-800 flex items-center justify-center font-black text-white text-xs">#{d.order_id.slice(-4)}</div>
-                                        <div>
-                                            <p className="text-sm font-black text-white">{d.customer_name}</p>
-                                            <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest">{d.status}</p>
+                                        <div className="h-10 w-10 rounded-xl bg-slate-200 flex items-center justify-center font-black text-slate-700 text-xs">#{d.order_id.slice(-4)}</div>
+                                        <div className="min-w-0">
+                                            <p className="text-sm font-black text-slate-900 truncate">{d.customer_name}</p>
+                                            <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{d.status}</p>
                                         </div>
                                     </div>
-                                    <div className="text-right">
-                                        <p className="text-sm font-black text-emerald-400">{formatCurrency(d.commission)}</p>
-                                        <p className="text-[10px] text-white/20 font-bold">GANANCIA</p>
+                                    <div className="text-right shrink-0 ml-2">
+                                        <p className="text-sm font-black text-emerald-600">{formatCurrency(d.commission)}</p>
+                                        <p className="text-[10px] text-slate-700 font-bold">GANANCIA</p>
                                     </div>
                                 </div>
-                                <div className="space-y-2 border-t border-white/5 pt-4">
+                                <div className="space-y-2 border-t border-slate-100 pt-4">
                                     <div className="flex items-start gap-3">
                                         <div className="h-2 w-2 rounded-full bg-emerald-500 mt-1" />
-                                        <p className="text-xs text-white/60 font-medium truncate">{d.pickup_address}</p>
+                                        <p className="text-xs text-slate-600 font-medium truncate">{d.pickup_address}</p>
                                     </div>
                                     <div className="flex items-start gap-3">
-                                        <div className="h-2 w-2 rounded-full bg-indigo-500 mt-1" />
-                                        <p className="text-xs text-white/60 font-medium truncate">{d.delivery_address}</p>
+                                        <div className="h-2 w-2 rounded-full bg-slate-400 mt-1" />
+                                        <p className="text-xs text-slate-600 font-medium truncate">{d.delivery_address}</p>
                                     </div>
                                 </div>
+                                {selectedOrder === d.id && d.status === 'pendiente' && (
+                                    <div className="border-t border-slate-100 pt-4 mt-4 grid grid-cols-2 md:flex md:flex-wrap md:justify-end gap-2">
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); handleRepublish(d.id); }}
+                                            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 px-3 py-2.5 text-[11px] font-black text-white shadow-md transition-all active:scale-95"
+                                        >
+                                            <Send className="h-3.5 w-3.5" /> Republicar
+                                        </button>
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); startEdit(d); }}
+                                            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 px-3 py-2.5 text-[11px] font-black text-white shadow-md transition-all active:scale-95"
+                                        >
+                                            <Pencil className="h-3.5 w-3.5" /> Modificar
+                                        </button>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (confirm("¿Despublicar este pedido? Ya no será visible para los mensajeros.")) {
+                                                    unpublishDelivery.mutate(d.id);
+                                                }
+                                            }}
+                                            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 px-3 py-2.5 text-[11px] font-black text-white shadow-md transition-all active:scale-95"
+                                        >
+                                            <EyeOff className="h-3.5 w-3.5" /> Despublicar
+                                        </button>
+                                        <button
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                if (confirm("¿Eliminar definitivamente este pedido? Esta acción no se puede deshacer.")) {
+                                                    deleteDelivery.mutate(d.id);
+                                                }
+                                            }}
+                                            className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-red-600 hover:bg-red-500 px-3 py-2.5 text-[11px] font-black text-white shadow-md transition-all active:scale-95"
+                                        >
+                                            <Trash2 className="h-3.5 w-3.5" /> Eliminar
+                                        </button>
+                                    </div>
+                                )}
                             </motion.div>
                         ))}
                     </div>
@@ -283,24 +598,24 @@ const Dispatch = () => {
 
             {/* Sidebar de Repartidores (40%) */}
             <div className="lg:col-span-4 space-y-6">
-                <div className="bg-card border border-white/5 rounded-[32px] p-6 shadow-xl h-full">
-                    <h3 className="text-sm font-black text-white/30 uppercase tracking-widest mb-6 flex items-center gap-2">
+                <div className="bg-white border border-slate-200 rounded-[32px] p-6 shadow-lg h-full">
+                    <h3 className="text-sm font-black text-slate-700 uppercase tracking-widest mb-6 flex items-center gap-2">
                         <UserCheck className="h-4 w-4" /> Mensajeros Online
                     </h3>
                     
                     <div className="space-y-4">
                         {availableDrivers.map((d: any) => (
-                            <div key={d.id} className="p-4 rounded-2xl bg-white/5 border border-transparent hover:border-white/10 flex items-center justify-between transition-all group">
+                            <div key={d.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-100 hover:border-slate-200 hover:bg-slate-100 flex items-center justify-between transition-all group">
                                 <div className="flex items-center gap-4">
                                     <div className="relative">
-                                        <div className="h-12 w-12 rounded-2xl bg-indigo-500/20 flex items-center justify-center font-black text-indigo-400 capitalize">
+                                        <div className="h-12 w-12 rounded-2xl bg-emerald-100 flex items-center justify-center font-black text-emerald-600 capitalize">
                                             {d.profiles?.full_name?.[0] || 'M'}
                                         </div>
-                                        <div className="absolute -bottom-1 -right-1 h-4 w-4 bg-emerald-500 rounded-full border-4 border-slate-900" />
+                                        <div className="absolute -bottom-1 -right-1 h-4 w-4 bg-emerald-500 rounded-full border-4 border-white" />
                                     </div>
                                     <div>
-                                        <p className="text-sm font-black text-white">{d.profiles?.full_name}</p>
-                                        <p className="text-[10px] text-white/30 font-bold uppercase">{d.rating || 5.0} ⭐ · {d.current_load} pedidos</p>
+                                        <p className="text-sm font-black text-slate-900">{d.profiles?.full_name}</p>
+                                        <p className="text-[10px] text-slate-500 font-bold uppercase">{d.rating || 5.0} ⭐ · {d.current_load} pedidos</p>
                                     </div>
                                 </div>
                                 
@@ -329,12 +644,13 @@ const Dispatch = () => {
                 className="overflow-hidden"
               >
                 <div className="max-w-[600px] mx-auto">
-                  <div className="bg-slate-900 rounded-[32px] border border-white/5 overflow-hidden shadow-2xl p-4">
+                  <div className="bg-white rounded-[32px] border border-slate-200 overflow-hidden shadow-lg p-4">
                     <ChatBubble
                       deliveryId={order.id}
                       currentUserId={user.id}
                       isDriverView={false}
                       initialOpen={true}
+                      driverId={order.driver_id}
                     />
                   </div>
                 </div>
@@ -347,7 +663,7 @@ const Dispatch = () => {
             .dispatch-autocomplete input { height: 3.5rem !important; border-radius: 1rem !important; padding-left: 3.5rem !important; }
             .dispatch-autocomplete .absolute.left-3 { left: 1.5rem !important; }
             .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-            .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.05); border-radius: 10px; }
+            .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 10px; }
         `}} />
       </div>
     </DashboardLayout>

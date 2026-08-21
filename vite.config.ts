@@ -34,18 +34,26 @@ export default defineConfig(({ mode }) => ({
               expiration: { maxEntries: 500, maxAgeSeconds: 60 * 60 * 24 * 30 },
             },
           },
+          {
+            urlPattern: /^https:\/\/router\.project-osrm\.org\/.*/i,
+            handler: "StaleWhileRevalidate",
+            options: {
+              cacheName: "osrm-routes",
+              expiration: { maxEntries: 200, maxAgeSeconds: 60 * 60 * 24 },
+            },
+          },
         ],
       },
       includeAssets: ["favicon.ico", "apple-touch-icon.png"],
       manifest: {
-        name: "MenesaApp - Conductor",
-        short_name: "MenesaApp",
+        name: "GoMoto - Conductor",
+        short_name: "GoMoto",
         description: "App de entregas para conductores",
         theme_color: "#1a1a2e",
-        background_color: "#1a1a2e",
+        background_color: "#ffffff",
         display: "standalone",
         orientation: "portrait",
-        start_url: "/driver-login",
+        start_url: "/",
         scope: "/",
         icons: [
           {

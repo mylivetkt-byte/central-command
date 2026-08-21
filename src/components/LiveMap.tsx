@@ -3,8 +3,10 @@ import maplibregl from 'maplibre-gl';
 import { MapStyleSwitcher, useMapStyle, MapStyle } from '@/components/MapStyleSwitcher';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { supabase } from '@/integrations/supabase/client';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
+import { useCompany } from '@/hooks/useCompany';
+import { Target, Layers as LayersIcon, Bike, Package, Truck, Flame } from 'lucide-react';
 
 interface LiveMapProps {
   height?: string;
@@ -47,48 +49,153 @@ const LiveMap: React.FC<LiveMapProps> = ({
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<{ [key: string]: maplibregl.Marker }>({});
+  const markerAnimRef = useRef<{ [key: string]: number }>({});
   const [isMapReady, setIsMapReady] = useState(false);
+  const { current: mapStyle, setStyle } = useMapStyle("dark");
+  const { selectedCompanyId } = useCompany();
+  const didFitBoundsRef = useRef(false);
+  const queryClient = useQueryClient();
+  const [followDriverId, setFollowDriverId] = useState<string | null>(null);
+  const [routeStats, setRouteStats] = useState<{ distance: string; duration: string } | null>(null);
+  const [layers, setLayers] = useState({
+    drivers: true,
+    pendientes: true,
+    en_camino: true,
+    heatmap: false,
+  });
+  const [layersOpen, setLayersOpen] = useState(false);
+
+  // Entregas completadas hoy (para heatmap de demanda)
+  const { data: completedToday = [] } = useQuery({
+    queryKey: ['heatmap-today', selectedCompanyId],
+    queryFn: async () => {
+      const start = new Date(); start.setHours(0, 0, 0, 0);
+      let q = supabase
+        .from('deliveries')
+        .select('delivery_lat, delivery_lng, pickup_lat, pickup_lng')
+        .eq('status', 'entregado')
+        .gte('created_at', start.toISOString());
+      if (selectedCompanyId) q = q.eq('company_id', selectedCompanyId);
+      const { data } = await q;
+      return (data || []) as any[];
+    },
+    enabled: layers.heatmap,
+    staleTime: 60_000,
+  });
 
   // Consulta de drivers
   const { data: drivers = [] } = useQuery({
-    queryKey: ['live-drivers'],
+    queryKey: ['live-drivers', selectedCompanyId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let q = supabase
         .from('driver_profiles')
         .select('id, status, current_load, profiles(full_name)');
+      if (selectedCompanyId) q = q.eq('company_id', selectedCompanyId);
+      const { data, error } = await q;
       if (error) throw error;
-      // Also fetch locations
-      const { data: locs } = await supabase.from('driver_locations').select('driver_id, lat, lng');
-      const locMap = new Map((locs || []).map((l: any) => [l.driver_id, l]));
-      const handleStyleChange = (style: MapStyle) => {
-    setStyle(style.id);
-    mapInstance.current?.setStyle(style.url);
-  };
-
-  return (data || []).map((d: any) => ({
+      const driverIds = (data || []).map((d: any) => d.id);
+      // Fetch locations filtered by driver_id (avoids stale/NULL company_id on driver_locations)
+      let locs: any[] = [];
+      if (driverIds.length > 0) {
+        const { data: locData } = await supabase
+          .from('driver_locations')
+          .select('driver_id, lat, lng')
+          .in('driver_id', driverIds);
+        locs = locData || [];
+      }
+      const locMap = new Map(locs.map((l: any) => [l.driver_id, l]));
+      return (data || []).map((d: any) => ({
         ...d,
         last_lat: locMap.get(d.id)?.lat || null,
         last_lng: locMap.get(d.id)?.lng || null,
       })) as Driver[];
     },
-    refetchInterval: 5000,
-    enabled: showDrivers
+    enabled: showDrivers,
   });
 
   // Consulta de entregas activas
   const { data: deliveries = [] } = useQuery({
-    queryKey: ['live-deliveries'],
+    queryKey: ['live-deliveries', selectedCompanyId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let q = supabase
         .from('deliveries')
         .select('*')
         .in('status', ['pendiente', 'aceptado', 'en_camino']);
+      if (selectedCompanyId) q = q.eq('company_id', selectedCompanyId);
+      const { data, error } = await q;
       if (error) throw error;
       return data as Delivery[];
     },
-    refetchInterval: 5000,
-    enabled: showDeliveries
+    enabled: showDeliveries,
   });
+
+  // Interpolación suave del marcador entre updates
+  const animateMarker = (id: string, target: [number, number]) => {
+    const marker = markersRef.current[id];
+    if (!marker) return;
+    const start = marker.getLngLat();
+    const startLng = start.lng, startLat = start.lat;
+    const [endLng, endLat] = target;
+    const duration = 900;
+    const t0 = performance.now();
+    if (markerAnimRef.current[id]) cancelAnimationFrame(markerAnimRef.current[id]);
+    const step = (now: number) => {
+      const p = Math.min(1, (now - t0) / duration);
+      const ease = p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2;
+      marker.setLngLat([startLng + (endLng - startLng) * ease, startLat + (endLat - startLat) * ease]);
+      if (p < 1) markerAnimRef.current[id] = requestAnimationFrame(step);
+    };
+    markerAnimRef.current[id] = requestAnimationFrame(step);
+  };
+
+  // Realtime: driver_locations
+  useEffect(() => {
+    if (!showDrivers) return;
+    const channel = supabase
+      .channel(`live-drivers-${selectedCompanyId ?? 'all'}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'driver_locations' },
+        (payload: any) => {
+          const row = payload.new || payload.old;
+          if (!row?.driver_id) return;
+          const id = `driver-${row.driver_id}`;
+          if (payload.eventType !== 'DELETE' && row.lat != null && row.lng != null && markersRef.current[id]) {
+            animateMarker(id, [row.lng, row.lat]);
+          } else {
+            // Marcador nuevo o borrado → refrescar dataset
+            queryClient.invalidateQueries({ queryKey: ['live-drivers', selectedCompanyId] });
+          }
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [selectedCompanyId, showDrivers, queryClient]);
+
+  // Realtime: deliveries
+  useEffect(() => {
+    if (!showDeliveries) return;
+    const filter = selectedCompanyId ? `company_id=eq.${selectedCompanyId}` : undefined;
+    const channel = supabase
+      .channel(`live-deliveries-${selectedCompanyId ?? 'all'}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'deliveries', ...(filter ? { filter } : {}) },
+        () => {
+          queryClient.invalidateQueries({ queryKey: ['live-deliveries', selectedCompanyId] });
+        }
+      )
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [selectedCompanyId, showDeliveries, queryClient]);
+
+  // Cleanup de animaciones al desmontar
+  useEffect(() => {
+    return () => {
+      Object.values(markerAnimRef.current).forEach(id => cancelAnimationFrame(id));
+      markerAnimRef.current = {};
+    };
+  }, []);
 
   // Inicializar mapa
   useEffect(() => {
@@ -116,17 +223,19 @@ const LiveMap: React.FC<LiveMapProps> = ({
 
   // Actualizar marcadores de Drivers
   useEffect(() => {
-    if (!isMapReady || !mapInstance.current || !showDrivers) return;
+    if (!isMapReady || !mapInstance.current) return;
+    const on = showDrivers && layers.drivers;
 
     const currentDriverIds = new Set(drivers.map(d => `driver-${d.id}`));
     
     // Eliminar marcadores viejos
     Object.keys(markersRef.current).forEach(id => {
-      if (id.startsWith('driver-') && !currentDriverIds.has(id)) {
+      if (id.startsWith('driver-') && (!on || !currentDriverIds.has(id))) {
         markersRef.current[id].remove();
         delete markersRef.current[id];
       }
     });
+    if (!on) return;
 
     // Agregar/Actualizar marcadores
     drivers.forEach(driver => {
@@ -135,7 +244,7 @@ const LiveMap: React.FC<LiveMapProps> = ({
       const lngLat: [number, number] = [driver.last_lng, driver.last_lat];
 
       if (markersRef.current[id]) {
-        markersRef.current[id].setLngLat(lngLat);
+        animateMarker(id, lngLat);
       } else {
         const el = document.createElement('div');
         el.className = 'driver-marker-container';
@@ -157,14 +266,21 @@ const LiveMap: React.FC<LiveMapProps> = ({
           .addTo(mapInstance.current!);
       }
     });
-  }, [drivers, isMapReady, showDrivers]);
+  }, [drivers, isMapReady, showDrivers, layers.drivers]);
 
   // Actualizar marcadores de Entregas (Pickup y Delivery)
   useEffect(() => {
     if (!isMapReady || !mapInstance.current || !showDeliveries) return;
 
+    // Filtrar según capas activas
+    const filtered = deliveries.filter((d: any) => {
+      if (d.status === 'pendiente') return layers.pendientes;
+      if (d.status === 'aceptado' || d.status === 'en_camino') return layers.en_camino;
+      return true;
+    });
+
     const currentDeliveryIds = new Set();
-    deliveries.forEach(d => {
+    filtered.forEach(d => {
       currentDeliveryIds.add(`pickup-${d.id}`);
       currentDeliveryIds.add(`delivery-${d.id}`);
     });
@@ -178,11 +294,13 @@ const LiveMap: React.FC<LiveMapProps> = ({
     });
 
     // Agregar/Actualizar marcadores
-    deliveries.forEach(d => {
+    filtered.forEach(d => {
       // Pickup Marker
       if (d.pickup_lat && d.pickup_lng) {
         const pId = `pickup-${d.id}`;
-        if (!markersRef.current[pId]) {
+        if (markersRef.current[pId]) {
+          markersRef.current[pId].setLngLat([d.pickup_lng, d.pickup_lat]);
+        } else {
           const el = document.createElement('div');
           el.innerHTML = `<div class="bg-accent text-white p-1.5 rounded-md shadow-md border border-white">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
@@ -197,7 +315,9 @@ const LiveMap: React.FC<LiveMapProps> = ({
       // Delivery Marker
       if (d.delivery_lat && d.delivery_lng) {
         const dId = `delivery-${d.id}`;
-        if (!markersRef.current[dId]) {
+        if (markersRef.current[dId]) {
+          markersRef.current[dId].setLngLat([d.delivery_lng, d.delivery_lat]);
+        } else {
           const el = document.createElement('div');
           el.innerHTML = `<div class="bg-destructive text-white p-1.5 rounded-md shadow-md border border-white pulse-marker">
             <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
@@ -209,7 +329,71 @@ const LiveMap: React.FC<LiveMapProps> = ({
         }
       }
     });
-  }, [deliveries, isMapReady, showDeliveries]);
+  }, [deliveries, isMapReady, showDeliveries, layers.pendientes, layers.en_camino]);
+
+  // Heatmap de demanda (entregas completadas hoy)
+  useEffect(() => {
+    if (!isMapReady || !mapInstance.current) return;
+    const map = mapInstance.current;
+    const remove = () => {
+      if (map.getLayer('demand-heat')) map.removeLayer('demand-heat');
+      if (map.getSource('demand-heat')) map.removeSource('demand-heat');
+    };
+    if (!layers.heatmap) { remove(); return; }
+
+    const features = completedToday.flatMap((d: any) => {
+      const arr: any[] = [];
+      if (d.pickup_lat && d.pickup_lng) arr.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [d.pickup_lng, d.pickup_lat] }, properties: {} });
+      if (d.delivery_lat && d.delivery_lng) arr.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [d.delivery_lng, d.delivery_lat] }, properties: {} });
+      return arr;
+    });
+    const geo: any = { type: 'FeatureCollection', features };
+    if (map.getSource('demand-heat')) {
+      (map.getSource('demand-heat') as maplibregl.GeoJSONSource).setData(geo);
+    } else {
+      map.addSource('demand-heat', { type: 'geojson', data: geo });
+      map.addLayer({
+        id: 'demand-heat',
+        type: 'heatmap',
+        source: 'demand-heat',
+        maxzoom: 17,
+        paint: {
+          'heatmap-weight': 1,
+          'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 0, 1, 15, 3],
+          'heatmap-color': [
+            'interpolate', ['linear'], ['heatmap-density'],
+            0, 'rgba(0,0,0,0)',
+            0.2, 'rgba(59,130,246,0.5)',
+            0.4, 'rgba(16,185,129,0.6)',
+            0.6, 'rgba(234,179,8,0.75)',
+            0.8, 'rgba(249,115,22,0.85)',
+            1, 'rgba(239,68,68,0.95)',
+          ],
+          'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 0, 10, 15, 40],
+          'heatmap-opacity': 0.75,
+        },
+      }, 'focus-route-case');
+    }
+    return () => {};
+  }, [layers.heatmap, completedToday, isMapReady]);
+
+  // fitBounds automático la primera vez que hay marcadores
+  useEffect(() => {
+    if (!isMapReady || !mapInstance.current || didFitBoundsRef.current) return;
+    const bounds = new maplibregl.LngLatBounds();
+    let count = 0;
+    drivers.forEach(d => {
+      if (d.last_lat && d.last_lng) { bounds.extend([d.last_lng, d.last_lat]); count++; }
+    });
+    deliveries.forEach(d => {
+      if (d.pickup_lat && d.pickup_lng) { bounds.extend([d.pickup_lng, d.pickup_lat]); count++; }
+      if (d.delivery_lat && d.delivery_lng) { bounds.extend([d.delivery_lng, d.delivery_lat]); count++; }
+    });
+    if (count >= 1) {
+      mapInstance.current.fitBounds(bounds, { padding: 80, maxZoom: 15, duration: 800 });
+      didFitBoundsRef.current = true;
+    }
+  }, [drivers, deliveries, isMapReady]);
 
   // Manejar enfoque
   useEffect(() => {
@@ -224,6 +408,69 @@ const LiveMap: React.FC<LiveMapProps> = ({
     }
   }, [focusedDeliveryId, isMapReady, deliveries]);
 
+  // Ruta OSRM del pedido enfocado: driver (si asignado) → pickup → delivery
+  useEffect(() => {
+    if (!isMapReady || !mapInstance.current) return;
+    const map = mapInstance.current;
+    const clearRoute = () => {
+      if (map.getLayer('focus-route-line')) map.removeLayer('focus-route-line');
+      if (map.getLayer('focus-route-case')) map.removeLayer('focus-route-case');
+      if (map.getSource('focus-route')) map.removeSource('focus-route');
+      setRouteStats(null);
+    };
+
+    if (!focusedDeliveryId) { clearRoute(); return; }
+    const d: any = deliveries.find(x => x.id === focusedDeliveryId);
+    if (!d) { clearRoute(); return; }
+
+    const pts: [number, number][] = [];
+    if (d.driver_id) {
+      const drv = drivers.find(x => x.id === d.driver_id);
+      if (drv?.last_lat && drv?.last_lng) pts.push([drv.last_lng, drv.last_lat]);
+    }
+    if (d.pickup_lat && d.pickup_lng && d.status !== 'en_camino') pts.push([d.pickup_lng, d.pickup_lat]);
+    if (d.delivery_lat && d.delivery_lng) pts.push([d.delivery_lng, d.delivery_lat]);
+
+    if (pts.length < 2) { clearRoute(); return; }
+
+    let cancelled = false;
+    const wp = pts.map(p => `${p[0]},${p[1]}`).join(';');
+    fetch(`https://router.project-osrm.org/route/v1/driving/${wp}?overview=full&geometries=geojson`)
+      .then(r => r.json())
+      .then(data => {
+        if (cancelled || !data.routes?.[0]) return;
+        const route = data.routes[0];
+        const coords = route.geometry.coordinates;
+        const geo: any = { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } };
+        if (map.getSource('focus-route')) {
+          (map.getSource('focus-route') as maplibregl.GeoJSONSource).setData(geo);
+        } else {
+          map.addSource('focus-route', { type: 'geojson', data: geo });
+          map.addLayer({ id: 'focus-route-case', type: 'line', source: 'focus-route', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#a5b4fc', 'line-width': 10, 'line-opacity': 0.35 } });
+          map.addLayer({ id: 'focus-route-line', type: 'line', source: 'focus-route', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#4F46E5', 'line-width': 5 } });
+        }
+        setRouteStats({
+          distance: (route.distance / 1000).toFixed(1) + ' km',
+          duration: Math.max(1, Math.ceil(route.duration / 60)) + ' min',
+        });
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [focusedDeliveryId, deliveries, drivers, isMapReady]);
+
+  // Modo seguir: cámara sigue al driver seleccionado
+  useEffect(() => {
+    if (!isMapReady || !mapInstance.current || !followDriverId) return;
+    const drv = drivers.find(d => d.id === followDriverId);
+    if (drv?.last_lat && drv?.last_lng) {
+      mapInstance.current.easeTo({
+        center: [drv.last_lng, drv.last_lat],
+        zoom: Math.max(mapInstance.current.getZoom(), 15),
+        duration: 900,
+      });
+    }
+  }, [drivers, followDriverId, isMapReady]);
+
   return (
     <div className="relative rounded-xl overflow-hidden border border-border bg-card shadow-2xl">
       {!isMapReady && (
@@ -235,18 +482,90 @@ const LiveMap: React.FC<LiveMapProps> = ({
         </div>
       )}
       <div ref={mapContainer} style={{ height, width: '100%' }} />
-      
+
+      <MapStyleSwitcher
+        current={mapStyle}
+        onSelect={(s) => {
+          setStyle(s.id);
+          mapInstance.current?.setStyle(s.url);
+        }}
+        position="top-right"
+        dark={mapStyle.id === 'dark' || mapStyle.id === 'satellite'}
+      />
+
+      {/* Toggle de capas */}
+      <div className="absolute top-16 left-4 z-10">
+        <button
+          onClick={() => setLayersOpen(o => !o)}
+          className="h-10 px-3 rounded-lg bg-black/80 backdrop-blur-md border border-white/10 shadow-xl text-white flex items-center gap-2 text-xs font-bold"
+        >
+          <LayersIcon className="h-4 w-4" />
+          Capas
+        </button>
+        {layersOpen && (
+          <div className="mt-2 bg-black/85 backdrop-blur-md rounded-lg border border-white/10 shadow-xl p-2 space-y-1 min-w-[180px]">
+            {[
+              { key: 'drivers' as const,   label: 'Conductores', Icon: Bike,    color: 'text-primary' },
+              { key: 'pendientes' as const, label: 'Pendientes', Icon: Package, color: 'text-yellow-400' },
+              { key: 'en_camino' as const,  label: 'En camino',  Icon: Truck,   color: 'text-orange-400' },
+              { key: 'heatmap' as const,    label: 'Zonas calientes', Icon: Flame, color: 'text-red-400' },
+            ].map(({ key, label, Icon, color }) => (
+              <button
+                key={key}
+                onClick={() => setLayers(l => ({ ...l, [key]: !l[key] }))}
+                className="w-full flex items-center gap-2 px-2 py-1.5 rounded hover:bg-white/10 transition-colors"
+              >
+                <input type="checkbox" readOnly checked={layers[key]} className="accent-primary" />
+                <Icon className={`h-4 w-4 ${color}`} />
+                <span className="text-xs font-medium text-white/90">{label}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ETA / distancia del pedido enfocado */}
+      {routeStats && (
+        <div className="absolute top-4 right-40 z-10 bg-black/80 backdrop-blur-md rounded-lg border border-white/10 shadow-xl px-4 py-2 flex items-baseline gap-3">
+          <div>
+            <p className="text-[9px] font-bold text-white/50 uppercase tracking-widest">ETA</p>
+            <p className="text-lg font-black text-white leading-none">{routeStats.duration}</p>
+          </div>
+          <div className="w-px h-8 bg-white/15" />
+          <div>
+            <p className="text-[9px] font-bold text-white/50 uppercase tracking-widest">Distancia</p>
+            <p className="text-lg font-black text-white leading-none">{routeStats.distance}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Botón seguir driver del pedido enfocado */}
+      {focusedDeliveryId && (() => {
+        const d: any = deliveries.find(x => x.id === focusedDeliveryId);
+        if (!d?.driver_id) return null;
+        const active = followDriverId === d.driver_id;
+        return (
+          <button
+            onClick={() => setFollowDriverId(active ? null : d.driver_id)}
+            className={`absolute top-16 right-4 z-10 h-10 px-3 rounded-lg shadow-xl backdrop-blur-md flex items-center gap-2 text-xs font-bold transition-all border ${active ? 'bg-primary text-primary-foreground border-primary' : 'bg-black/80 text-white border-white/10'}`}
+          >
+            <Target className="h-4 w-4" />
+            {active ? 'Siguiendo' : 'Seguir driver'}
+          </button>
+        );
+      })()}
+
       <div className="absolute bottom-4 left-4 z-10 flex flex-col gap-2 pointer-events-none">
         <div className="bg-black/80 backdrop-blur-md p-3 rounded-lg border border-white/10 shadow-xl">
           <p className="text-[10px] font-bold text-white/50 uppercase tracking-widest mb-2">Estado del Sistema</p>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-primary animate-pulse shadow-[0_0_8px_hsl(var(--primary))]"></span>
-              <span className="text-xs text-white/90 font-medium">${drivers.length} Drivers</span>
+              <span className="text-xs text-white/90 font-medium">{drivers.length} Drivers</span>
             </div>
             <div className="flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-accent shadow-[0_0_8px_hsl(var(--accent))]"></span>
-              <span className="text-xs text-white/90 font-medium">${deliveries.length} Entregas</span>
+              <span className="text-xs text-white/90 font-medium">{deliveries.length} Entregas</span>
             </div>
           </div>
         </div>

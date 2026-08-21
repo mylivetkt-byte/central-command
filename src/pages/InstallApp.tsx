@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Download, Smartphone, CheckCircle } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 const InstallApp = () => {
+  const navigate = useNavigate();
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
   const [isInstalled, setIsInstalled] = useState(false);
 
@@ -39,7 +41,7 @@ const InstallApp = () => {
 
         <div className="space-y-3">
           <h1 className="text-3xl font-bold text-white tracking-tight">
-            LogiSmart Conductor
+            GoMoto Conductor
           </h1>
           <p className="text-blue-200/70 text-sm leading-relaxed">
             Instala la app en tu teléfono para recibir pedidos, navegar rutas y gestionar entregas — incluso sin conexión.
@@ -54,7 +56,7 @@ const InstallApp = () => {
             </div>
             <Button
               className="w-full h-12 text-base bg-blue-600 hover:bg-blue-500"
-              onClick={() => window.location.href = "/driver-login"}
+              onClick={() => navigate("/driver-login")}
             >
               Abrir App del Conductor
             </Button>
@@ -79,7 +81,7 @@ const InstallApp = () => {
             <Button
               variant="outline"
               className="w-full h-12 text-base border-white/20 text-white hover:bg-white/10"
-              onClick={() => window.location.href = "/driver-login"}
+              onClick={() => navigate("/driver-login")}
             >
               Continuar en navegador
             </Button>
@@ -87,7 +89,7 @@ const InstallApp = () => {
         )}
 
         <p className="text-blue-200/30 text-xs">
-          v1.0 · LogiSmart Pulse
+          v1.0 · GoMoto
         </p>
       </div>
     </div>

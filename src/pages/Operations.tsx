@@ -2,31 +2,38 @@ import { DashboardLayout } from "@/components/DashboardLayout";
 import { KPICard } from "@/components/KPICard";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Truck, Clock, MapPin, Package, RefreshCw, CheckCircle, XCircle } from "lucide-react";
+import { Truck, Clock, MapPin, Package, RefreshCw, CheckCircle, XCircle, Share2 } from "lucide-react";
 import { motion } from "framer-motion";
 import LiveMap from "@/components/LiveMap";
+import { useCompany } from "@/hooks/useCompany";
+import { useState } from "react";
+import { ShareTrackingDialog } from "@/components/ShareTrackingDialog";
 
 const formatCurrency = (v: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(v);
 
 const statusColors: Record<string, string> = {
   pendiente:  "bg-yellow-500/10 text-yellow-500 border-yellow-500/30",
-  aceptado:   "bg-white/10 text-white border-white/40",
-  en_camino:  "bg-white/20 text-white border-white/50",
+  aceptado:   "bg-blue-500/10 text-blue-600 border-blue-500/30",
+  en_camino:  "bg-indigo-500/10 text-indigo-600 border-indigo-500/40",
   entregado:  "bg-success/15 text-success border-success/30",
   cancelado:  "bg-destructive/15 text-destructive border-destructive/30",
 };
 
 const Operations = () => {
   const queryClient = useQueryClient();
+  const { selectedCompanyId } = useCompany();
+  const [shareOrder, setShareOrder] = useState<{ id: string; name?: string; phone?: string } | null>(null);
 
   const { data: deliveries = [], isLoading } = useQuery({
-    queryKey: ["operations-deliveries"],
+    queryKey: ["operations-deliveries", selectedCompanyId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let q: any = supabase
         .from("deliveries")
         .select("*, driver:driver_profiles(profiles(full_name))")
-        .order("created_at", { ascending: false }) as any;
+        .order("created_at", { ascending: false });
+      if (selectedCompanyId) q = q.eq("company_id", selectedCompanyId);
+      const { data, error } = await q;
       if (error) throw error;
       return data || [];
     },
@@ -34,11 +41,13 @@ const Operations = () => {
   });
 
   const { data: drivers = [] } = useQuery({
-    queryKey: ["operations-drivers"],
+    queryKey: ["operations-drivers", selectedCompanyId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let q: any = supabase
         .from("driver_profiles")
-        .select("*, profiles(full_name)") as any;
+        .select("*, profiles(full_name)");
+      if (selectedCompanyId) q = q.eq("company_id", selectedCompanyId);
+      const { data, error } = await q;
       if (error) throw error;
       return data || [];
     },
@@ -67,7 +76,7 @@ const Operations = () => {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-foreground">Operaciones en Vivo</h1>
-            <p className="text-sm text-muted-foreground">Monitoreo en tiempo real · actualización cada 10s</p>
+            <p className="text-sm text-slate-700 font-medium">Monitoreo en tiempo real · actualización cada 10s</p>
           </div>
           <button
             onClick={() => queryClient.invalidateQueries()}
@@ -132,6 +141,13 @@ const Operations = () => {
                     <div className="text-right shrink-0 ml-3">
                       <span className="text-xs font-bold capitalize">{d.status.replace("_", " ")}</span>
                       <p className="text-xs opacity-60 mt-0.5">{formatCurrency(Number(d.amount || 0))}</p>
+                      <button
+                        onClick={() => setShareOrder({ id: d.order_id, name: d.customer_name, phone: d.customer_phone })}
+                        className="mt-1 inline-flex items-center gap-1 text-[10px] text-primary hover:underline"
+                        title="Compartir rastreo"
+                      >
+                        <Share2 className="h-3 w-3" /> Compartir
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -165,6 +181,13 @@ const Operations = () => {
                       <p className="text-[10px] text-muted-foreground/60 mt-0.5">
                         {new Date(d.created_at).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })}
                       </p>
+                      <button
+                        onClick={() => setShareOrder({ id: d.order_id, name: d.customer_name, phone: d.customer_phone })}
+                        className="mt-1 inline-flex items-center gap-1 text-[10px] text-primary hover:underline"
+                        title="Compartir rastreo"
+                      >
+                        <Share2 className="h-3 w-3" /> Compartir
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -172,6 +195,15 @@ const Operations = () => {
             )}
           </motion.div>
         </div>
+        {shareOrder && (
+          <ShareTrackingDialog
+            open={!!shareOrder}
+            onOpenChange={(o) => !o && setShareOrder(null)}
+            orderId={shareOrder.id}
+            customerName={shareOrder.name}
+            customerPhone={shareOrder.phone}
+          />
+        )}
 
         {/* Tabla de repartidores */}
         <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="glass-card p-5">

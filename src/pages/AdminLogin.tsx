@@ -9,6 +9,10 @@ import { Truck, Mail, Lock, AlertCircle, ArrowLeft, CheckCircle } from "lucide-r
 import { toast } from "sonner";
 
 const AdminLogin = () => {
+  useEffect(() => {
+    try { localStorage.setItem("gomoto:lastApp", "admin"); } catch {}
+  }, []);
+
   const [email, setEmail]                   = useState("");
   const [password, setPassword]             = useState("");
   const [submitting, setSubmitting]         = useState(false);
@@ -17,14 +21,22 @@ const AdminLogin = () => {
   const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [resetSent, setResetSent]           = useState(false);
   const [fullName, setFullName]             = useState("");
+  const [companyName, setCompanyName]       = useState("");
+  const [phone, setPhone]                   = useState("");
+  const [nit, setNit]                       = useState("");
 
   const navigate   = useNavigate();
   const { user, role, loading: authLoading } = useAuth();
 
-  // Redirige automáticamente si la sesión ya está activa
+  // Redirige automáticamente si la sesión ya está activa.
+  // El super_admin va al panel SaaS; el admin de empresa al dashboard operativo.
   useEffect(() => {
-    if (!authLoading && user && role === "admin") {
-      navigate("/", { replace: true });
+    if (authLoading || !user) return;
+    if (role === "super_admin") navigate("/saas/companies", { replace: true });
+    else if (role === "admin") navigate("/", { replace: true });
+    else if (role === "bloqueado") {
+      setError("Tu empresa se encuentra inactiva, suspendida o pendiente de activación. Por favor, comunícate con soporte.");
+      supabase.auth.signOut();
     }
   }, [user, role, authLoading, navigate]);
 
@@ -33,7 +45,7 @@ const AdminLogin = () => {
     setSubmitting(true);
     setError("");
     const { error: err } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/admin-login`,
+      redirectTo: `${window.location.origin}/#/admin-login`,
     });
     if (err) setError(err.message);
     else { setResetSent(true); toast.success("Correo enviado. Revisa tu bandeja."); }
@@ -47,15 +59,39 @@ const AdminLogin = () => {
 
     try {
       if (isSignUp) {
+        if (!companyName.trim()) {
+          setError("El nombre de la empresa es obligatorio.");
+          setSubmitting(false);
+          return;
+        }
+        if (!nit.trim()) {
+          setError("El NIT de la empresa es obligatorio.");
+          setSubmitting(false);
+          return;
+        }
+        if (!phone.trim()) {
+          setError("El teléfono de contacto es obligatorio.");
+          setSubmitting(false);
+          return;
+        }
         const { error: err } = await supabase.auth.signUp({
           email, password,
           options: {
-            data: { full_name: fullName, role: "admin" },
+            data: { 
+              full_name: fullName, 
+              role: "admin", 
+              company_name: companyName.trim(),
+              company_nit: nit.trim(),
+              phone: phone.trim()
+            },
             emailRedirectTo: window.location.origin,
           },
         });
         if (err) setError(err.message);
-        else { toast.success("Cuenta creada. Ya puedes iniciar sesión."); setIsSignUp(false); }
+        else { 
+          toast.success("Cuenta creada y empresa registrada. Está pendiente de activación."); 
+          setIsSignUp(false); 
+        }
       } else {
         const { error: err } = await supabase.auth.signInWithPassword({ email, password });
         if (err) {
@@ -94,7 +130,7 @@ const AdminLogin = () => {
             <div className="mx-auto h-14 w-14 rounded-xl bg-gradient-primary flex items-center justify-center">
               <Truck className="h-7 w-7 text-primary-foreground" />
             </div>
-            <h1 className="text-2xl font-bold text-foreground">LogiCentral</h1>
+            <h1 className="text-2xl font-bold text-foreground">GoMoto Admin</h1>
             <p className="text-sm text-muted-foreground">Panel de Administración</p>
           </div>
 
@@ -143,12 +179,32 @@ const AdminLogin = () => {
             <>
               <form onSubmit={handleSubmit} className="space-y-4">
                 {isSignUp && (
-                  <div className="space-y-2">
-                    <Label htmlFor="fullName">Nombre completo</Label>
-                    <Input id="fullName" value={fullName}
-                      onChange={e => setFullName(e.target.value)}
-                      placeholder="Tu nombre" required />
-                  </div>
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="fullName">Nombre completo</Label>
+                      <Input id="fullName" value={fullName}
+                        onChange={e => setFullName(e.target.value)}
+                        placeholder="Tu nombre" required />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="companyName">Nombre de tu Empresa *</Label>
+                      <Input id="companyName" value={companyName}
+                        onChange={e => setCompanyName(e.target.value)}
+                        placeholder="Ej: Transportes Express S.A.S." required />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="companyNit">NIT de tu Empresa *</Label>
+                      <Input id="companyNit" value={nit}
+                        onChange={e => setNit(e.target.value)}
+                        placeholder="Ej: 900.123.456-7" required />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="phone">Teléfono de contacto *</Label>
+                      <Input id="phone" value={phone}
+                        onChange={e => setPhone(e.target.value)}
+                        placeholder="Ej: +57 300 123 4567" required />
+                    </div>
+                  </>
                 )}
                 <div className="space-y-2">
                   <Label htmlFor="email">Correo electrónico</Label>
@@ -194,10 +250,11 @@ const AdminLogin = () => {
                   {isSignUp ? "¿Ya tienes cuenta? Inicia sesión" : "¿No tienes cuenta? Regístrate"}
                 </button>
               </div>
-              <div className="text-center">
-                <a href="/driver-login" className="text-xs text-muted-foreground hover:text-foreground">
+              <div className="text-center mt-2">
+                <button type="button" onClick={() => navigate("/driver-login")}
+                  className="text-xs text-muted-foreground hover:text-foreground">
                   ¿Eres mensajero? Entra aquí
-                </a>
+                </button>
               </div>
             </>
           )}

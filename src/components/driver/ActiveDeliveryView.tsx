@@ -1,18 +1,31 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import maplibregl from 'maplibre-gl';
 import { MapStyleSwitcher, useMapStyle, MapStyle } from '@/components/MapStyleSwitcher';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { Button } from "@/components/ui/button";
 import {
   Phone, Navigation, ArrowUpRight, Target,
-  XCircle, ChevronDown, User, Bike
+  XCircle, ChevronDown, User, Bike, Camera, WifiOff,
+  ArrowUp, ArrowUpLeft, ArrowUpRight as ArrowUpRightIcon,
+  ArrowLeft, ArrowRight, RotateCw, MapPin as MapPinIcon,
+  Flag, Volume2, VolumeX, Plus, Minus
 } from "lucide-react";
 import { motion, AnimatePresence } from 'framer-motion';
 import { useDriverLocation } from "@/hooks/useDriverLocation";
+import { useOffline } from "@/hooks/useOffline";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import ChatBubble from "@/components/ChatBubble";
+
+interface Stop {
+  type: 'pickup' | 'delivery';
+  label: string;
+  address: string;
+  lat: number | null;
+  lng: number | null;
+  completed?: boolean;
+}
 
 interface Delivery {
   id: string;
@@ -30,7 +43,19 @@ interface Delivery {
   pickup_lat?: number | null;
   pickup_lng?: number | null;
   created_at?: string;
+  stops?: Stop[];
 }
+
+type Coord = { lat: number; lng: number };
+
+const CANCEL_REASONS = [
+  "Cliente no responde",
+  "Dirección errónea",
+  "Paquete dañado",
+  "Ubicación incorrecta",
+  "Cliente canceló",
+  "Otro",
+];
 
 const distMeters = (a: [number, number], b: [number, number]): number => {
   const R = 6371000;
@@ -48,37 +73,180 @@ const calcSpeedKmh = (prev: { lat: number; lng: number; t: number } | null, curr
   return Math.round(km / (dt / 3600));
 };
 
+// Icono según el tipo de maniobra OSRM
+const maneuverIcon = (type?: string, modifier?: string) => {
+  if (type === 'arrive') return Flag;
+  if (type === 'depart') return ArrowUp;
+  if (type === 'roundabout' || type === 'rotary') return RotateCw;
+  const m = (modifier || '').toLowerCase();
+  if (m.includes('sharp left') || m === 'left') return ArrowLeft;
+  if (m.includes('sharp right') || m === 'right') return ArrowRight;
+  if (m.includes('slight left')) return ArrowUpLeft;
+  if (m.includes('slight right')) return ArrowUpRightIcon;
+  if (m === 'uturn') return RotateCw;
+  return ArrowUp;
+};
+
+// Texto en español para el anuncio de voz
+const maneuverText = (step: any): string => {
+  // Si Google ya nos dio una instrucción localizada en español, úsala.
+  if (step?.instruction && typeof step.instruction === 'string') return step.instruction;
+  const t = step?.maneuver?.type;
+  const m = (step?.maneuver?.modifier || '').toLowerCase();
+  const street = step?.name || '';
+  if (t === 'arrive') return `Ha llegado${street ? ' a ' + street : ''}`;
+  if (t === 'depart') return `Continúe por ${street || 'la vía'}`;
+  if (t === 'roundabout' || t === 'rotary') return `Tome la rotonda${step?.maneuver?.exit ? ', salida ' + step.maneuver.exit : ''}`;
+  if (m === 'uturn') return 'Realice un cambio de sentido';
+  if (m.includes('sharp left')) return `Gire pronunciado a la izquierda${street ? ' hacia ' + street : ''}`;
+  if (m.includes('sharp right')) return `Gire pronunciado a la derecha${street ? ' hacia ' + street : ''}`;
+  if (m.includes('slight left')) return `Manténgase a la izquierda${street ? ' hacia ' + street : ''}`;
+  if (m.includes('slight right')) return `Manténgase a la derecha${street ? ' hacia ' + street : ''}`;
+  if (m === 'left') return `Gire a la izquierda${street ? ' hacia ' + street : ''}`;
+  if (m === 'right') return `Gire a la derecha${street ? ' hacia ' + street : ''}`;
+  return `Continúe por ${street || 'la vía'}`;
+};
+
+const speak = (text: string) => {
+  try {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'es-CO';
+    u.rate = 1;
+    u.volume = 1;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(u);
+  } catch {}
+};
+
 interface ActiveDeliveryViewProps {
   delivery: Delivery;
-  onPickedUp: () => void;
-  onDelivered: () => void;
+  onPickedUp: (deliveryId: string) => void;
+  onDelivered: (deliveryId: string) => void;
+  allDeliveries?: Delivery[];
+  driverLocation?: { lat: number; lng: number; heading: number | null; speed?: number | null; accuracy?: number | null } | null;
 }
 
 const fmt = (v: number) =>
   new Intl.NumberFormat("es-CO", { style: "currency", currency: "COP", minimumFractionDigits: 0 }).format(v);
 
-const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPickedUp, onDelivered }) => {
+const isValidCoord = (lat?: number | null, lng?: number | null) =>
+  typeof lat === 'number' && typeof lng === 'number' && Number.isFinite(lat) && Number.isFinite(lng);
+
+const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initialDelivery, onPickedUp, onDelivered, allDeliveries = [], driverLocation }) => {
   const { user } = useAuth();
-  const { currentLocation } = useDriverLocation();
+  const { currentLocation: localLocation, isTracking: localTracking, startTracking: startLocalTracking, error: gpsError } = useDriverLocation();
+  const currentLocation = driverLocation ?? localLocation;
+  const { isOffline, cacheData, getCachedData } = useOffline();
   const mapContainer = useRef<HTMLDivElement>(null);
   const mapInstance = useRef<maplibregl.Map | null>(null);
   const [isMapReady, setIsMapReady] = useState(false);
   const driverMarkerRef = useRef<maplibregl.Marker | null>(null);
-  const pickupMarkerRef = useRef<maplibregl.Marker | null>(null);
-  const deliveryMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const stopMarkerRefs = useRef<maplibregl.Marker[]>([]);
   const [followMode, setFollowMode] = useState(true);
   const [isExpanded, setIsExpanded] = useState(false);
   const [routeInfo, setRouteInfo] = useState<{ distance: string; duration: string; nextStreet: string; nextManeuver: string } | null>(null);
+  const [currentStep, setCurrentStep] = useState<any | null>(null);
+  const [voiceOn, setVoiceOn] = useState(true);
+  const stepsRef = useRef<any[]>([]);
+  const routeCoordsRef = useRef<[number, number][]>([]);
+  const announcedRef = useRef<Record<string, Set<'far' | 'near'>>>({});
+  const lastRecomputeRef = useRef<number>(0);
   const [showCancel, setShowCancel] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
+  const [cancelPhotos, setCancelPhotos] = useState<string[]>([]);
   const [wakeLock, setWakeLock] = useState<WakeLockSentinel | null>(null);
   const [speedKmh, setSpeedKmh] = useState<number | null>(null);
   const [traveledCoords, setTraveledCoords] = useState<[number, number][]>([]);
   const prevPosRef = useRef<{ lat: number; lng: number; t: number } | null>(null);
   const [etaProgress, setEtaProgress] = useState(1);
+  const [resolvedCoords, setResolvedCoords] = useState<Record<string, Coord>>({});
+  const [routeStatus, setRouteStatus] = useState<"idle" | "locating" | "geocoding" | "routing" | "ready" | "unavailable">("idle");
+  const { current: mapStyle, setStyle } = useMapStyle("dark");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const [focusedDeliveryId, setFocusedDeliveryId] = useState(initialDelivery.id);
+
+  useEffect(() => {
+    if (!driverLocation && !localLocation && !localTracking) {
+      startLocalTracking();
+    }
+  }, [driverLocation, localLocation, localTracking, startLocalTracking]);
+
+  useEffect(() => {
+    if (initialDelivery?.id) {
+      setFocusedDeliveryId(initialDelivery.id);
+      // Al entrar a una entrega nueva o al cambiar de foco, activar modo conducción
+      setFollowMode(true);
+      if (mapInstance.current && currentLocation) {
+        mapInstance.current.easeTo({
+          center: [currentLocation.lng, currentLocation.lat],
+          zoom: 16.5,
+          pitch: 45,
+          bearing: currentLocation.heading || 0,
+          duration: 900,
+        });
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialDelivery?.id, focusedDeliveryId]);
+
+  const delivery = allDeliveries.find(d => d.id === focusedDeliveryId) || initialDelivery;
 
   const isPickingUp = delivery.status === "aceptado";
+
+  const rawStops: Stop[] = useMemo(() => delivery.stops ?? [
+    { type: 'pickup', label: 'Recoger', address: delivery.pickup_address || '', lat: delivery.pickup_lat, lng: delivery.pickup_lng, completed: !isPickingUp },
+    { type: 'delivery', label: 'Entregar', address: delivery.delivery_address, lat: delivery.delivery_lat, lng: delivery.delivery_lng, completed: false },
+  ], [delivery.stops, delivery.pickup_address, delivery.pickup_lat, delivery.pickup_lng, delivery.delivery_address, delivery.delivery_lat, delivery.delivery_lng, isPickingUp]);
+
+  const stops: Stop[] = useMemo(() => rawStops.map((s) => {
+    const key = `${delivery.id}:${s.type}`;
+    const resolved = resolvedCoords[key];
+    return isValidCoord(s.lat, s.lng) || !resolved ? s : { ...s, lat: resolved.lat, lng: resolved.lng };
+  }), [rawStops, resolvedCoords, delivery.id]);
+
+  const routeCacheKey = `route-${delivery.id}`;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const resolveMissingCoords = async () => {
+      const missing = rawStops.filter(s => !isValidCoord(s.lat, s.lng) && s.address?.trim());
+      if (missing.length === 0) return;
+      setRouteStatus(currentLocation ? "geocoding" : "locating");
+
+      const next: Record<string, Coord> = {};
+      for (const stop of missing) {
+        const key = `${delivery.id}:${stop.type}`;
+        if (resolvedCoords[key]) continue;
+        try {
+          const { data, error } = await supabase.functions.invoke('google-navigation', {
+            body: {
+              action: 'geocode',
+              address: stop.address,
+              biasLat: currentLocation?.lat ?? 7.1193,
+              biasLng: currentLocation?.lng ?? -73.1198,
+            },
+          });
+          if (error) throw error;
+          const first = (data as any)?.result;
+          if (first && isValidCoord(first.lat, first.lng)) {
+            next[key] = { lat: first.lat, lng: first.lng };
+          }
+        } catch {}
+      }
+
+      if (!cancelled && Object.keys(next).length > 0) {
+        setResolvedCoords(prev => ({ ...prev, ...next }));
+      }
+    };
+
+    resolveMissingCoords();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [delivery.id, delivery.pickup_address, delivery.delivery_address, delivery.pickup_lat, delivery.pickup_lng, delivery.delivery_lat, delivery.delivery_lng]);
 
   // Wake Lock
   useEffect(() => {
@@ -88,10 +256,6 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPic
     acquire();
     const h = () => { if (document.visibilityState === "visible") acquire(); };
     document.addEventListener("visibilitychange", h);
-    const handleStyleChange = (style: MapStyle) => {
-    setStyle(style.id);
-    mapInstance.current?.setStyle(style.url);
-  };
 
   return () => { document.removeEventListener("visibilitychange", h); wakeLock?.release().catch(() => {}); };
   }, []);
@@ -104,8 +268,8 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPic
       container: mapContainer.current,
       style: mapStyle.url,
       center: currentLocation ? [currentLocation.lng, currentLocation.lat] : [delivery.pickup_lng || -73.1198, delivery.pickup_lat || 7.1193],
-      zoom: 17,
-      pitch: 65,
+      zoom: 16.5,
+      pitch: 45,
       bearing: currentLocation?.heading || 0
     });
 
@@ -133,33 +297,95 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPic
     return () => { mapInstance.current?.remove(); mapInstance.current = null; };
   }, []);
 
-  // Fetch Route
+  // Cambiar estilo del mapa cuando el usuario selecciona otro (claro, satélite, calles…)
+  useEffect(() => {
+    if (!isMapReady || !mapInstance.current) return;
+    const map = mapInstance.current;
+    map.setStyle(mapStyle.url);
+    const onLoad = () => {
+      // El handler 'style.load' de arriba ya reinserta edificios 3D.
+      // Reinsertar la ruta y sus capas al nuevo estilo:
+      routeCoordsRef.current = [];
+      fetchRouteDetails();
+    };
+    map.once('style.load', onLoad);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mapStyle.url]);
+
+  // Fetch Route (with offline fallback)
   const fetchRouteDetails = useCallback(async () => {
-    if (!isMapReady || !mapInstance.current || !currentLocation) return;
+    if (!isMapReady || !mapInstance.current) return;
+    if (!currentLocation) {
+      setRouteStatus("locating");
+      return;
+    }
     const map = mapInstance.current;
 
-    let points = `${currentLocation.lng},${currentLocation.lat};`;
-    if (delivery.status === 'aceptado') {
-      points += `${delivery.pickup_lng},${delivery.pickup_lat};${delivery.delivery_lng},${delivery.delivery_lat}`;
-    } else {
-      points += `${delivery.delivery_lng},${delivery.delivery_lat}`;
+    // Build waypoints: focused delivery stops only (origin = current location)
+    const wps = stops
+      .filter(s => isValidCoord(s.lat, s.lng))
+      .map(s => ({ lat: s.lat as number, lng: s.lng as number }));
+
+    if (wps.length === 0) {
+      setRouteStatus("unavailable");
+      return;
     }
 
     try {
-      const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${points}?overview=full&geometries=geojson&steps=true`);
-      const data = await response.json();
+      setRouteStatus("routing");
+      let data;
+      if (isOffline) {
+        const cached = getCachedData<any>(routeCacheKey);
+        if (cached) data = cached;
+        else return;
+      } else {
+        const { data: routeData, error: routeErr } = await supabase.functions.invoke('google-navigation', {
+          body: {
+            action: 'route',
+            origin: { lat: currentLocation.lat, lng: currentLocation.lng },
+            waypoints: wps,
+          },
+        });
+        if (routeErr) throw routeErr;
+        data = routeData;
+        cacheData(routeCacheKey, data);
+      }
 
       if (data.routes?.[0]) {
         const route = data.routes[0];
         const coordinates: [number, number][] = route.geometry.coordinates;
+        routeCoordsRef.current = coordinates;
+        // Aplanar todos los pasos de todas las etapas (recogida → entrega)
+        const allSteps: any[] = (route.legs || []).flatMap((l: any) => l.steps || []);
+        stepsRef.current = allSteps;
+        announcedRef.current = {};
         const sourceId = 'route-source';
 
         if (!map.getSource(sourceId)) {
           map.addSource(sourceId, { type: 'geojson', data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates } } });
           map.addSource('route-traveled', { type: 'geojson', data: { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: [] } } });
-          map.addLayer({ id: 'route-case', type: 'line', source: sourceId, layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#a5b4fc', 'line-width': 10, 'line-opacity': 0.4 } });
-          map.addLayer({ id: 'route-line', type: 'line', source: sourceId, layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#4F46E5', 'line-width': 5, 'line-opacity': 1 } });
-          map.addLayer({ id: 'route-traveled-line', type: 'line', source: 'route-traveled', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#94a3b8', 'line-width': 4, 'line-opacity': 0.5, 'line-dasharray': [3, 3] } });
+          // Halo blanco exterior para contraste sobre cualquier estilo de mapa
+          map.addLayer({ id: 'route-halo', type: 'line', source: sourceId, layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#ffffff', 'line-width': 14, 'line-opacity': 0.9 } });
+          // Casing exterior (borde oscuro)
+          map.addLayer({ id: 'route-case', type: 'line', source: sourceId, layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#1e3a8a', 'line-width': 11, 'line-opacity': 1 } });
+          // Línea principal brillante (azul de navegación)
+          map.addLayer({ id: 'route-line', type: 'line', source: sourceId, layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#3b82f6', 'line-width': 7, 'line-opacity': 1 } });
+          // Chevrones/flechas de dirección a lo largo de la ruta
+          map.addLayer({
+            id: 'route-arrows', type: 'symbol', source: sourceId,
+            layout: {
+              'symbol-placement': 'line',
+              'symbol-spacing': 80,
+              'text-field': '▶',
+              'text-size': 14,
+              'text-keep-upright': false,
+              'text-allow-overlap': true,
+              'text-ignore-placement': true,
+            },
+            paint: { 'text-color': '#ffffff', 'text-halo-color': '#1e3a8a', 'text-halo-width': 2 }
+          });
+          // Tramo ya recorrido (gris punteado)
+          map.addLayer({ id: 'route-traveled-line', type: 'line', source: 'route-traveled', layout: { 'line-join': 'round', 'line-cap': 'round' }, paint: { 'line-color': '#64748b', 'line-width': 5, 'line-opacity': 0.7, 'line-dasharray': [2, 2] } });
         } else {
           (map.getSource(sourceId) as maplibregl.GeoJSONSource).setData({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates } });
         }
@@ -168,30 +394,101 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPic
         const endpoint = coordinates[coordinates.length - 1];
         const distToNext = distMeters(driverPos, endpoint);
         setEtaProgress(Math.min(1, Math.max(0, distToNext / route.distance * 1.1)));
-
-        const nextStep = route.legs[0].steps[1] || route.legs[0].steps[0];
         setRouteInfo({
           distance: (distToNext / 1000).toFixed(1) + " km",
           duration: Math.ceil(route.duration / 60) + " min",
-          nextStreet: nextStep.name || "Continuar",
-          nextManeuver: nextStep.distance < 1000 ? Math.round(nextStep.distance) + " m" : (nextStep.distance / 1000).toFixed(1) + " km"
+          nextStreet: '',
+          nextManeuver: '',
         });
+        setRouteStatus("ready");
+      } else {
+        setRouteStatus("unavailable");
       }
-    } catch {}
-  }, [isMapReady, currentLocation, delivery]);
+    } catch {
+      setRouteStatus("unavailable");
+    }
+  }, [isMapReady, currentLocation, isOffline, routeCacheKey, stops]);
 
   useEffect(() => {
     fetchRouteDetails();
-    const int = setInterval(fetchRouteDetails, 15000);
+    const int = setInterval(fetchRouteDetails, 30000);
     return () => clearInterval(int);
   }, [fetchRouteDetails]);
+
+  // Recalcular ruta al cambiar de etapa (recogida → entrega)
+  useEffect(() => {
+    fetchRouteDetails();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPickingUp]);
+
+  // Turn-by-turn: determinar paso actual, distancia al giro, anuncios de voz, off-route
+  useEffect(() => {
+    if (!currentLocation || stepsRef.current.length === 0) return;
+    const driverPos: [number, number] = [currentLocation.lng, currentLocation.lat];
+
+    // Encontrar el paso más cercano y adelante (candidato al próximo giro)
+    let best = { idx: -1, dist: Infinity };
+    stepsRef.current.forEach((s, i) => {
+      const loc = s?.maneuver?.location;
+      if (!Array.isArray(loc)) return;
+      const d = distMeters(driverPos, [loc[0], loc[1]]);
+      if (d < best.dist) best = { idx: i, dist: d };
+    });
+
+    if (best.idx === -1) return;
+    // Preferir el siguiente paso si ya pasamos el más cercano (< 25 m)
+    let idx = best.idx;
+    if (best.dist < 25 && idx < stepsRef.current.length - 1) idx += 1;
+    const step = stepsRef.current[idx];
+    if (!step) return;
+
+    const loc = step.maneuver.location;
+    const distToManeuver = distMeters(driverPos, [loc[0], loc[1]]);
+    setCurrentStep(step);
+    setRouteInfo(prev => prev ? {
+      ...prev,
+      nextStreet: step.name || 'Continuar',
+      nextManeuver: distToManeuver < 1000
+        ? Math.round(distToManeuver) + ' m'
+        : (distToManeuver / 1000).toFixed(1) + ' km',
+    } : prev);
+
+    // Anuncios de voz por umbrales
+    if (voiceOn) {
+      const key = String(idx);
+      const bucket = announcedRef.current[key] || new Set();
+      if (distToManeuver <= 220 && distToManeuver > 60 && !bucket.has('far')) {
+        bucket.add('far');
+        speak(`En ${Math.round(distToManeuver / 10) * 10} metros, ${maneuverText(step)}`);
+      } else if (distToManeuver <= 40 && !bucket.has('near')) {
+        bucket.add('near');
+        speak(`Ahora, ${maneuverText(step)}`);
+      }
+      announcedRef.current[key] = bucket;
+    }
+
+    // Detección de desvío: distancia mínima al polyline
+    if (routeCoordsRef.current.length > 1) {
+      let minD = Infinity;
+      for (const c of routeCoordsRef.current) {
+        const d = distMeters(driverPos, c as [number, number]);
+        if (d < minD) minD = d;
+      }
+      const now = Date.now();
+      if (minD > 60 && now - lastRecomputeRef.current > 15000) {
+        lastRecomputeRef.current = now;
+        if (voiceOn) speak('Recalculando ruta');
+        fetchRouteDetails();
+      }
+    }
+  }, [currentLocation, voiceOn, fetchRouteDetails]);
 
   // Markers
   useEffect(() => {
     if (!isMapReady || !mapInstance.current || !currentLocation) return;
     const map = mapInstance.current;
 
-    // Driver marker - clean navigation arrow
+    // Driver marker
     if (!driverMarkerRef.current) {
       const el = document.createElement('div');
       el.className = 'driver-nav-dot';
@@ -215,27 +512,38 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPic
       if (arrow) arrow.style.transform = `rotate(${currentLocation.heading || 0}deg)`;
     }
 
-    // Destination markers
-    const addDestMarker = (ref: React.MutableRefObject<maplibregl.Marker | null>, lat: any, lng: any, color: string, emoji: string) => {
-      if (!lat || !lng) return;
-      if (!ref.current) {
-        const el = document.createElement('div');
-        el.innerHTML = `
-          <div style="display:flex;flex-direction:column;align-items:center;filter:drop-shadow(0 4px 12px rgba(0,0,0,0.25))">
-            <div style="width:44px;height:44px;border-radius:14px;background:${color};display:flex;align-items:center;justify-content:center;font-size:20px;border:3px solid white">${emoji}</div>
-            <div style="width:3px;height:8px;background:${color};border-radius:0 0 2px 2px"></div>
+    // Clear old stop markers
+    stopMarkerRefs.current.forEach(m => m.remove());
+    stopMarkerRefs.current = [];
+
+    // Stop markers — only show focused delivery stops
+    stops.forEach((s, i) => {
+      if (!isValidCoord(s.lat, s.lng)) return;
+      const color = s.type === 'pickup' ? '#10b981' : '#4F46E5';
+      const emoji = s.type === 'pickup' ? '📦' : '🏠';
+      const label = `${i + 1}`;
+      const el = document.createElement('div');
+      el.innerHTML = `
+        <div style="display:flex;flex-direction:column;align-items:center;filter:drop-shadow(0 4px 12px rgba(0,0,0,0.25))">
+          <div style="width:40px;height:40px;border-radius:12px;background:${color};display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:900;color:white;border:3px solid white;position:relative">
+            ${label}
+            ${s.completed ? '<div style="position:absolute;top:-4px;right:-4px;width:14px;height:14px;border-radius:50%;background:#22c55e;border:2px solid white;display:flex;align-items:center;justify-content:center;font-size:8px;color:white">✓</div>' : ''}
           </div>
-        `;
-        ref.current = new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([lng, lat]).addTo(map);
-      } else {
-        ref.current.setLngLat([lng, lat]);
-      }
-    };
-    addDestMarker(pickupMarkerRef, delivery.pickup_lat, delivery.pickup_lng, '#10b981', '📦');
-    addDestMarker(deliveryMarkerRef, delivery.delivery_lat, delivery.delivery_lng, '#4F46E5', '🏠');
+          <div style="width:3px;height:6px;background:${color};border-radius:0 0 2px 2px"></div>
+        </div>
+      `;
+      const marker = new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([s.lng, s.lat]).addTo(map);
+      stopMarkerRefs.current.push(marker);
+    });
 
     if (followMode) {
-      map.easeTo({ center: [currentLocation.lng, currentLocation.lat], bearing: currentLocation.heading || 0, duration: 800 });
+      map.easeTo({
+        center: [currentLocation.lng, currentLocation.lat],
+        bearing: currentLocation.heading || 0,
+        zoom: 16.5,
+        pitch: 45,
+        duration: 800,
+      });
     }
 
     // Breadcrumb
@@ -247,7 +555,7 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPic
     const spd = calcSpeedKmh(prevPosRef.current, curr);
     if (spd !== null) setSpeedKmh(spd);
     prevPosRef.current = curr;
-  }, [currentLocation, followMode, isMapReady, delivery]);
+  }, [currentLocation, followMode, isMapReady, stops]);
 
   // Update breadcrumb
   useEffect(() => {
@@ -266,14 +574,53 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPic
     }
   };
 
-  const handleCancelDelivery = async () => {
-    if (!user || !cancelReason.trim()) { toast.error("Describe el problema antes de cancelar"); return; }
+  const handlePhotoCapture = () => fileInputRef.current?.click();
+
+  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+    Array.from(files).forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        if (ev.target?.result) setCancelPhotos(prev => [...prev, ev.target!.result as string]);
+      };
+      reader.readAsDataURL(file);
+    });
+    e.target.value = '';
+  };
+
+  const handleCancelDelivery = async (reason: string) => {
+    if (!user) { toast.error("Debes iniciar sesión"); return; }
     setCancelling(true);
     try {
-      const { error } = await (supabase.from("deliveries") as any).update({ status: "cancelado", driver_id: null, cancelled_at: new Date().toISOString() }).eq("id", delivery.id);
+      // Devolver el pedido a la bolsa: status pendiente y sin conductor
+      const { error } = await (supabase.from("deliveries") as any)
+        .update({
+          status: "pendiente",
+          driver_id: null,
+          accepted_at: null,
+          picked_up_at: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", delivery.id);
       if (error) throw error;
-      await (supabase.from("delivery_audit_log") as any).insert({ delivery_id: delivery.id, event: "Entrega cancelada por mensajero", details: cancelReason, performed_by: user.id });
-      toast.success("Entrega cancelada. El pedido volvió a estar disponible.");
+      await (supabase.from("delivery_audit_log") as any).insert({
+        delivery_id: delivery.id,
+        event: "Entrega rechazada por mensajero",
+        details: `Motivo: ${reason}${cancelPhotos.length > 0 ? ` (${cancelPhotos.length} foto(s) adjunta(s))` : ''}`,
+        performed_by: user.id
+      });
+      // Volver a difundir para que otros mensajeros lo vean al instante
+      try {
+        const ch = supabase.channel("dispatch-notifications");
+        await ch.subscribe(async (status) => {
+          if (status === "SUBSCRIBED") {
+            await ch.send({ type: "broadcast", event: "new-order", payload: { id: delivery.id } });
+            setTimeout(() => supabase.removeChannel(ch), 500);
+          }
+        });
+      } catch {}
+      toast.success("Pedido devuelto. Ya está disponible para otros mensajeros.");
       setShowCancel(false);
       window.location.reload();
     } catch (e: any) { toast.error("Error al cancelar: " + e.message); }
@@ -282,26 +629,74 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPic
 
   return (
     <div className="h-full w-full overflow-hidden relative font-sans bg-white">
+      {/* Offline banner */}
+      <AnimatePresence>
+        {isOffline && (
+          <motion.div initial={{ y: -40 }} animate={{ y: 0 }} className="absolute top-0 inset-x-0 z-[1003] bg-amber-500/90 backdrop-blur-md px-4 py-2 flex items-center gap-2">
+            <WifiOff className="h-4 w-4 text-white shrink-0" />
+            <span className="text-xs font-bold text-white">Sin conexión — mostrando datos en caché</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Navigation Banner */}
       <AnimatePresence>
         {routeInfo && (
-          <motion.div initial={{ y: -80, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className="absolute top-0 inset-x-0 z-[1001] safe-top">
+          <motion.div initial={{ y: -80, opacity: 0 }} animate={{ y: 0, opacity: 1 }} className={`absolute top-0 inset-x-0 z-[1001] safe-top ${isOffline ? 'mt-10' : ''}`}>
             <div className="bg-indigo-600 mx-3 mt-3 rounded-2xl p-4 shadow-xl flex items-center gap-4">
               <div className="bg-white/20 p-3 rounded-xl">
-                <ArrowUpRight className="h-7 w-7 text-white" />
+                {(() => {
+                  const Icon = maneuverIcon(currentStep?.maneuver?.type, currentStep?.maneuver?.modifier);
+                  return <Icon className="h-7 w-7 text-white" />;
+                })()}
               </div>
               <div className="flex-1 min-w-0">
-                <span className="text-3xl font-black text-white leading-none tracking-tight">{routeInfo.nextManeuver}</span>
-                <p className="text-sm font-semibold text-indigo-200 truncate mt-0.5">{routeInfo.nextStreet}</p>
+                <span className="text-3xl font-black text-white leading-none tracking-tight">{routeInfo.nextManeuver || '—'}</span>
+                <p className="text-sm font-semibold text-indigo-200 truncate mt-0.5">{routeInfo.nextStreet || 'Continuar'}</p>
               </div>
-              <div className="text-right">
-                <p className="text-xl font-black text-white">{routeInfo.duration}</p>
-                <p className="text-xs font-semibold text-indigo-200">{routeInfo.distance}</p>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    setVoiceOn(v => !v);
+                    if (voiceOn) window.speechSynthesis?.cancel();
+                  }}
+                  className="bg-white/15 hover:bg-white/25 p-2 rounded-lg transition-colors"
+                  title={voiceOn ? 'Silenciar voz' : 'Activar voz'}
+                >
+                  {voiceOn ? <Volume2 className="h-4 w-4 text-white" /> : <VolumeX className="h-4 w-4 text-white" />}
+                </button>
+                <div className="text-right">
+                  <p className="text-xl font-black text-white">{routeInfo.duration}</p>
+                  <p className="text-xs font-semibold text-indigo-200">{routeInfo.distance}</p>
+                </div>
               </div>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
+
+      {!routeInfo && routeStatus !== "idle" && (
+        <div className="absolute top-0 inset-x-0 z-[1001] safe-top">
+          <div className="bg-white mx-3 mt-3 rounded-2xl p-4 shadow-xl border border-slate-100 flex items-center gap-3">
+            <div className="h-10 w-10 rounded-xl bg-indigo-50 flex items-center justify-center">
+              <Navigation className="h-5 w-5 text-indigo-600" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-black text-slate-900">
+                {routeStatus === "locating" && "Activando GPS"}
+                {routeStatus === "geocoding" && "Ubicando direcciones"}
+                {routeStatus === "routing" && "Calculando ruta"}
+                {routeStatus === "unavailable" && "Ruta sin coordenadas"}
+              </p>
+              <p className="text-xs font-semibold text-slate-500 truncate">
+                {gpsError || (routeStatus === "unavailable"
+                  ? "Selecciona direcciones sugeridas en despacho para navegación exacta."
+                  : "El mapa entrará en conducción automáticamente.")}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Speed badge */}
       {speedKmh !== null && (
@@ -313,12 +708,45 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPic
 
       <div ref={mapContainer} className="h-full w-full" />
 
+      {/* Selector de estilo de mapa (Oscuro / Claro / Satélite / Calles…) */}
+      <MapStyleSwitcher
+        current={mapStyle}
+        onSelect={(s) => setStyle(s.id)}
+        position="bottom-left"
+        dark={mapStyle.id === 'dark' || mapStyle.id === 'satellite'}
+      />
+
       {/* Controls */}
       <div className="absolute right-3 bottom-52 z-[1001] flex flex-col gap-2">
         <Button
           variant="secondary" size="icon"
+          className="h-10 w-10 rounded-full shadow-lg bg-white text-slate-700 border border-slate-200"
+          onClick={() => mapInstance.current?.zoomIn({ duration: 250 })}
+        >
+          <Plus className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="secondary" size="icon"
+          className="h-10 w-10 rounded-full shadow-lg bg-white text-slate-700 border border-slate-200"
+          onClick={() => mapInstance.current?.zoomOut({ duration: 250 })}
+        >
+          <Minus className="h-4 w-4" />
+        </Button>
+        <Button
+          variant="secondary" size="icon"
           className={`h-12 w-12 rounded-full shadow-lg transition-all border ${followMode ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-slate-700 border-slate-200'}`}
-          onClick={() => setFollowMode(!followMode)}
+          onClick={() => {
+            setFollowMode(true);
+            if (mapInstance.current && currentLocation) {
+              mapInstance.current.easeTo({
+                center: [currentLocation.lng, currentLocation.lat],
+                bearing: currentLocation.heading || 0,
+                zoom: 16.5,
+                pitch: 45,
+                duration: 700,
+              });
+            }
+          }}
         >
           <Target className="h-5 w-5" />
         </Button>
@@ -345,12 +773,31 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPic
           <div className="w-12 h-1.5 bg-slate-200 rounded-full mx-auto" />
         </div>
 
-        <div className="px-6 pt-3 flex-1 flex flex-col overflow-hidden">
+        <div className="px-6 pt-3 flex-1 flex flex-col overflow-y-auto">
+          {/* Si hay múltiples pedidos, mostrar pestañas para seleccionar cuál ver/actualizar */}
+          {allDeliveries.length > 1 && (
+            <div className="flex gap-2 mb-4 bg-slate-100 p-1 rounded-xl">
+              {allDeliveries.map((d, idx) => (
+                <button
+                  key={d.id}
+                  onClick={() => setFocusedDeliveryId(d.id)}
+                  className={`flex-1 py-2 text-center rounded-lg text-[10px] font-black uppercase transition-all ${
+                    focusedDeliveryId === d.id
+                      ? "bg-indigo-600 text-white shadow-sm"
+                      : "text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  Pedido {idx + 1} ({d.status === "aceptado" ? "Recoger" : "Entregar"})
+                </button>
+              ))}
+            </div>
+          )}
+
           {/* ETA bar */}
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-baseline gap-2">
-              <span className="text-4xl font-black text-slate-900 tracking-tight">{routeInfo?.duration || "--"}</span>
-              <span className="text-base font-bold text-slate-400">{routeInfo?.distance || "--"}</span>
+              <span className="text-4xl font-black text-slate-900 tracking-tight">{routeInfo?.duration || (routeStatus === "routing" ? "..." : "--")}</span>
+              <span className="text-base font-bold text-slate-400">{routeInfo?.distance || (routeStatus === "locating" ? "GPS" : "--")}</span>
             </div>
             <div className="bg-indigo-50 px-4 py-2 rounded-xl">
               <span className="text-sm font-black text-indigo-600">#{delivery.order_id.slice(-4).toUpperCase()}</span>
@@ -361,30 +808,32 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPic
             <div className="h-full bg-indigo-600 rounded-full transition-all duration-1000" style={{ width: `${Math.max(2, (1 - etaProgress) * 100)}%` }} />
           </div>
 
-          {/* Addresses */}
-          <div className="space-y-3 mb-5">
-            <div className={`p-4 rounded-2xl border-2 ${isPickingUp ? 'border-indigo-500 bg-indigo-50/30' : 'border-slate-100 bg-slate-50'}`}>
+
+
+          {/* Addresses — only the focused delivery */}
+          <div className="space-y-3 mb-4">
+            <div className={`p-3 rounded-2xl border-2 ${isPickingUp ? 'border-indigo-500 bg-indigo-50/30' : 'border-slate-100 bg-slate-50'}`}>
               <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-xl bg-emerald-500 flex items-center justify-center text-lg">📦</div>
+                <div className="h-8 w-8 rounded-xl bg-emerald-500 flex items-center justify-center text-sm">📦</div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider mb-0.5">Recoger</p>
+                  <p className="text-[9px] font-bold text-emerald-600 uppercase tracking-wider mb-0.5">Recoger</p>
                   <p className="text-xs font-bold text-slate-800 truncate">{delivery.pickup_address}</p>
                 </div>
               </div>
             </div>
-            <div className={`p-4 rounded-2xl border-2 ${!isPickingUp ? 'border-indigo-500 bg-indigo-50/30' : 'border-slate-100 bg-slate-50'}`}>
+            <div className={`p-3 rounded-2xl border-2 ${!isPickingUp ? 'border-indigo-500 bg-indigo-50/30' : 'border-slate-100 bg-slate-50'}`}>
               <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-xl bg-indigo-600 flex items-center justify-center text-lg">🏠</div>
+                <div className="h-8 w-8 rounded-xl bg-indigo-600 flex items-center justify-center text-sm">🏠</div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider mb-0.5">Entregar</p>
+                  <p className="text-[9px] font-bold text-indigo-600 uppercase tracking-wider mb-0.5">Entregar</p>
                   <p className="text-xs font-bold text-slate-800 truncate">{delivery.delivery_address}</p>
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Customer */}
-          <div className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl mb-4">
+          {/* Customer info */}
+          <div className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl mb-3">
             <div className="flex items-center gap-3">
               <div className="h-9 w-9 rounded-full bg-slate-200 flex items-center justify-center"><User className="h-4 w-4 text-slate-500" /></div>
               <div>
@@ -394,18 +843,41 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPic
             </div>
             <div className="flex items-center gap-2">
               {delivery.customer_phone && (
-                <a href={`tel:${delivery.customer_phone}`} className="h-9 w-9 rounded-full bg-emerald-50 flex items-center justify-center">
-                  <Phone className="h-4 w-4 text-emerald-600" />
-                </a>
+                <>
+                  <a
+                    href={`https://wa.me/${delivery.customer_phone.replace(/\D/g, "")}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="h-9 w-9 rounded-full bg-green-50 hover:bg-green-100 flex items-center justify-center transition-all"
+                  >
+                    <svg className="h-4 w-4 text-green-600 fill-current" viewBox="0 0 24 24">
+                      <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946C.06 5.348 5.397.01 12.008.01c3.202.001 6.212 1.246 8.477 3.514 2.266 2.268 3.507 5.28 3.505 8.484-.004 6.657-5.34 11.997-11.953 11.997-2.005-.001-3.973-.502-5.724-1.458L0 24zm6.59-4.846c1.6.95 3.182 1.449 4.825 1.451 5.436 0 9.86-4.42 9.864-9.852.002-2.63-1.023-5.101-2.887-6.967C16.578 1.919 14.106.894 11.48.894c-5.44 0-9.866 4.418-9.87 9.851-.001 1.776.474 3.51 1.378 5.066l-1.009 3.687 3.776-.99zM15.8 12.94c-.328-.164-1.94-.959-2.24-1.07-.3-.109-.52-.164-.74.164-.22.329-.85 1.07-1.04 1.29-.19.22-.38.246-.708.082-.328-.164-1.386-.511-2.64-1.632-.975-.87-1.633-1.946-1.825-2.274-.19-.329-.02-.507.144-.67.149-.147.328-.384.492-.575.164-.19.219-.328.328-.548.11-.219.055-.411-.027-.575-.082-.164-.74-1.782-1.01-2.44-.265-.636-.53-.55-.74-.56l-.63-.01c-.22 0-.58.08-.88.41-.3.33-1.15 1.12-1.15 2.73s1.17 3.17 1.33 3.39c.16.22 2.3 3.52 5.58 4.94.78.34 1.39.54 1.86.69.79.25 1.5.21 2.07.13.63-.09 1.94-.79 2.22-1.56.27-.77.27-1.42.19-1.56-.08-.14-.3-.22-.63-.38z" />
+                    </svg>
+                  </a>
+                  <a
+                    href={`tel:${delivery.customer_phone}`}
+                    className="h-9 w-9 rounded-full bg-emerald-50 hover:bg-emerald-100 flex items-center justify-center transition-all"
+                  >
+                    <Phone className="h-4 w-4 text-emerald-600" />
+                  </a>
+                </>
               )}
-              <div className="text-right">
+              <div className="text-right ml-2">
                 <p className="text-sm font-black text-indigo-600">{fmt(delivery.amount || 0)}</p>
                 <p className="text-[9px] text-slate-400">Por cobrar</p>
               </div>
             </div>
           </div>
 
-          {/* Cancel */}
+          {/* Notes from Dispatch */}
+          {delivery.notes && (
+            <div className="mb-3 p-3 rounded-2xl bg-amber-50 border border-amber-200">
+              <p className="text-[9px] font-bold text-amber-600 uppercase tracking-wider mb-1">Nota del despachador</p>
+              <p className="text-xs font-medium text-amber-900 leading-relaxed">{delivery.notes}</p>
+            </div>
+          )}
+
+          {/* Cancel / Report */}
           {!showCancel ? (
             <button onClick={() => setShowCancel(true)} className="flex items-center justify-center gap-2 text-slate-400 hover:text-red-500 transition-colors py-2">
               <XCircle className="h-4 w-4" />
@@ -413,10 +885,43 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPic
             </button>
           ) : (
             <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="space-y-2 pb-3">
-              <textarea value={cancelReason} onChange={e => setCancelReason(e.target.value)} placeholder="Describe el problema..." className="w-full rounded-xl bg-slate-50 border border-slate-200 p-3 text-sm focus:border-indigo-500 focus:outline-none" rows={2} />
+              <p className="text-xs font-bold text-slate-700">Selecciona el motivo:</p>
+              <div className="flex flex-wrap gap-1.5">
+                {CANCEL_REASONS.map(reason => (
+                  <button
+                    key={reason}
+                    onClick={() => setCancelReason(reason)}
+                    className={`px-3 py-1.5 rounded-full text-[10px] font-bold border transition-all ${
+                      cancelReason === reason
+                        ? 'bg-red-500 text-white border-red-500'
+                        : 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200'
+                    }`}
+                  >
+                    {reason}
+                  </button>
+                ))}
+              </div>
+              {/* Optional photo */}
+              <div className="flex items-center gap-2">
+                <button onClick={handlePhotoCapture} className="flex items-center gap-1.5 text-[10px] font-bold text-slate-500 bg-slate-100 px-3 py-2 rounded-xl border border-slate-200 hover:bg-slate-200 transition-colors">
+                  <Camera className="h-3.5 w-3.5" />
+                  {cancelPhotos.length > 0 ? `${cancelPhotos.length} foto(s)` : 'Agregar foto'}
+                </button>
+                {cancelPhotos.length > 0 && (
+                  <div className="flex gap-1">
+                    {cancelPhotos.map((photo, i) => (
+                      <div key={i} className="relative">
+                        <img src={photo} alt="evidence" className="h-10 w-10 rounded-lg object-cover border border-slate-200" />
+                        <button onClick={() => setCancelPhotos(prev => prev.filter((_, j) => j !== i))} className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-red-500 text-white flex items-center justify-center text-[8px] font-bold">×</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <input ref={fileInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={handlePhotoChange} />
               <div className="flex gap-2">
-                <Button variant="outline" onClick={() => setShowCancel(false)} className="flex-1 h-10 rounded-xl text-xs font-bold">Cerrar</Button>
-                <Button variant="destructive" onClick={handleCancelDelivery} disabled={cancelling || !cancelReason.trim()} className="flex-[2] h-10 rounded-xl text-xs font-bold">
+                <Button variant="outline" onClick={() => { setShowCancel(false); setCancelReason(""); setCancelPhotos([]); }} className="flex-1 h-10 rounded-xl text-xs font-bold">Cerrar</Button>
+                <Button variant="destructive" onClick={() => handleCancelDelivery(cancelReason)} disabled={cancelling || !cancelReason.trim()} className="flex-[2] h-10 rounded-xl text-xs font-bold">
                   {cancelling ? "Cancelando..." : "Liberar Pedido"}
                 </Button>
               </div>
@@ -424,19 +929,19 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery, onPic
           )}
 
           {/* Chat */}
-          <div className="mb-3">
+          <div className="mb-2">
             {delivery.id && user && <ChatBubble deliveryId={delivery.id} currentUserId={user.id} isDriverView={true} />}
           </div>
 
           {/* Action Button */}
           <div className="mt-auto pb-8">
             {isPickingUp ? (
-              <Button onClick={onPickedUp} className="w-full h-16 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xl shadow-xl active:scale-[0.98] transition-all">
-                YA RECOGÍ EL PEDIDO
+              <Button onClick={() => onPickedUp(delivery.id)} className="w-full h-16 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-xl shadow-xl active:scale-[0.98] transition-all">
+                RECOGER
               </Button>
             ) : (
-              <Button onClick={onDelivered} className="w-full h-16 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xl shadow-xl active:scale-[0.98] transition-all">
-                PEDIDO ENTREGADO ✓
+              <Button onClick={() => onDelivered(delivery.id)} className="w-full h-16 rounded-2xl bg-emerald-500 hover:bg-emerald-600 text-white font-black text-xl shadow-xl active:scale-[0.98] transition-all">
+                ENTREGADO
               </Button>
             )}
           </div>

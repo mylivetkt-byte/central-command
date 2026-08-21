@@ -8,6 +8,8 @@ import {
   Package, MapPin, Phone, Clock, CheckCircle,
   Navigation, ChevronRight, Loader2, ArrowLeft, Bike
 } from 'lucide-react';
+import CustomerChatPanel from '@/components/CustomerChatPanel';
+import CustomerRatingCard from '@/components/CustomerRatingCard';
 
 const BUCARAMANGA_CENTER: [number, number] = [-73.1198, 7.1193];
 
@@ -34,61 +36,46 @@ export default function CustomerTracking() {
   const [driver, setDriver] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [eta, setEta] = useState<string | null>(null);
+  const [rating, setRating] = useState<any>(null);
 
-  // Load delivery data
+  // Load delivery data via public edge function (no auth required)
   const loadDelivery = useCallback(async () => {
-    const { data, error } = await supabase
-      .from('deliveries')
-      .select('*')
-      .eq('order_id', orderId)
-      .maybeSingle();
-    if (error) { setLoading(false); return; }
-    if (!data) { setLoading(false); return; }
-    setDelivery(data as any);
-
-    // Load driver info if assigned
-    if ((data as any).driver_id) {
-      const { data: driverData } = await supabase
-        .from('driver_profiles')
-        .select('id, rating, profiles (full_name, phone)')
-        .eq('id', (data as any).driver_id)
-        .maybeSingle();
-      setDriver(driverData as any);
-
-      // Load driver location
-      const { data: loc } = await supabase
-        .from('driver_locations')
-        .select('lat, lng, heading')
-        .eq('driver_id', (data as any).driver_id)
-        .maybeSingle();
-      if (loc) setDriver((prev: any) => ({ ...prev, lat: (loc as any).lat, lng: (loc as any).lng }));
+    if (!orderId) return;
+    try {
+      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/public-tracking?order_id=${encodeURIComponent(orderId)}`;
+      const res = await fetch(url, {
+        headers: {
+          apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string,
+          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string}`,
+        },
+      });
+      const json = await res.json();
+      if (!json?.delivery) { setDelivery(null); setLoading(false); return; }
+      setDelivery(json.delivery);
+      setRating(json.rating || null);
+      if (json.driver) {
+        setDriver({
+          profiles: { full_name: json.driver.full_name, phone: json.driver.phone },
+          rating: json.driver.rating,
+          lat: json.location?.lat ?? null,
+          lng: json.location?.lng ?? null,
+        });
+      }
+    } catch (e) {
+      console.warn('tracking load error', e);
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   }, [orderId]);
 
   useEffect(() => { loadDelivery(); }, [loadDelivery]);
 
-  // Realtime subscription
+  // Poll every 8s for updates (public tracking has no realtime access)
   useEffect(() => {
-    const ch = supabase.channel('track-order')
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'deliveries', filter: `order_id=eq.${orderId}` }, ({ new: n }: any) => {
-        setDelivery(n);
-      })
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
-  }, [orderId]);
-
-  // Track driver location changes
-  useEffect(() => {
-    if (!delivery?.driver_id) return;
-    const ch = supabase.channel(`track-driver-${delivery.driver_id}`)
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'driver_locations', filter: `driver_id=eq.${delivery.driver_id}` }, ({ new: n }: any) => {
-        setDriver((prev: any) => prev ? { ...prev, lat: n.lat, lng: n.lng } : null);
-      })
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
-  }, [delivery?.driver_id]);
+    if (!orderId) return;
+    const i = setInterval(loadDelivery, 8000);
+    return () => clearInterval(i);
+  }, [orderId, loadDelivery]);
 
   // Init map
   useEffect(() => {
@@ -269,8 +256,20 @@ export default function CustomerTracking() {
         </div>
       )}
 
+      {/* Rating card (delivered) */}
+      {delivery.status === 'entregado' && (
+        <div className="absolute bottom-8 left-4 right-4 z-[1000] max-w-md mx-auto">
+          <CustomerRatingCard
+            orderId={orderId!}
+            driverName={driver?.profiles?.full_name}
+            existing={rating}
+            onRated={loadDelivery}
+          />
+        </div>
+      )}
+
       {/* Driver info card */}
-      {driver && delivery.status !== 'pendiente' && (
+      {driver && delivery.status !== 'pendiente' && delivery.status !== 'entregado' && (
         <div className="absolute bottom-8 left-4 right-4 z-[1000]">
           <motion.div
             initial={{ y: 50, opacity: 0 }}
@@ -297,6 +296,13 @@ export default function CustomerTracking() {
           </motion.div>
         </div>
       )}
+
+      {/* Live chat with driver */}
+      <CustomerChatPanel
+        orderId={orderId!}
+        driverName={driver?.profiles?.full_name}
+        disabled={!delivery?.driver_id || ['entregado','cancelado'].includes(delivery.status)}
+      />
     </div>
   );
 }

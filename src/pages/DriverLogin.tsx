@@ -5,10 +5,16 @@ import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Bike, Mail, Lock, AlertCircle, User, ArrowLeft, CheckCircle } from "lucide-react";
+import { Bike, Mail, Lock, AlertCircle, User, ArrowLeft, CheckCircle, Check, X } from "lucide-react";
 import { toast } from "sonner";
+import { isValidPhone, phoneToSyntheticEmail } from "@/lib/phoneAuth";
 
 const DriverLogin = () => {
+  // Recordar que este dispositivo es del mensajero, para que al recargar en "/" vuelva aquí.
+  useEffect(() => {
+    try { localStorage.setItem("gomoto:lastApp", "driver"); } catch {}
+  }, []);
+
   const [email, setEmail]                       = useState("");
   const [password, setPassword]                 = useState("");
   const [submitting, setSubmitting]             = useState(false);
@@ -18,13 +24,43 @@ const DriverLogin = () => {
   const [resetSent, setResetSent]               = useState(false);
   const [fullName, setFullName]                 = useState("");
   const [phone, setPhone]                       = useState("");
+  const [companies, setCompanies]               = useState<any[]>([]);
+  const [selectedCompanyId, setSelectedCompanyId] = useState("");
+  const [authMethod, setAuthMethod]             = useState<"email" | "phone">("email");
+  const [phoneLogin, setPhoneLogin]             = useState("");
 
   const navigate   = useNavigate();
   const { user, role, loading: authLoading } = useAuth();
 
+  // Reglas de contraseña (solo se aplican al registrarse)
+  const pwdRules = [
+    { key: "len",   label: "Al menos 8 caracteres",           test: (p: string) => p.length >= 8 },
+    { key: "upper", label: "Una letra mayúscula (A-Z)",       test: (p: string) => /[A-Z]/.test(p) },
+    { key: "lower", label: "Una letra minúscula (a-z)",       test: (p: string) => /[a-z]/.test(p) },
+    { key: "num",   label: "Un número (0-9)",                 test: (p: string) => /\d/.test(p) },
+    { key: "sym",   label: "Un símbolo (!@#$%…) — opcional",  test: (p: string) => /[^A-Za-z0-9]/.test(p), optional: true },
+  ];
+  const pwdChecks = pwdRules.map(r => ({ ...r, ok: r.test(password) }));
+  const pwdAllOk  = pwdChecks.every(c => c.ok || (c as any).optional);
+
   useEffect(() => {
-    if (!authLoading && user && role === "driver") {
-      navigate("/driver", { replace: true });
+    if (isSignUp) {
+      supabase
+        .from("saas_companies")
+        .select("id, name")
+        .eq("status", "activa")
+        .then(({ data }) => {
+          if (data) setCompanies(data);
+        });
+    }
+  }, [isSignUp]);
+
+  useEffect(() => {
+    if (authLoading || !user) return;
+    if (role === "driver") navigate("/driver", { replace: true });
+    else if (role === "bloqueado") {
+      setError("Tu empresa se encuentra inactiva, suspendida o pendiente de activación. Por favor, comunícate con la empresa.");
+      supabase.auth.signOut();
     }
   }, [user, role, authLoading, navigate]);
 
@@ -33,7 +69,7 @@ const DriverLogin = () => {
     setSubmitting(true);
     setError("");
     const { error: err } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/driver-login`,
+      redirectTo: `${window.location.origin}/#/driver-login`,
     });
     if (err) setError(err.message);
     else { setResetSent(true); toast.success("Correo enviado. Revisa tu bandeja."); }
@@ -46,24 +82,56 @@ const DriverLogin = () => {
     setError("");
 
     try {
+      // Resolver el identificador (email real o email sintético a partir del móvil)
+      let identifier = email.trim();
+      if (authMethod === "phone") {
+        const src = isSignUp ? phone : phoneLogin;
+        if (!isValidPhone(src)) {
+          setError("Ingresa un número de móvil válido (7-15 dígitos, con o sin +).");
+          setSubmitting(false);
+          return;
+        }
+        identifier = phoneToSyntheticEmail(src);
+      }
+
       if (isSignUp) {
+        if (!selectedCompanyId) {
+          setError("Debes seleccionar una empresa para registrarte.");
+          setSubmitting(false);
+          return;
+        }
+        if (!pwdAllOk) {
+          setError("La contraseña no cumple con todos los requisitos.");
+          setSubmitting(false);
+          return;
+        }
         const { data, error: err } = await supabase.auth.signUp({
-          email, password,
+          email: identifier, password,
           options: {
-            data: { full_name: fullName, phone, role: "driver" },
+            data: { 
+              full_name: fullName, 
+              phone, 
+              role: "driver",
+              company_id: selectedCompanyId
+            },
             emailRedirectTo: window.location.origin,
           },
         });
         if (err) setError(err.message);
         else if (data.user && data.session) toast.success("¡Cuenta creada! Bienvenido.");
-        else { toast.success("Registro exitoso. Confirma tu correo antes de entrar."); setIsSignUp(false); }
+        else {
+          toast.success(authMethod === "phone"
+            ? "Registro exitoso. Ya puedes iniciar sesión con tu móvil."
+            : "Registro exitoso. Confirma tu correo antes de entrar.");
+          setIsSignUp(false);
+        }
       } else {
-        const { error: err } = await supabase.auth.signInWithPassword({ email, password });
+        const { error: err } = await supabase.auth.signInWithPassword({ email: identifier, password });
         if (err) {
           if (err.message.includes("Email not confirmed"))
             setError("Debes confirmar tu correo antes de entrar. Revisa tu bandeja.");
           else if (err.message.includes("Invalid login credentials"))
-            setError("Correo o contraseña incorrectos.");
+            setError(authMethod === "phone" ? "Móvil o contraseña incorrectos." : "Correo o contraseña incorrectos.");
           else
             setError(err.message);
         }
@@ -75,16 +143,10 @@ const DriverLogin = () => {
     }
   };
 
-  // Solo mostramos spinner si hay usuario pero el rol aún se está resolviendo
+  // No mostramos una segunda pantalla de "Verificando sesión…" entre el splash y la app —
+  // dejamos el fondo en blanco muy breve mientras el rol se resuelve.
   if (authLoading && user) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center space-y-3">
-          <div className="h-10 w-10 border-2 border-accent border-t-transparent rounded-full animate-spin mx-auto" />
-          <p className="text-sm text-muted-foreground">Verificando sesión...</p>
-        </div>
-      </div>
-    );
+    return <div className="min-h-screen bg-background" />;
   }
 
   return (
@@ -95,8 +157,8 @@ const DriverLogin = () => {
             <div className="mx-auto h-14 w-14 rounded-xl bg-gradient-success flex items-center justify-center">
               <Bike className="h-7 w-7 text-accent-foreground" />
             </div>
-            <h1 className="text-2xl font-bold text-foreground">LogiCentral</h1>
-            <p className="text-sm text-muted-foreground">App del Mensajero</p>
+            <h1 className="text-2xl font-bold text-foreground">GoMoto</h1>
+            <p className="text-sm text-slate-900 font-bold">App del Mensajero</p>
           </div>
 
           {isForgotPassword ? (
@@ -143,6 +205,16 @@ const DriverLogin = () => {
           ) : (
             <>
               <form onSubmit={handleSubmit} className="space-y-4">
+                <div className="flex rounded-lg overflow-hidden border border-border text-xs font-bold">
+                  <button type="button" onClick={() => { setAuthMethod("email"); setError(""); }}
+                    className={`flex-1 py-2 transition-colors ${authMethod === "email" ? "bg-accent text-accent-foreground" : "bg-muted/40 text-muted-foreground hover:bg-muted"}`}>
+                    📧 Correo
+                  </button>
+                  <button type="button" onClick={() => { setAuthMethod("phone"); setError(""); }}
+                    className={`flex-1 py-2 transition-colors ${authMethod === "phone" ? "bg-accent text-accent-foreground" : "bg-muted/40 text-muted-foreground hover:bg-muted"}`}>
+                    📱 Móvil
+                  </button>
+                </div>
                 {isSignUp && (
                   <>
                     <div className="space-y-2">
@@ -154,27 +226,56 @@ const DriverLogin = () => {
                           placeholder="Tu nombre" className="pl-10" required />
                       </div>
                     </div>
+                    {authMethod === "email" && (
+                      <div className="space-y-2">
+                        <Label htmlFor="phone">Teléfono</Label>
+                        <Input id="phone" value={phone}
+                          onChange={e => setPhone(e.target.value)}
+                          placeholder="+57 300 000 0000" required />
+                      </div>
+                    )}
                     <div className="space-y-2">
-                      <Label htmlFor="phone">Teléfono</Label>
-                      <Input id="phone" value={phone}
-                        onChange={e => setPhone(e.target.value)}
-                        placeholder="+57 300 000 0000" required />
+                      <Label htmlFor="companySelect">Empresa a la que te registras *</Label>
+                      <select
+                        id="companySelect"
+                        value={selectedCompanyId}
+                        onChange={(e) => setSelectedCompanyId(e.target.value)}
+                        required
+                        className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-accent/50 font-bold"
+                      >
+                        <option value="">-- Selecciona una empresa --</option>
+                        {companies.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
                     </div>
                   </>
                 )}
-                <div className="space-y-2">
-                  <Label htmlFor="email">Correo electrónico</Label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                    <Input id="email" type="email" value={email}
-                      onChange={e => setEmail(e.target.value)}
-                      placeholder="correo@ejemplo.com" className="pl-10" required />
+                {authMethod === "email" ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="email">Correo electrónico</Label>
+                    <div className="relative">
+                      <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                      <Input id="email" type="email" value={email}
+                        onChange={e => setEmail(e.target.value)}
+                        placeholder="correo@ejemplo.com" className="pl-10" required />
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label htmlFor="phoneAuth">Número de móvil</Label>
+                    <Input id="phoneAuth" type="tel"
+                      value={isSignUp ? phone : phoneLogin}
+                      onChange={e => isSignUp ? setPhone(e.target.value) : setPhoneLogin(e.target.value)}
+                      placeholder="+57 300 000 0000" required inputMode="tel" />
+                  </div>
+                )}
                 <div className="space-y-2">
                   <div className="flex items-center justify-between">
                     <Label htmlFor="password">Contraseña</Label>
-                    {!isSignUp && (
+                    {!isSignUp && authMethod === "email" && (
                       <button type="button"
                         onClick={() => { setIsForgotPassword(true); setError(""); }}
                         className="text-xs text-accent hover:underline">
@@ -188,6 +289,30 @@ const DriverLogin = () => {
                       onChange={e => setPassword(e.target.value)}
                       placeholder="••••••••" className="pl-10" required minLength={6} />
                   </div>
+                  {isSignUp && (
+                    <div className="rounded-lg border border-border bg-muted/30 p-3 space-y-1.5">
+                      <p className="text-xs font-semibold text-foreground mb-1">
+                        Tu contraseña debe tener:
+                      </p>
+                      {pwdChecks.map(c => (
+                        <div key={c.key} className="flex items-center gap-2 text-xs">
+                          {c.ok ? (
+                            <Check className="h-3.5 w-3.5 text-green-600 shrink-0" />
+                          ) : (
+                            <X className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                          )}
+                          <span className={c.ok ? "text-green-700 font-medium" : "text-muted-foreground"}>
+                            {c.label}
+                          </span>
+                        </div>
+                      ))}
+                      {password.length > 0 && (
+                        <p className={`text-xs font-semibold pt-1 ${pwdAllOk ? "text-green-700" : "text-amber-600"}`}>
+                          {pwdAllOk ? "✓ Contraseña válida" : "Aún faltan requisitos"}
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
                 {error && (
                   <div className="flex items-center gap-2 text-destructive text-sm bg-destructive/10 rounded-lg p-3">
@@ -203,14 +328,15 @@ const DriverLogin = () => {
               <div className="text-center">
                 <button type="button"
                   onClick={() => { setIsSignUp(!isSignUp); setError(""); }}
-                  className="text-sm text-accent hover:underline">
+                  className="text-sm font-semibold text-primary hover:underline">
                   {isSignUp ? "¿Ya tienes cuenta? Inicia sesión" : "¿Nuevo mensajero? Regístrate"}
                 </button>
               </div>
               <div className="text-center">
-                <a href="/admin-login" className="text-xs text-muted-foreground hover:text-foreground">
+                <button type="button" onClick={() => navigate("/admin-login")}
+                  className="text-xs text-muted-foreground hover:text-foreground">
                   ¿Eres administrador? Entra aquí
-                </a>
+                </button>
               </div>
             </>
           )}

@@ -1,39 +1,107 @@
-# Central Command - Sistema de Logística y Domicilios
+# delivery
 
-Este proyecto es una plataforma de comando centralizada para la gestión de operaciones logísticas y de mensajería en tiempo real. Está diseñado con una estética industrial de alto contraste inspirada en sistemas críticos y plataformas como Uber.
+Upgrade the delivery platform into a high-level logistics management system with advanced analytics, reporting, and operational intelligence for the Central (Admin).
 
-## 🚀 Funcionalidades Principales
+FOCUS: Make the Central panel powerful, data-driven, and comparable to enterprise logistics platforms.
 
-### 👨‍💻 Panel de Administración (Central)
-- **Dashboard en Tiempo Real**: Visualización de métricas clave, estado de la flota y volumen de pedidos.
-- **Gestión de Operaciones**: Control total sobre los pedidos activos, asignaciones y estados de entrega.
-- **Despacho Avanzado**: Interfaz optimizada para coordinar conductores y rutas de manera eficiente.
-- **Métricas Financieras**: Seguimiento de ingresos, comisiones y liquidaciones.
-- **Mapa de Seguimiento**: Visualización geográfica de todos los conductores y entregas activas mediante MapLibre/CartoDB.
-- **Alertas y Auditoría**: Sistema de monitoreo para detectar irregularidades y mantener un historial detallado de acciones.
+NEW CENTRAL FEATURES (ADVANCED):
 
-### 🚲 Aplicación del Conductor (Driver App)
-- **Mapa de Pedidos Cercanos**: Interfaz con mapas 3D para localizar y aceptar pedidos en la zona.
-- **Navegación Integrada**: Soporte para cambio de estilos de mapa (Claro, Oscuro, Satélite).
-- **Gestión de Entregas**: Flujo de trabajo para recogida, transporte y finalización de domicilios.
+1. PERFORMANCE ANALYTICS (Repartidores):
+- Daily performance per driver
+- Metrics:
+  - Total domicilios realizados
+  - Tiempo promedio de entrega
+  - Tasa de aceptación (%)
+  - Tasa de cancelación
+  - Ingresos generados
+- Ranking de repartidores (Top 10)
+- Visual charts (bar, line, pie)
 
-### 📍 Seguimiento del Cliente (Customer tracking)
-- **Vista Pública**: Los clientes pueden seguir su pedido en tiempo real sin necesidad de iniciar sesión.
+2. REPORTS & DATE FILTERING:
+- Global filters by:
+  - Fecha (hoy, ayer, semana, mes, rango personalizado)
+- Reports:
+  - Domicilios por día
+  - Ingresos por día
+  - Entregas por repartidor
+- Export option (simulated UI: Excel/PDF)
 
-## 🎨 Sistema de Diseño: Industrial Uber
-El proyecto utiliza un sistema de diseño estrictamente monocromático y de alto contraste:
-- **Colores**: Negro puro (#000000), Blanco puro (#FFFFFF) y Grises de escala industrial.
-- **Tipografía**: Inter para máxima legibilidad.
-- **Componentes**: Bordes rectos, sombras sutiles y estados de "Glow" para alertas críticas.
+3. LIVE OPERATIONS DASHBOARD:
+- Real-time map with:
+  - Active deliveries
+  - Driver locations
+- Live counters:
+  - Pedidos en curso
+  - Pendientes
+  - Finalizados
 
-## 🛠️ Tecnologías
-- **Frontend**: React + Vite + TypeScript.
-- **Estilos**: Tailwind CSS + Shadcn UI.
-- **Mapas**: MapLibre GL JS + Carto Vector Tiles.
-- **Base de Datos**: Supabase (PostgreSQL) con políticas de seguridad RLS.
-- **Estado**: TanStack Query (React Query) para sincronización de datos.
+4. ALERT SYSTEM:
+- Detect and highlight:
+  - Pedidos demorados
+  - Repartidores inactivos
+  - Zonas con alta demanda
+- Visual warnings (colors, badges)
 
-## 🛠️ Instalación y Desarrollo
-1. Instala las dependencias: `npm install`
-2. Configura las variables de entorno en `.env`.
-3. Ejecuta el entorno de desarrollo: `npm run dev`
+5. SMART DISPATCH (ADVANCED LOGIC UI):
+- Suggested driver based on:
+  - ubicación
+  - carga actual
+- Button: "Asignación automática"
+
+6. FINANCIAL PANEL:
+- Total ingresos del día
+- Comisión por pedido
+- Ganancia por repartidor
+- Historial de pagos
+
+7. DRIVER MANAGEMENT PRO:
+- Profile per driver:
+  - historial de pedidos
+  - métricas
+  - estado (activo, suspendido)
+- Actions:
+  - bloquear/desbloquear
+  - asignar manual
+
+8. DELIVERY AUDIT LOG:
+- Timeline per delivery:
+  - creado
+  - aceptado
+  - en camino
+  - entregado
+- Full traceability
+
+9. UX/UI:
+- Dashboard tipo empresa logística
+- Gráficos y tarjetas KPI
+- Todo en español
+- Diseño profesional SaaS
+
+10. KEEP EXISTING FEATURES:
+- Driver app with swipe, sound, map
+- Chat system
+- Realtime behavior
+
+GOAL:
+Transform the app into a powerful logistics control platform with analytics, reporting, and decision-making tools for real-world operations.
+
+This project was built with [Lovable](https://lovable.dev).
+
+## Build with Lovable
+
+Continue developing this project in the [Lovable editor](https://lovable.dev/projects/1d10a03c-2572-4369-ba2a-dd663a3e007b).
+
+- **Ship faster**: describe what you want to build and Lovable handles the code.
+- **Stay in sync**: every change made in Lovable is committed straight to this repository.
+- **Full ownership**: this code is yours. Push to `main` on GitHub and your changes sync back into Lovable, ready for your next prompt.
+
+## Development
+
+Prefer working locally? You need Node.js and npm — [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating).
+
+```sh
+git clone <this-repository-url>
+cd <repository-name>
+npm i
+npm run dev
+```

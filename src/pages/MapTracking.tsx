@@ -7,24 +7,29 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { MapPin, Navigation, Search } from 'lucide-react';
+import { MapPin, Navigation, Search, ChevronDown, ChevronUp } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { supabase } from '@/integrations/supabase/client';
+import { useCompany } from '@/hooks/useCompany';
 
 export default function MapTracking() {
   const [selectedDeliveryId, setSelectedDeliveryId] = useState<string | null>(null);
   const [searchOrderId, setSearchOrderId] = useState('');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const { selectedCompanyId } = useCompany();
 
   // Cargar entregas activas
   const { data: activeDeliveries } = useQuery({
-    queryKey: ['active-deliveries'],
+    queryKey: ['active-deliveries', selectedCompanyId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let q = supabase
         .from('deliveries')
         .select('*')
         .in('status', ['pendiente', 'aceptado', 'en_camino'])
         .order('created_at', { ascending: false })
         .limit(20);
+      if (selectedCompanyId) q = q.eq('company_id', selectedCompanyId);
+      const { data, error } = await q;
 
       if (error) throw error;
       return data as any[];
@@ -79,8 +84,23 @@ export default function MapTracking() {
                 />
               </div>
 
+              {/* Toggle solo en móvil/tablet */}
+              <div className="lg:hidden">
+                <Button
+                  variant="outline"
+                  className="w-full flex items-center justify-between"
+                  onClick={() => setSidebarOpen(o => !o)}
+                >
+                  <span className="flex items-center gap-2">
+                    <Navigation className="w-4 h-4" />
+                    Entregas activas ({activeDeliveries?.length || 0})
+                  </span>
+                  {sidebarOpen ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </Button>
+              </div>
+
               {/* Panel lateral con entregas activas */}
-              <div className="space-y-4">
+              <div className={`space-y-4 ${sidebarOpen ? 'block' : 'hidden'} lg:block`}>
                 <Card className="p-4">
                   <h3 className="font-semibold mb-4 flex items-center gap-2">
                     <Navigation className="w-5 h-5" />

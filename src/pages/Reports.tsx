@@ -2,10 +2,11 @@ import { DashboardLayout } from "@/components/DashboardLayout";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
-import { Download, FileText, Table, TrendingUp, Users, Package } from "lucide-react";
+import { Download, FileText, Table, TrendingUp, Users, Package, Calendar, Wallet, ArrowDown, CheckCircle, XCircle, Clock } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { useCompany } from "@/hooks/useCompany";
 
 const tooltipStyle = { background: "hsl(222,47%,9%)", border: "1px solid hsl(217,33%,17%)", borderRadius: 8, color: "hsl(210,40%,96%)" };
 
@@ -37,21 +38,32 @@ const downloadCSV = (rows: Record<string, any>[], filename: string) => {
 
 const Reports = () => {
   const [filter, setFilter] = useState<DateFilter>("semana");
-  const [report, setReport] = useState<"deliveries" | "revenue" | "drivers">("deliveries");
+  const [report, setReport] = useState<"deliveries" | "revenue" | "drivers" | "daily">("deliveries");
+  const { selectedCompanyId } = useCompany();
+  const [selectedDate, setSelectedDate] = useState(() => {
+    const d = new Date();
+    const offset = d.getTimezoneOffset();
+    const local = new Date(d.getTime() - (offset * 60 * 1000));
+    return local.toISOString().split('T')[0];
+  });
 
   const { data: deliveries = [], isLoading: loadingD } = useQuery({
-    queryKey: ["reports-deliveries"],
+    queryKey: ["reports-deliveries", selectedCompanyId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("deliveries").select("*").order("created_at", { ascending: false });
+      let q: any = supabase.from("deliveries").select("*").order("created_at", { ascending: false });
+      if (selectedCompanyId) q = q.eq("company_id", selectedCompanyId);
+      const { data, error } = await q;
       if (error) throw error;
       return data || [];
     },
   });
 
   const { data: drivers = [], isLoading: loadingDrv } = useQuery({
-    queryKey: ["reports-drivers"],
+    queryKey: ["reports-drivers", selectedCompanyId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("driver_profiles").select("*, profiles(full_name)");
+      let q: any = supabase.from("driver_profiles").select("*, profiles(full_name)");
+      if (selectedCompanyId) q = q.eq("company_id", selectedCompanyId);
+      const { data, error } = await q;
       if (error) throw error;
       return data || [];
     },
@@ -75,9 +87,13 @@ const Reports = () => {
 
   const range = getRange();
 
+  const getDeliveryRefDate = (d: any) => {
+    return new Date(d.status === "entregado" ? (d.delivered_at || d.created_at) : d.created_at);
+  };
+
   const filteredDeliveries = deliveries.filter((d: any) => {
-    const c = new Date(d.created_at);
-    return c >= range.from && c < range.to;
+    const refDate = getDeliveryRefDate(d);
+    return refDate >= range.from && refDate < range.to;
   });
 
   // Datos para gráficas por día
@@ -86,8 +102,8 @@ const Reports = () => {
     date.setDate(date.getDate() + i);
     const next = new Date(date); next.setDate(next.getDate() + 1);
     const day = filteredDeliveries.filter((d: any) => {
-      const c = new Date(d.created_at);
-      return c >= date && c < next;
+      const refDate = getDeliveryRefDate(d);
+      return refDate >= date && refDate < next;
     });
     return {
       date: date.toLocaleDateString("es-CO", { month: "short", day: "numeric" }),
@@ -106,6 +122,56 @@ const Reports = () => {
     comisiones: filteredDeliveries.filter((d: any) => d.status === "entregado").reduce((s: number, d: any) => s + Number(d.commission || 0), 0),
   };
   const tasaEntrega = totals.pedidos > 0 ? Math.round((totals.entregados / totals.pedidos) * 100) : 0;
+
+  // ── Datos del Reporte Diario por Mensajero ──────────────────────────────
+  const dailyDateFrom = new Date(selectedDate + "T00:00:00");
+  const dailyDateTo = new Date(selectedDate + "T23:59:59");
+
+  const dailyReportData = (drivers as any[]).map((drv: any) => {
+    const name = drv.profiles?.full_name || "Sin nombre";
+    const driverDeliveries = deliveries.filter((d: any) =>
+      d.driver_id === drv.id &&
+      getDeliveryRefDate(d) >= dailyDateFrom &&
+      getDeliveryRefDate(d) <= dailyDateTo
+    );
+    const delivered = driverDeliveries.filter((d: any) => d.status === "entregado");
+    const cancelled = driverDeliveries.filter((d: any) => d.status === "cancelado");
+    const inProgress = driverDeliveries.filter((d: any) => ["aceptado", "en_camino"].includes(d.status));
+    const pending = driverDeliveries.filter((d: any) => d.status === "pendiente");
+
+    const totalAmount = delivered.reduce((s: number, d: any) => s + Number(d.amount || 0), 0);
+    const totalCommission = delivered.reduce((s: number, d: any) => s + Number(d.commission || 0), 0);
+    // Cobrado = total de pedidos entregados (lo que pagó el cliente)
+    const collected = totalAmount;
+    // Pendiente de cobro = los que están en camino/aceptados (aún no entrega)
+    const pendingAmount = inProgress.reduce((s: number, d: any) => s + Number(d.amount || 0), 0);
+    // A entregar a central = Cobro - Comisión (la diferencia)
+    const amountToCentral = totalAmount - totalCommission;
+
+    return {
+      driverId: drv.id,
+      driverName: name,
+      delivered: delivered.length,
+      cancelled: cancelled.length,
+      inProgress: inProgress.length,
+      pending: pending.length,
+      totalAmount,
+      totalCommission,
+      collected,
+      pendingAmount,
+      amountToCentral,
+    };
+  }).filter((r: any) => r.delivered + r.cancelled + r.inProgress + r.pending > 0)
+    .sort((a: any, b: any) => b.delivered - a.delivered);
+
+  const dailyTotals = {
+    totalDeliveries: dailyReportData.reduce((s: number, r: any) => s + r.delivered + r.inProgress + r.pending, 0),
+    totalAmount: dailyReportData.reduce((s: number, r: any) => s + r.totalAmount, 0),
+    totalCommission: dailyReportData.reduce((s: number, r: any) => s + r.totalCommission, 0),
+    totalCollected: dailyReportData.reduce((s: number, r: any) => s + r.collected, 0),
+    totalPending: dailyReportData.reduce((s: number, r: any) => s + r.pendingAmount, 0),
+    totalCentral: dailyReportData.reduce((s: number, r: any) => s + r.amountToCentral, 0),
+  };
 
   // ── Exportar ──────────────────────────────────────────────────────────────
   const exportDeliveriesCSV = () => {
@@ -157,10 +223,10 @@ const Reports = () => {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-foreground">Reportes</h1>
-            <p className="text-sm text-muted-foreground">Informes operativos con exportación real a CSV</p>
+            <p className="text-sm text-slate-700 font-medium">Informes operativos con exportación real a CSV</p>
           </div>
           <div className="flex gap-2">
-            <button onClick={exportDeliveriesCSV} className="flex items-center gap-1.5 rounded-lg bg-accent/10 px-3 py-2 text-xs font-medium text-accent hover:bg-accent/20 transition-colors">
+            <button onClick={exportDeliveriesCSV} className="flex items-center gap-1.5 rounded-lg bg-accent/10 px-3 py-2 text-xs font-medium text-emerald-700 hover:bg-accent/20 transition-colors">
               <Table className="h-3.5 w-3.5" /> Exportar pedidos
             </button>
             <button onClick={exportDriversCSV} className="flex items-center gap-1.5 rounded-lg bg-primary/10 px-3 py-2 text-xs font-medium text-primary hover:bg-primary/20 transition-colors">
@@ -188,10 +254,10 @@ const Reports = () => {
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
           {[
             { label: "Pedidos",     value: totals.pedidos,                     color: "text-foreground" },
-            { label: "Entregados",  value: totals.entregados,                  color: "text-accent" },
+            { label: "Entregados",  value: totals.entregados,                  color: "text-emerald-700" },
             { label: "Cancelados",  value: totals.cancelados,                  color: "text-destructive" },
-            { label: "Ingresos",    value: formatCurrency(totals.ingresos),    color: "text-accent" },
-            { label: "Tasa entrega",value: `${tasaEntrega}%`,                  color: tasaEntrega >= 80 ? "text-accent" : "text-warning" },
+            { label: "Ingresos",    value: formatCurrency(totals.ingresos),    color: "text-emerald-700" },
+            { label: "Tasa entrega",value: `${tasaEntrega}%`,                  color: tasaEntrega >= 80 ? "text-emerald-700" : "text-warning" },
           ].map(k => (
             <div key={k.label} className="glass-card p-4 text-center">
               <p className={`text-xl font-extrabold ${k.color}`}>{k.value}</p>
@@ -201,11 +267,12 @@ const Reports = () => {
         </div>
 
         {/* Selector de vista */}
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           {([
             ["deliveries", "📦 Pedidos por día",    Package],
             ["revenue",    "💰 Ingresos por día",   TrendingUp],
             ["drivers",    "🧑‍💼 Repartidores",       Users],
+            ["daily",      "📋 Reporte Diario",     Calendar],
           ] as const).map(([key, label]) => (
             <button
               key={key}
@@ -294,17 +361,131 @@ const Reports = () => {
                         .map((d: any, i: number) => (
                           <tr key={d.id} className="border-b border-border/30 hover:bg-muted/20">
                             <td className="py-3 pr-4 font-bold text-primary">{i + 1}</td>
-                            {/* BUG FIX: d.profiles?.full_name no d.user?.full_name */}
                             <td className="py-3 pr-4 font-medium text-foreground">{d.profiles?.full_name || "Sin nombre"}</td>
                             <td className="py-3 pr-4">{d.total_deliveries || 0}</td>
-                            <td className="py-3 pr-4 text-amber-500">⭐ {d.rating || "—"}</td>
-                            <td className="py-3 pr-4 text-accent">{d.acceptance_rate || 0}%</td>
+                            <td className="py-3 pr-4 text-amber-600">⭐ {d.rating || "—"}</td>
+                            <td className="py-3 pr-4 text-emerald-700">{d.acceptance_rate || 0}%</td>
                             <td className="py-3 pr-4 text-destructive">{d.cancellation_rate || 0}%</td>
                             <td className="py-3 capitalize text-muted-foreground">{d.status || "inactivo"}</td>
                           </tr>
                         ))}
                     </tbody>
                   </table>
+                </div>
+              )}
+            </>
+          )}
+
+          {report === "daily" && (
+            <>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-sm font-semibold text-foreground">Reporte Diario por Mensajero</h3>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    onChange={e => setSelectedDate(e.target.value)}
+                    className="rounded-lg bg-muted/50 border border-border/50 px-3 py-1.5 text-xs font-medium text-foreground"
+                  />
+                  <button
+                    onClick={() => {
+                      const rows = dailyReportData.map(r => ({
+                        "Mensajero": r.driverName,
+                        "Entregados": r.delivered,
+                        "Cancelados": r.cancelled,
+                        "En curso": r.inProgress,
+                        "Pendientes": r.pending,
+                        "Total cobro cliente": r.totalAmount,
+                        "Total comisión": r.totalCommission,
+                        "Ya cobrado": r.collected,
+                        "Pendiente cobro": r.pendingAmount,
+                        "A entregar central": r.amountToCentral,
+                      }));
+                      downloadCSV(rows, `reporte_diario_${selectedDate}.csv`);
+                    }}
+                    className="flex items-center gap-1.5 rounded-lg bg-accent/10 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-accent/20 transition-colors"
+                  >
+                    <Download className="h-3.5 w-3.5" /> Exportar CSV
+                  </button>
+                </div>
+              </div>
+              {drivers.length === 0 ? (
+                <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
+                  Sin repartidores registrados
+                </div>
+              ) : dailyReportData.length === 0 ? (
+                <div className="flex h-64 items-center justify-center text-sm text-muted-foreground">
+                  Sin envíos el {new Date(selectedDate + "T12:00:00").toLocaleDateString("es-CO", { weekday: "long", day: "numeric", month: "long" })}
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {dailyReportData.map((r, i) => (
+                    <div key={r.driverId} className="rounded-2xl border border-border/30 bg-muted/10 p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="flex items-center gap-3">
+                          <div className="h-10 w-10 rounded-xl bg-primary/20 flex items-center justify-center font-black text-primary text-sm">
+                            {r.driverName.split(" ").map((n: string) => n[0]).join("").slice(0, 2).toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="text-sm font-bold text-foreground">{r.driverName}</p>
+                            <p className="text-[10px] text-muted-foreground">{r.delivered} entregados · {r.cancelled} cancelados</p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-lg font-extrabold text-emerald-700">{formatCurrency(r.totalCommission)}</p>
+                          <p className="text-[10px] text-muted-foreground">Comisión ganada</p>
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                        <div className="rounded-xl bg-muted/30 p-2 text-center">
+                          <p className="text-lg font-extrabold text-foreground leading-none">{r.delivered + r.inProgress + r.pending}</p>
+                          <p className="text-[9px] text-muted-foreground mt-1">Total pedidos</p>
+                        </div>
+                        <div className="rounded-xl bg-accent/10 p-2 text-center">
+                          <p className="text-lg font-extrabold text-emerald-700 leading-none">{formatCurrency(r.totalAmount)}</p>
+                          <p className="text-[9px] text-muted-foreground mt-1">Cobro cliente</p>
+                        </div>
+                        <div className="rounded-xl bg-emerald-500/10 p-2 text-center">
+                          <p className="text-lg font-extrabold text-emerald-700 leading-none">{formatCurrency(r.collected)}</p>
+                          <p className="text-[9px] text-muted-foreground mt-1">Ya cobrado</p>
+                        </div>
+                        <div className="rounded-xl bg-amber-500/10 p-2 text-center">
+                          <p className="text-lg font-extrabold text-amber-600 leading-none">{formatCurrency(r.pendingAmount)}</p>
+                          <p className="text-[9px] text-muted-foreground mt-1">Pendiente cobro</p>
+                        </div>
+                        <div className="rounded-xl bg-rose-500/10 p-2 text-center">
+                          <p className="text-lg font-extrabold text-rose-700 leading-none">{formatCurrency(r.amountToCentral)}</p>
+                          <p className="text-[9px] text-muted-foreground mt-1">A entregar central</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                  {/* Totales del día */}
+                  <div className="rounded-2xl border border-primary/30 bg-primary/5 p-4">
+                    <p className="text-xs font-bold text-primary uppercase tracking-wider mb-3">Totales del día</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                      <div className="text-center">
+                        <p className="text-xl font-extrabold text-foreground leading-none">{dailyTotals.totalDeliveries}</p>
+                        <p className="text-[9px] text-muted-foreground mt-1">Envíos totales</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-xl font-extrabold text-emerald-700 leading-none">{formatCurrency(dailyTotals.totalAmount)}</p>
+                        <p className="text-[9px] text-muted-foreground mt-1">Total cobro cliente</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-xl font-extrabold text-emerald-700 leading-none">{formatCurrency(dailyTotals.totalCollected)}</p>
+                        <p className="text-[9px] text-muted-foreground mt-1">Total cobrado</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-xl font-extrabold text-amber-600 leading-none">{formatCurrency(dailyTotals.totalPending)}</p>
+                        <p className="text-[9px] text-muted-foreground mt-1">Pendiente cobro</p>
+                      </div>
+                      <div className="text-center">
+                        <p className="text-xl font-extrabold text-rose-700 leading-none">{formatCurrency(dailyTotals.totalCentral)}</p>
+                        <p className="text-[9px] text-muted-foreground mt-1">A entregar central</p>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
             </>
@@ -318,7 +499,7 @@ const Reports = () => {
               <h3 className="text-sm font-semibold text-foreground">
                 Pedidos del período ({filteredDeliveries.length})
               </h3>
-              <button onClick={exportDeliveriesCSV} className="flex items-center gap-1 text-xs text-accent hover:underline">
+              <button onClick={exportDeliveriesCSV} className="flex items-center gap-1 text-xs text-emerald-700 hover:underline">
                 <Download className="h-3 w-3" /> Descargar CSV
               </button>
             </div>
@@ -341,13 +522,13 @@ const Reports = () => {
                       <td className="py-2 pr-3 text-foreground">{d.customer_name}</td>
                       <td className="py-2 pr-3">
                         <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                          d.status === "entregado" ? "bg-accent/10 text-accent" :
+                          d.status === "entregado" ? "bg-accent/10 text-emerald-700" :
                           d.status === "cancelado" ? "bg-destructive/10 text-destructive" :
                           "bg-muted text-muted-foreground"
                         }`}>{d.status}</span>
                       </td>
                       <td className="py-2 pr-3">{formatCurrency(Number(d.amount || 0))}</td>
-                      <td className="py-2 pr-3 text-accent">{formatCurrency(Number(d.commission || 0))}</td>
+                      <td className="py-2 pr-3 text-emerald-700">{formatCurrency(Number(d.commission || 0))}</td>
                       <td className="py-2 text-muted-foreground">
                         {new Date(d.created_at).toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })}
                       </td>

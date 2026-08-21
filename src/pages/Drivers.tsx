@@ -3,15 +3,17 @@ import { supabase } from "@/integrations/supabase/client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { useState } from "react";
-import { Search, UserCheck, UserX, Star, Phone, Package, RefreshCw, Plus, Edit2, Trash2, X } from "lucide-react";
+import { Search, UserCheck, UserX, Star, Phone, Package, RefreshCw, Plus, Edit2, Trash2, X, AlertTriangle, KeyRound } from "lucide-react";
 import { toast } from "sonner";
-import { createClient } from "@supabase/supabase-js";
+import { useCompany } from "@/hooks/useCompany";
+import { isValidPhone, phoneToSyntheticEmail, normalizePhone } from "@/lib/phoneAuth";
 
 const statusColors: Record<string, string> = {
   activo: "bg-accent/10 text-accent",
   en_ruta: "bg-primary/10 text-primary",
   inactivo: "bg-muted text-muted-foreground",
   suspendido: "bg-destructive/10 text-destructive",
+  pendiente: "bg-yellow-500/10 text-yellow-500 border border-yellow-500/20",
 };
 
 const formatCurrency = (v: number) =>
@@ -29,8 +31,15 @@ const Drivers = () => {
     password: "",
     phone: "",
     zone: "",
+    signup_method: "email" as "email" | "phone",
+    vehicle_type: "moto",
+    vehicle_plate: "",
+    document_id: "",
+    address: "",
+    notes: "",
   });
   
+  const { company, selectedCompanyId } = useCompany();
   const queryClient = useQueryClient();
 
   // Cargar repartidores reales desde Supabase
@@ -39,7 +48,7 @@ const Drivers = () => {
     queryFn: async () => {
       // Step 1: load all driver_profiles
       const { data: dps, error: dpError } = await (supabase.from("driver_profiles") as any)
-        .select("id, status, total_deliveries, rating, acceptance_rate, cancellation_rate, current_load, zone");
+        .select("id, status, total_deliveries, rating, acceptance_rate, cancellation_rate, current_load, zone, vehicle_type, vehicle_plate, document_id, address, notes");
       if (dpError) throw dpError;
       if (!dps || dps.length === 0) return [];
 
@@ -95,36 +104,56 @@ const Drivers = () => {
         if (profileError) throw profileError;
 
         const { error: driverError } = await (supabase.from("driver_profiles") as any)
-          .update({ zone: data.zone })
+          .update({
+            zone: data.zone,
+            vehicle_type: data.vehicle_type,
+            vehicle_plate: data.vehicle_plate || null,
+            document_id: data.document_id || null,
+            address: data.address || null,
+            notes: data.notes || null,
+          })
           .eq("id", editingDriver.id);
         if (driverError) throw driverError;
       } else {
-        // Use a secondary client so admin session is NOT overwritten
-        const tempClient = createClient(
-          import.meta.env.VITE_SUPABASE_URL,
-          import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-          { auth: { persistSession: false, autoRefreshToken: false } }
+        // Determinar email real o sintético (si se registra con móvil)
+        let email = data.email.trim();
+        const contactPhone = normalizePhone(data.phone);
+        if (data.signup_method === "phone") {
+          if (!isValidPhone(data.phone)) throw new Error("Ingresa un número de móvil válido (7-15 dígitos)");
+          email = phoneToSyntheticEmail(data.phone);
+        } else {
+          if (!email) throw new Error("El correo es obligatorio");
+        }
+        // Crear el conductor vía edge function (usa service_role, no toca la sesión del admin)
+        const { data: fnData, error: fnError } = await supabase.functions.invoke(
+          "create-company-admin",
+          {
+            body: {
+              email,
+              password: data.password,
+              full_name: data.full_name,
+              phone: contactPhone,
+              role: "driver",
+              company_id: selectedCompanyId,
+            },
+          }
         );
+        if (fnError) throw fnError;
+        if (fnData?.error) throw new Error(fnData.error);
 
-        const { data: signUpData, error: signUpError } = await tempClient.auth.signUp({
-          email: data.email,
-          password: data.password,
-          options: {
-            data: { full_name: data.full_name, phone: data.phone, role: "driver" },
-          },
-        });
-
-        if (signUpError) throw signUpError;
-
-        // If email confirmation is enabled, the user exists but identities may be empty.
-        // The trigger handle_new_user_role still fires and creates driver_profiles.
-        // We show a helpful message instead of silently succeeding.
-        const needsConfirmation =
-          signUpData?.user && signUpData.user.identities?.length === 0;
-        if (needsConfirmation) {
-          throw new Error(
-            "El correo ya está registrado o requiere confirmación. Revisa la bandeja de entrada del repartidor."
-          );
+        // Guardar los campos adicionales del perfil del conductor
+        const newUserId = fnData?.user_id;
+        if (newUserId) {
+          await (supabase.from("driver_profiles") as any)
+            .update({
+              zone: data.zone || null,
+              vehicle_type: data.vehicle_type,
+              vehicle_plate: data.vehicle_plate || null,
+              document_id: data.document_id || null,
+              address: data.address || null,
+              notes: data.notes || null,
+            })
+            .eq("id", newUserId);
         }
       }
     },
@@ -132,12 +161,16 @@ const Drivers = () => {
       toast.success(
         isEditing
           ? "Conductor actualizado correctamente"
-          : "Conductor creado. Si Supabase pide confirmación de email, el repartidor debe confirmar antes de entrar."
+          : "Conductor creado. Ya puede iniciar sesión."
       );
       setShowForm(false);
       setIsEditing(false);
       setEditingDriver(null);
-      setFormData({ full_name: "", email: "", password: "", phone: "", zone: "" });
+      setFormData({
+        full_name: "", email: "", password: "", phone: "", zone: "",
+        signup_method: "email", vehicle_type: "moto", vehicle_plate: "",
+        document_id: "", address: "", notes: "",
+      });
       queryClient.invalidateQueries({ queryKey: ["drivers"] });
     },
     onError: (err: any) => toast.error(`Error: ${err.message}`),
@@ -163,6 +196,18 @@ const Drivers = () => {
     onError: (err: any) => toast.error(`Error al eliminar: ${err.message}`),
   });
 
+  const resetPassword = useMutation({
+    mutationFn: async ({ driverId, newPassword }: { driverId: string; newPassword: string }) => {
+      const { data, error } = await supabase.functions.invoke("reset-user-password", {
+        body: { user_id: driverId, new_password: newPassword },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+    },
+    onSuccess: () => toast.success("Contraseña actualizada. Comparte la nueva clave con el repartidor."),
+    onError: (err: any) => toast.error(`Error: ${err.message}`),
+  });
+
   const filtered = drivers.filter((d: any) =>
     (d.profile?.full_name || "").toLowerCase().includes(search.toLowerCase()) ||
     (d.profile?.phone || "").includes(search)
@@ -173,13 +218,15 @@ const Drivers = () => {
   const getInitials = (name: string) =>
     name?.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2) || "??";
 
+  const isLimitReached = company && drivers.length >= (company.max_drivers || 5);
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-2xl font-bold text-foreground">Gestión de Repartidores</h1>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm text-slate-700 font-medium">
               Perfiles reales, métricas y acciones de administración ({drivers.length} registrados)
               {driversError && <span className="text-destructive ml-2">Error al cargar: {(driversError as any).message}</span>}
             </p>
@@ -192,16 +239,38 @@ const Drivers = () => {
               <RefreshCw className="h-3.5 w-3.5" /> Actualizar
             </button>
             <button
-              onClick={() => { setFormData({ full_name: "", email: "", password: "", phone: "", zone: "" });
+              onClick={() => {
+                if (isLimitReached) {
+                  toast.error(`Has alcanzado el límite de repartidores de tu plan (${company.max_drivers})`);
+                  return;
+                }
+                setFormData({
+                  full_name: "", email: "", password: "", phone: "", zone: "",
+                  signup_method: "email", vehicle_type: "moto", vehicle_plate: "",
+                  document_id: "", address: "", notes: "",
+                });
                 setIsEditing(false);
                 setShowForm(true);
               }}
-              className="flex items-center gap-2 rounded-lg bg-gradient-primary px-4 py-2 text-xs font-semibold text-primary-foreground hover:opacity-90 transition-opacity"
+              disabled={isLimitReached}
+              className="flex items-center gap-2 rounded-lg bg-gradient-primary px-4 py-2 text-xs font-semibold text-primary-foreground hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <Plus className="h-4 w-4" /> Nuevo Repartidor
+              <Plus className="h-4 w-4" /> Nuevo Repartidor {isLimitReached && `(Límite alcanzado)`}
             </button>
           </div>
         </div>
+
+        {isLimitReached && (
+          <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="rounded-lg border border-destructive/20 bg-destructive/5 p-4 text-xs text-destructive flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 shrink-0" />
+              <span>
+                <strong>Límite del Plan alcanzado:</strong> Tienes <strong>{drivers.length}</strong> de <strong>{company.max_drivers}</strong> repartidores permitidos.
+              </span>
+            </div>
+            <span className="text-[10px] text-muted-foreground">Solicita una ampliación al administrador de la plataforma.</span>
+          </motion.div>
+        )}
 
         {/* Modal / Formulario Flotante */}
         {showForm && (
@@ -215,30 +284,84 @@ const Drivers = () => {
               </button>
               <h2 className="text-xl font-bold mb-4">{isEditing ? "Editar Repartidor" : "Nuevo Repartidor"}</h2>
               <form onSubmit={(e) => { e.preventDefault(); saveDriver.mutate(formData); }} className="space-y-4">
+                {!isEditing && (
+                  <div className="flex rounded-lg overflow-hidden border border-border/50 text-xs font-semibold">
+                    <button
+                      type="button"
+                      onClick={() => setFormData(p => ({ ...p, signup_method: "email" }))}
+                      className={`flex-1 py-2 transition-colors ${formData.signup_method === "email" ? "bg-primary text-primary-foreground" : "bg-muted/40 text-muted-foreground hover:bg-muted"}`}
+                    >
+                      📧 Registrar con Correo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setFormData(p => ({ ...p, signup_method: "phone" }))}
+                      className={`flex-1 py-2 transition-colors ${formData.signup_method === "phone" ? "bg-primary text-primary-foreground" : "bg-muted/40 text-muted-foreground hover:bg-muted"}`}
+                    >
+                      📱 Registrar con Móvil
+                    </button>
+                  </div>
+                )}
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <label className="text-xs text-muted-foreground font-medium">Nombre Completo *</label>
                     <input required value={formData.full_name} onChange={e => setFormData(p => ({ ...p, full_name: e.target.value }))} className="w-full rounded-lg bg-muted/50 border border-border/50 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-xs text-muted-foreground font-medium">Teléfono</label>
-                    <input value={formData.phone} onChange={e => setFormData(p => ({ ...p, phone: e.target.value }))} className="w-full rounded-lg bg-muted/50 border border-border/50 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
+                    <label className="text-xs text-muted-foreground font-medium">
+                      Móvil / WhatsApp{formData.signup_method === "phone" ? " *" : ""}
+                    </label>
+                    <input
+                      required={formData.signup_method === "phone"}
+                      value={formData.phone}
+                      onChange={e => setFormData(p => ({ ...p, phone: e.target.value }))}
+                      placeholder="+57 300 000 0000"
+                      className="w-full rounded-lg bg-muted/50 border border-border/50 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    />
                   </div>
-                  {!isEditing && (
+                  {!isEditing && formData.signup_method === "email" && (
                     <>
                       <div className="space-y-1">
                         <label className="text-xs text-muted-foreground font-medium">Email *</label>
                         <input type="email" required value={formData.email} onChange={e => setFormData(p => ({ ...p, email: e.target.value }))} className="w-full rounded-lg bg-muted/50 border border-border/50 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
                       </div>
-                      <div className="space-y-1">
-                        <label className="text-xs text-muted-foreground font-medium">Contraseña *</label>
-                        <input type="password" required minLength={6} value={formData.password} onChange={e => setFormData(p => ({ ...p, password: e.target.value }))} className="w-full rounded-lg bg-muted/50 border border-border/50 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
-                      </div>
                     </>
                   )}
+                  {!isEditing && (
+                    <div className="space-y-1">
+                      <label className="text-xs text-muted-foreground font-medium">Contraseña *</label>
+                      <input type="password" required minLength={6} value={formData.password} onChange={e => setFormData(p => ({ ...p, password: e.target.value }))} placeholder="Mínimo 6 caracteres" className="w-full rounded-lg bg-muted/50 border border-border/50 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
+                    </div>
+                  )}
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground font-medium">Documento de Identidad</label>
+                    <input value={formData.document_id} onChange={e => setFormData(p => ({ ...p, document_id: e.target.value }))} placeholder="Cédula / DNI" className="w-full rounded-lg bg-muted/50 border border-border/50 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground font-medium">Vehículo</label>
+                    <select value={formData.vehicle_type} onChange={e => setFormData(p => ({ ...p, vehicle_type: e.target.value }))} className="w-full rounded-lg bg-muted/50 border border-border/50 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50">
+                      <option value="moto">Moto</option>
+                      <option value="bicicleta">Bicicleta</option>
+                      <option value="carro">Carro</option>
+                      <option value="camioneta">Camioneta</option>
+                      <option value="a_pie">A pie</option>
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-muted-foreground font-medium">Placa del Vehículo</label>
+                    <input value={formData.vehicle_plate} onChange={e => setFormData(p => ({ ...p, vehicle_plate: e.target.value.toUpperCase() }))} placeholder="ABC-123" className="w-full rounded-lg bg-muted/50 border border-border/50 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
+                  </div>
                   <div className="space-y-1">
                     <label className="text-xs text-muted-foreground font-medium">Zona Asignada</label>
                     <input value={formData.zone} onChange={e => setFormData(p => ({ ...p, zone: e.target.value }))} placeholder="Ej: Norte" className="w-full rounded-lg bg-muted/50 border border-border/50 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
+                  </div>
+                  <div className="space-y-1 col-span-2">
+                    <label className="text-xs text-muted-foreground font-medium">Dirección de Residencia</label>
+                    <input value={formData.address} onChange={e => setFormData(p => ({ ...p, address: e.target.value }))} placeholder="Calle, número, ciudad" className="w-full rounded-lg bg-muted/50 border border-border/50 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
+                  </div>
+                  <div className="space-y-1 col-span-2">
+                    <label className="text-xs text-muted-foreground font-medium">Notas / Observaciones</label>
+                    <textarea value={formData.notes} onChange={e => setFormData(p => ({ ...p, notes: e.target.value }))} rows={2} placeholder="Referencias, disponibilidad, etc." className="w-full rounded-lg bg-muted/50 border border-border/50 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none" />
                   </div>
                 </div>
                 <div className="flex justify-end gap-3 mt-6">
@@ -317,8 +440,8 @@ const Drivers = () => {
               ) : (
                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
                   <div className="glass-card p-6">
-                    <div className="flex items-center gap-4 mb-6">
-                      <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/20 text-xl font-bold text-primary">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-4 mb-6">
+                      <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/20 text-xl font-bold text-primary shrink-0">
                         {getInitials(selectedDriver.profile?.full_name || "?")}
                       </div>
                       <div className="flex-1">
@@ -339,23 +462,23 @@ const Drivers = () => {
                           </span>
                         </div>
                       </div>
-                      <div className="flex gap-2">
+                      <div className="grid grid-cols-2 gap-2 w-full sm:flex sm:w-auto sm:flex-wrap">
                         <button
                           onClick={() => updateStatus.mutate({ driverId: selectedDriver.id, status: "activo" })}
                           disabled={updateStatus.isPending}
-                          className="flex items-center gap-1 rounded-lg bg-accent/10 px-3 py-2 text-xs font-medium text-accent hover:bg-accent/20 transition-colors"
+                          className="flex items-center justify-center gap-1 rounded-lg bg-warning px-3 py-2 text-xs font-medium text-warning-foreground hover:bg-warning/90 transition-colors"
                         >
                           <UserCheck className="h-3 w-3" /> Activar
                         </button>
                         <button
                           onClick={() => updateStatus.mutate({ driverId: selectedDriver.id, status: "suspendido" })}
                           disabled={updateStatus.isPending}
-                          className="flex items-center gap-1 rounded-lg bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive hover:bg-destructive/20 transition-colors"
+                          className="flex items-center justify-center gap-1 rounded-lg bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive hover:bg-destructive/20 transition-colors"
                         >
                           <UserX className="h-3 w-3" /> Suspender
                         </button>
                         
-                        <div className="w-px h-8 bg-border/50 mx-1"></div>
+                        <div className="hidden sm:block w-px h-8 bg-border/50 mx-1"></div>
                         
                         <button
                           onClick={() => {
@@ -365,12 +488,18 @@ const Drivers = () => {
                               password: "",
                               phone: selectedDriver.profile?.phone || "",
                               zone: selectedDriver.zone || "",
+                              signup_method: "email",
+                              vehicle_type: selectedDriver.vehicle_type || "moto",
+                              vehicle_plate: selectedDriver.vehicle_plate || "",
+                              document_id: selectedDriver.document_id || "",
+                              address: selectedDriver.address || "",
+                              notes: selectedDriver.notes || "",
                             });
                             setEditingDriver(selectedDriver);
                             setIsEditing(true);
                             setShowForm(true);
                           }}
-                          className="flex items-center gap-1 rounded-lg bg-muted px-3 py-2 text-xs font-medium text-foreground hover:bg-muted/80 transition-colors"
+                          className="flex items-center justify-center gap-1 rounded-lg bg-muted px-3 py-2 text-xs font-medium text-foreground hover:bg-muted/80 transition-colors"
                         >
                           <Edit2 className="h-3 w-3" /> Editar
                         </button>
@@ -381,9 +510,24 @@ const Drivers = () => {
                             }
                           }}
                           disabled={deleteDriver.isPending}
-                          className="flex items-center gap-1 rounded-lg border border-destructive/20 bg-transparent px-3 py-2 text-xs font-medium text-destructive hover:bg-destructive/5 transition-colors"
+                          className="flex items-center justify-center gap-1 rounded-lg border border-destructive/20 bg-transparent px-3 py-2 text-xs font-medium text-destructive hover:bg-destructive/5 transition-colors"
                         >
                           <Trash2 className="h-3 w-3" /> Eliminar
+                        </button>
+                        <button
+                          onClick={() => {
+                            const pwd = window.prompt("Nueva contraseña para el repartidor (mín. 6 caracteres):");
+                            if (!pwd) return;
+                            if (pwd.length < 6) {
+                              toast.error("La contraseña debe tener al menos 6 caracteres");
+                              return;
+                            }
+                            resetPassword.mutate({ driverId: selectedDriver.id, newPassword: pwd });
+                          }}
+                          disabled={resetPassword.isPending}
+                          className="col-span-2 flex items-center justify-center gap-1 rounded-lg bg-muted px-3 py-2 text-xs font-medium text-foreground hover:bg-muted/80 transition-colors sm:col-span-1"
+                        >
+                          <KeyRound className="h-3 w-3" /> Contraseña
                         </button>
                       </div>
                     </div>

@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { AlertTriangle, Clock, MapPin, CheckCircle } from "lucide-react";
 import { useState, useEffect } from "react";
+import { useCompany } from "@/hooks/useCompany";
 
 const severityStyles: Record<string, string> = {
   danger: "border-destructive/30 bg-destructive/5",
@@ -28,12 +29,15 @@ interface Alert {
 
 const Alerts = () => {
   const [items, setItems] = useState<Alert[]>([]);
+  const { selectedCompanyId } = useCompany();
 
   // Monitor deliveries for dynamic alerts
   const { data: deliveries = [] } = useQuery({
-    queryKey: ["alerts-deliveries"],
+    queryKey: ["alerts-deliveries", selectedCompanyId],
     queryFn: async () => {
-      const { data, error } = await supabase.from("deliveries").select("id, status, updated_at, order_id").order("updated_at", { ascending: false }).limit(50);
+      let q: any = supabase.from("deliveries").select("id, status, updated_at, order_id").order("updated_at", { ascending: false }).limit(50);
+      if (selectedCompanyId) q = q.eq("company_id", selectedCompanyId);
+      const { data, error } = await q;
       if (error) throw error;
       return data || [];
     },
