@@ -76,14 +76,14 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
-  const [cityName, setCityName] = useState<string>("Bucaramanga"); // Ciudad por defecto si GPS está desactivado
+  const [cityName, setCityName] = useState<string>(""); 
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setQuery(value);
   }, [value]);
 
-  // Obtener geolocalización GPS del navegador para sesgar la búsqueda a la ubicación actual del usuario
+  // Obtener geolocalización GPS real del dispositivo para sesgar dinámicamente la búsqueda a la ciudad/ubicación real
   useEffect(() => {
     if (typeof window !== 'undefined' && 'geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
@@ -101,7 +101,7 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
             }
           } catch {}
         },
-        () => console.log('[GPS] Geolocalización no disponible, usando contexto por ciudad'),
+        () => console.log('[GPS] Geolocalización no otorgada'),
         { timeout: 4000 }
       );
     }
@@ -130,10 +130,10 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
 
     try {
       const results: Suggestion[] = [];
-      const lat = userLocation?.lat ?? 7.1193; // Bucaramanga / Colombia por defecto
-      const lng = userLocation?.lng ?? -73.1198;
+      const lat = userLocation?.lat;
+      const lng = userLocation?.lng;
 
-      // 1. Intentar primero Google Places (que conoce todos los barrios, locales, centros comerciales, lugares y vías)
+      // 1. Consulta dinámica a Google Maps (vía Edge Function) pasando lat/lng reales solo si existen
       try {
         const { data: gData, error: gErr } = await supabase.functions.invoke('google-navigation', {
           body: {
@@ -159,7 +159,7 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
             });
           }
 
-          // 1b. Procesar resultados directos de Google Maps Geocoding (los cuales incluyen barrios como Antonia Santos, Comuna 4, Girón, etc.)
+          // 1b. Procesar resultados directos de Google Maps Geocoding
           if (Array.isArray(gData.results)) {
             gData.results.forEach((item: any) => {
               if (item.name && !results.some(r => r.full_address === item.full_address || r.name === item.name)) {
@@ -175,22 +175,24 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
           }
         }
       } catch (e) {
-        console.log('[Google Maps] No disponible o error, usando fallback OSM');
+        console.log('[Google Maps] Error o timeout');
       }
 
-      // 2. Consulta en paralelo con Nominatim y Photon si Google Places/Geocoding dio pocos o ningún resultado
+      // 2. Consulta de respaldo secundaria solo si Google dio pocos resultados
       if (results.length < 5) {
-        const viewbox = `${lng - 0.3},${lat + 0.3},${lng + 0.3},${lat - 0.3}`;
-        const cleanQuery = `${cleanText}, ${cityName}, Colombia`;
-        const formattedQuery = `${formatted}, ${cityName}, Colombia`;
+        const viewboxParam = (lat && lng) ? `&viewbox=${lng - 0.3},${lat + 0.3},${lng + 0.3},${lat - 0.3}&bounded=0` : '';
+        const locationSuffix = cityName ? `, ${cityName}` : '';
+        const cleanQuery = `${cleanText}${locationSuffix}`;
+        const photonQuery = `${formatted}${locationSuffix}`;
         
         const nominatimPromise = fetch(
-          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(cleanQuery)}&format=json&addressdetails=1&limit=5&countrycodes=co&viewbox=${viewbox}&bounded=0`,
+          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(cleanQuery)}&format=json&addressdetails=1&limit=5${viewboxParam}`,
           { headers: { 'Accept-Language': 'es' } }
         ).then(res => res.ok ? res.json() : []).catch(() => []);
 
+        const photonLocationParam = (lat && lng) ? `&lat=${lat}&lon=${lng}` : '';
         const photonPromise = fetch(
-          `https://photon.komoot.io/api/?q=${encodeURIComponent(formatted + ' ' + cityName)}&lat=${lat}&lon=${lng}&limit=5&lang=es`
+          `https://photon.komoot.io/api/?q=${encodeURIComponent(photonQuery)}&limit=5&lang=es${photonLocationParam}`
         ).then(res => res.ok ? res.json() : { features: [] }).catch(() => ({ features: [] }));
 
         const [nomData, photonData] = await Promise.all([nominatimPromise, photonPromise]);
@@ -200,9 +202,9 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
             const addr = item.address || {};
             const road = addr.road || addr.pedestrian || addr.suburb || item.display_name.split(',')[0];
             const house = addr.house_number ? ` #${addr.house_number}` : '';
-            const city = addr.city || addr.town || addr.village || addr.municipality || cityName;
+            const city = addr.city || addr.town || addr.village || addr.municipality || cityName || '';
             const name = `${road}${house}`;
-            const full = `${name}, ${city}`;
+            const full = `${name}${city ? `, ${city}` : ''}`;
 
             if (name && !results.some(r => r.full_address === full || r.name === name)) {
               results.push({
@@ -221,7 +223,7 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
             const p = f.properties;
             const name = p.name || p.street || '';
             const house = p.housenumber ? ` #${p.housenumber}` : '';
-            const city = p.city || p.county || p.state || cityName;
+            const city = p.city || p.county || p.state || cityName || '';
             const full = `${name}${house}${city ? `, ${city}` : ''}`;
 
             if (name && !results.some(r => r.full_address === full || r.name === `${name}${house}`)) {
@@ -237,11 +239,12 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
         }
       }
 
-      // 3. Crear sugerencia personalizada con formato colombiano directo (ej. "Carrera 23 #33-39, Bucaramanga")
+      // 3. Formato dinámico según el texto ingresado por el usuario
       const formattedTitle = isStructured ? formatted : cleanText;
+      const fullAddr = cityName ? `${formattedTitle}, ${cityName}` : formattedTitle;
       const customOption: Suggestion = {
         name: formattedTitle,
-        full_address: `${formattedTitle}, ${cityName}`,
+        full_address: fullAddr,
         isCustom: true,
         lat,
         lng
@@ -253,7 +256,7 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
       console.error('Error buscando direcciones:', error);
       const fallback: Suggestion = {
         name: formatted,
-        full_address: `${formatted}, ${cityName}`,
+        full_address: cityName ? `${formatted}, ${cityName}` : formatted,
         isCustom: true
       };
       setSuggestions([fallback]);
