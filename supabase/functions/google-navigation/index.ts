@@ -153,6 +153,49 @@ async function computeRoute(
   };
 }
 
+async function googleGeocodeSearch(address: string, biasLat?: number, biasLng?: number) {
+  try {
+    const params = new URLSearchParams({
+      address,
+      region: 'co',
+      language: 'es',
+    });
+    if (typeof biasLat === 'number' && typeof biasLng === 'number') {
+      const d = 0.35;
+      params.set('bounds', `${biasLat - d},${biasLng - d}|${biasLat + d},${biasLng + d}`);
+    }
+    const r = await fetch(`${GATEWAY_URL}/maps/api/geocode/json?${params.toString()}`, {
+      headers: gwHeaders(),
+    });
+    const text = await r.text();
+    if (!r.ok) {
+      console.warn(`googleGeocodeSearch [${r.status}]: ${text}`);
+      return [];
+    }
+    const data = JSON.parse(text);
+    const results = data?.results || [];
+
+    return results.map((item: any) => {
+      const formatted = item.formatted_address || '';
+      const parts = formatted.split(',');
+      const mainName = parts[0] ? parts[0].trim() : formatted;
+      const secondaryText = parts.slice(1).join(',').trim();
+      const loc = item.geometry?.location || {};
+
+      return {
+        name: mainName,
+        full_address: formatted,
+        secondary_text: secondaryText,
+        lat: loc.lat,
+        lng: loc.lng,
+      };
+    });
+  } catch (err) {
+    console.warn('[google-navigation] googleGeocodeSearch fallback:', err);
+    return [];
+  }
+}
+
 async function placeAutocomplete(input: string, biasLat?: number, biasLng?: number) {
   try {
     const params = new URLSearchParams({
@@ -219,22 +262,25 @@ Deno.serve(async (req) => {
 
     if (!LOVABLE_API_KEY || !GOOGLE_MAPS_API_KEY) {
       console.warn('Missing Google Maps connector credentials, using fallback mode');
-      if (action === 'autocomplete') {
-        return new Response(JSON.stringify({ predictions: [] }), {
+      if (action === 'autocomplete' || action === 'search') {
+        return new Response(JSON.stringify({ predictions: [], results: [] }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
     }
 
-    if (action === 'autocomplete') {
-      const input = String(payload.input || '').trim();
+    if (action === 'autocomplete' || action === 'search') {
+      const input = String(payload.input || payload.address || '').trim();
       if (!input) {
-        return new Response(JSON.stringify({ predictions: [] }), {
+        return new Response(JSON.stringify({ predictions: [], results: [] }), {
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         });
       }
-      const predictions = await placeAutocomplete(input, payload.biasLat, payload.biasLng);
-      return new Response(JSON.stringify({ predictions }), {
+      const [predictions, geocodeResults] = await Promise.all([
+        placeAutocomplete(input, payload.biasLat, payload.biasLng),
+        googleGeocodeSearch(input, payload.biasLat, payload.biasLng),
+      ]);
+      return new Response(JSON.stringify({ predictions, results: geocodeResults }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       });
     }
@@ -273,13 +319,13 @@ Deno.serve(async (req) => {
       });
     }
 
-    return new Response(JSON.stringify({ predictions: [] }), {
+    return new Response(JSON.stringify({ predictions: [], results: [] }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (e: any) {
     console.error('[google-navigation] error:', e?.message || e);
-    return new Response(JSON.stringify({ predictions: [], error: e?.message || 'internal error' }), {
+    return new Response(JSON.stringify({ predictions: [], results: [], error: e?.message || 'internal error' }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });

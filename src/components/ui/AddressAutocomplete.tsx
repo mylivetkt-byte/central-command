@@ -144,29 +144,48 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
           }
         });
 
-        if (!gErr && gData?.predictions && Array.isArray(gData.predictions) && gData.predictions.length > 0) {
-          gData.predictions.forEach((p: any) => {
-            const mainText = p.structured_formatting?.main_text || p.description.split(',')[0];
-            const secondaryText = p.structured_formatting?.secondary_text || p.description;
-            results.push({
-              name: mainText,
-              full_address: `${mainText}, ${secondaryText}`,
-              city: secondaryText,
-              place_id: p.place_id,
+        if (!gErr && gData) {
+          // 1a. Procesar predicciones de Google Places
+          if (Array.isArray(gData.predictions)) {
+            gData.predictions.forEach((p: any) => {
+              const mainText = p.structured_formatting?.main_text || p.description.split(',')[0];
+              const secondaryText = p.structured_formatting?.secondary_text || p.description;
+              results.push({
+                name: mainText,
+                full_address: `${mainText}, ${secondaryText}`,
+                city: secondaryText,
+                place_id: p.place_id,
+              });
             });
-          });
+          }
+
+          // 1b. Procesar resultados directos de Google Maps Geocoding (los cuales incluyen barrios como Antonia Santos, Comuna 4, Girón, etc.)
+          if (Array.isArray(gData.results)) {
+            gData.results.forEach((item: any) => {
+              if (item.name && !results.some(r => r.full_address === item.full_address || r.name === item.name)) {
+                results.push({
+                  name: item.name,
+                  full_address: item.full_address,
+                  city: item.secondary_text,
+                  lat: item.lat,
+                  lng: item.lng,
+                });
+              }
+            });
+          }
         }
       } catch (e) {
-        console.log('[Google Places] No disponible o error, usando fallback OSM');
+        console.log('[Google Maps] No disponible o error, usando fallback OSM');
       }
 
-      // 2. Consulta en paralelo con Nominatim y Photon si Google Places dio pocos o ningún resultado
-      if (results.length < 4) {
+      // 2. Consulta en paralelo con Nominatim y Photon si Google Places/Geocoding dio pocos o ningún resultado
+      if (results.length < 5) {
         const viewbox = `${lng - 0.3},${lat + 0.3},${lng + 0.3},${lat - 0.3}`;
-        const nominatimQuery = `${formatted}, ${cityName}, Colombia`;
+        const cleanQuery = `${cleanText}, ${cityName}, Colombia`;
+        const formattedQuery = `${formatted}, ${cityName}, Colombia`;
         
         const nominatimPromise = fetch(
-          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(nominatimQuery)}&format=json&addressdetails=1&limit=5&countrycodes=co&viewbox=${viewbox}&bounded=0`,
+          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(cleanQuery)}&format=json&addressdetails=1&limit=5&countrycodes=co&viewbox=${viewbox}&bounded=0`,
           { headers: { 'Accept-Language': 'es' } }
         ).then(res => res.ok ? res.json() : []).catch(() => []);
 
