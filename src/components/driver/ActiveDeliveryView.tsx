@@ -339,16 +339,33 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
         if (cached) data = cached;
         else return;
       } else {
-        const { data: routeData, error: routeErr } = await supabase.functions.invoke('google-navigation', {
-          body: {
-            action: 'route',
-            origin: { lat: currentLocation.lat, lng: currentLocation.lng },
-            waypoints: wps,
-          },
-        });
-        if (routeErr) throw routeErr;
-        data = routeData;
-        cacheData(routeCacheKey, data);
+        try {
+          const { data: routeData, error: routeErr } = await supabase.functions.invoke('google-navigation', {
+            body: {
+              action: 'route',
+              origin: { lat: currentLocation.lat, lng: currentLocation.lng },
+              waypoints: wps,
+            },
+          });
+          if (!routeErr && routeData?.routes?.[0]) {
+            data = routeData;
+          }
+        } catch {}
+
+        if (!data?.routes?.[0]) {
+          try {
+            const osrmCoords = [
+              `${currentLocation.lng},${currentLocation.lat}`,
+              ...wps.map((w: any) => `${w.lng},${w.lat}`)
+            ].join(';');
+            const osrmRes = await fetch(`https://router.project-osrm.org/route/v1/driving/${osrmCoords}?overview=full&geometries=geojson&steps=true`);
+            if (osrmRes.ok) {
+              data = await osrmRes.json();
+            }
+          } catch {}
+        }
+
+        if (data) cacheData(routeCacheKey, data);
       }
 
       if (data.routes?.[0]) {
