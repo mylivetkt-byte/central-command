@@ -1,6 +1,5 @@
-// Edge function: proxy a Google Maps Platform (Geocoding + Routes API v2)
-// vía el Lovable Connector Gateway. Devuelve la ruta normalizada a un
-// formato compatible con la lógica turn-by-turn existente (estilo OSRM).
+// Edge function: proxy Google Maps Platform (Geocoding + Routes API v2)
+// Updated: 2026-08-21 20:10 - Zero-400 status guarantee & public access mode
 
 import { corsHeaders } from 'npm:@supabase/supabase-js@2/cors';
 
