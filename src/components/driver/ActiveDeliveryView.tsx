@@ -222,18 +222,14 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
         const key = `${delivery.id}:${stop.type}`;
         if (resolvedCoords[key]) continue;
         try {
-          const { data, error } = await supabase.functions.invoke('google-navigation', {
-            body: {
-              action: 'geocode',
-              address: stop.address,
-              biasLat: currentLocation?.lat ?? 7.1193,
-              biasLng: currentLocation?.lng ?? -73.1198,
-            },
-          });
-          if (error) throw error;
-          const first = (data as any)?.result;
-          if (first && isValidCoord(first.lat, first.lng)) {
-            next[key] = { lat: first.lat, lng: first.lng };
+          const mapboxUrl = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(stop.address)}.json?country=co&language=es&limit=1&access_token=pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4NXVycTA2emYycXBndHRqcmZ3N3gifQ.rJcFIG214WwAfA`;
+          const res = await fetch(mapboxUrl);
+          if (res.ok) {
+            const data = await res.json();
+            const center = data?.features?.[0]?.center;
+            if (center && isValidCoord(center[1], center[0])) {
+              next[key] = { lat: center[1], lng: center[0] };
+            }
           }
         } catch {}
       }
@@ -339,26 +335,22 @@ const ActiveDeliveryView: React.FC<ActiveDeliveryViewProps> = ({ delivery: initi
         if (cached) data = cached;
         else return;
       } else {
+        const mapboxCoords = [
+          `${currentLocation.lng},${currentLocation.lat}`,
+          ...wps.map((w: any) => `${w.lng},${w.lat}`)
+        ].join(';');
+
         try {
-          const { data: routeData, error: routeErr } = await supabase.functions.invoke('google-navigation', {
-            body: {
-              action: 'route',
-              origin: { lat: currentLocation.lat, lng: currentLocation.lng },
-              waypoints: wps,
-            },
-          });
-          if (!routeErr && routeData?.routes?.[0]) {
-            data = routeData;
+          const mapboxDirUrl = `https://api.mapbox.com/directions/v5/mapbox/driving/${mapboxCoords}?overview=full&geometries=geojson&steps=true&access_token=pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4NXVycTA2emYycXBndHRqcmZ3N3gifQ.rJcFIG214WwAfA`;
+          const mbRes = await fetch(mapboxDirUrl);
+          if (mbRes.ok) {
+            data = await mbRes.json();
           }
         } catch {}
 
         if (!data?.routes?.[0]) {
           try {
-            const osrmCoords = [
-              `${currentLocation.lng},${currentLocation.lat}`,
-              ...wps.map((w: any) => `${w.lng},${w.lat}`)
-            ].join(';');
-            const osrmRes = await fetch(`https://router.project-osrm.org/route/v1/driving/${osrmCoords}?overview=full&geometries=geojson&steps=true`);
+            const osrmRes = await fetch(`https://router.project-osrm.org/route/v1/driving/${mapboxCoords}?overview=full&geometries=geojson&steps=true`);
             if (osrmRes.ok) {
               data = await osrmRes.json();
             }
