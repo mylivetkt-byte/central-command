@@ -70,7 +70,7 @@ const MAPBOX_TOKEN = (import.meta.env.VITE_MAPBOX_TOKEN as string) || 'pk.eyJ1Ij
 async function searchMapboxGeocoding(query: string, lat?: number, lng?: number): Promise<Suggestion[]> {
   try {
     const proximityParam = (typeof lat === 'number' && typeof lng === 'number') ? `&proximity=${lng},${lat}` : '';
-    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?country=co&language=es&autocomplete=true&limit=8${proximityParam}&access_token=${MAPBOX_TOKEN}`;
+    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?country=co&language=es&autocomplete=true&types=address,poi,neighborhood,locality,place&limit=10${proximityParam}&access_token=${MAPBOX_TOKEN}`;
     
     const res = await fetch(url);
     if (!res.ok) return [];
@@ -82,13 +82,15 @@ async function searchMapboxGeocoding(query: string, lat?: number, lng?: number):
       const fullAddress = f.place_name || mainText;
       const subtitle = f.place_name.split(',').slice(1).join(',').trim();
       const coords = f.center; // [lng, lat]
+      const placeType = Array.isArray(f.place_type) ? f.place_type[0] : '';
 
       return {
         name: mainText,
         full_address: fullAddress,
         city: subtitle,
         lat: coords?.[1],
-        lng: coords?.[0]
+        lng: coords?.[0],
+        place_id: placeType === 'neighborhood' ? 'barrio' : placeType === 'poi' ? 'lugar' : undefined
       };
     });
   } catch {
