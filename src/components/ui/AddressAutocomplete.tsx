@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+// Mapbox Search Autocomplete Engine v2.0 - Client Side Direct
 import { Search, MapPin, Loader2, X, Navigation, Crosshair, Building2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { supabase } from "@/integrations/supabase/client";
