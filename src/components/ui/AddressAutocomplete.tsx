@@ -133,113 +133,87 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
       const lat = userLocation?.lat;
       const lng = userLocation?.lng;
 
-      // 1. Consulta dinámica a Google Maps (vía Edge Function) pasando lat/lng reales solo si existen
-      try {
-        const { data: gData, error: gErr } = await supabase.functions.invoke('google-navigation', {
-          body: {
-            action: 'autocomplete',
-            input: formatted,
-            biasLat: lat,
-            biasLng: lng
+      const viewboxParam = (lat && lng) ? `&viewbox=${lng - 0.3},${lat + 0.3},${lng + 0.3},${lat - 0.3}&bounded=0` : '';
+      const locationSuffix = cityName ? `, ${cityName}` : '';
+
+      // Variantes de búsqueda para capturar tanto direcciones como barrios y sectores
+      const searchQueries = [
+        `${cleanText}${locationSuffix}`,
+        `${formatted}${locationSuffix}`,
+        cleanText
+      ];
+
+      // Consulta directa a la API de geocodificación estructurada
+      const fetchPromises = searchQueries.map(q => 
+        fetch(
+          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&addressdetails=1&limit=6&countrycodes=co${viewboxParam}`,
+          { headers: { 'Accept-Language': 'es' } }
+        ).then(res => res.ok ? res.json() : []).catch(() => [])
+      );
+
+      const photonQuery = `${formatted}${locationSuffix}`;
+      const photonLocationParam = (lat && lng) ? `&lat=${lat}&lon=${lng}` : '';
+      const photonPromise = fetch(
+        `https://photon.komoot.io/api/?q=${encodeURIComponent(photonQuery)}&limit=6&lang=es${photonLocationParam}`
+      ).then(res => res.ok ? res.json() : { features: [] }).catch(() => ({ features: [] }));
+
+      const [queryResults1, queryResults2, queryResults3, photonData] = await Promise.all([
+        ...fetchPromises,
+        photonPromise
+      ]);
+
+      const allNomResults = [...(queryResults1 || []), ...(queryResults2 || []), ...(queryResults3 || [])];
+
+      // Procesar y formatear resultados de Nominatim con extracción de Barrio/Comuna
+      if (Array.isArray(allNomResults)) {
+        allNomResults.forEach((item: any) => {
+          const addr = item.address || {};
+          const road = addr.road || addr.pedestrian || item.display_name.split(',')[0];
+          const house = addr.house_number ? ` #${addr.house_number}` : '';
+          const suburb = addr.suburb || addr.neighbourhood || addr.quarter || addr.city_district || '';
+          const city = addr.city || addr.town || addr.village || addr.municipality || cityName || '';
+          const state = addr.state || '';
+
+          const name = `${road}${house}`.trim();
+          
+          // Construir descripción enriquecida con Barrio, Ciudad y Departamento
+          const locationDetails = [suburb, city, state].filter(Boolean).join(', ');
+          const full = locationDetails ? `${name}, ${locationDetails}` : name;
+
+          if (name && !results.some(r => r.full_address === full || r.name === name)) {
+            results.push({
+              name,
+              full_address: full,
+              city: locationDetails,
+              lat: parseFloat(item.lat),
+              lng: parseFloat(item.lon)
+            });
           }
         });
-
-        if (!gErr && gData) {
-          // 1a. Procesar predicciones de Google Places
-          if (Array.isArray(gData.predictions)) {
-            gData.predictions.forEach((p: any) => {
-              const mainText = p.structured_formatting?.main_text || p.description.split(',')[0];
-              const secondaryText = p.structured_formatting?.secondary_text || p.description;
-              results.push({
-                name: mainText,
-                full_address: `${mainText}, ${secondaryText}`,
-                city: secondaryText,
-                place_id: p.place_id,
-              });
-            });
-          }
-
-          // 1b. Procesar resultados directos de Google Maps Geocoding
-          if (Array.isArray(gData.results)) {
-            gData.results.forEach((item: any) => {
-              if (item.name && !results.some(r => r.full_address === item.full_address || r.name === item.name)) {
-                results.push({
-                  name: item.name,
-                  full_address: item.full_address,
-                  city: item.secondary_text,
-                  lat: item.lat,
-                  lng: item.lng,
-                });
-              }
-            });
-          }
-        }
-      } catch (e) {
-        console.log('[Google Maps] Error o timeout');
       }
 
-      // 2. Consulta de respaldo secundaria solo si Google dio pocos resultados
-      if (results.length < 5) {
-        const viewboxParam = (lat && lng) ? `&viewbox=${lng - 0.3},${lat + 0.3},${lng + 0.3},${lat - 0.3}&bounded=0` : '';
-        const locationSuffix = cityName ? `, ${cityName}` : '';
-        const cleanQuery = `${cleanText}${locationSuffix}`;
-        const photonQuery = `${formatted}${locationSuffix}`;
-        
-        const nominatimPromise = fetch(
-          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(cleanQuery)}&format=json&addressdetails=1&limit=5${viewboxParam}`,
-          { headers: { 'Accept-Language': 'es' } }
-        ).then(res => res.ok ? res.json() : []).catch(() => []);
+      // Procesar resultados de Photon
+      if (photonData?.features && Array.isArray(photonData.features)) {
+        photonData.features.forEach((f: any) => {
+          const p = f.properties;
+          const name = p.name || p.street || '';
+          const house = p.housenumber ? ` #${p.housenumber}` : '';
+          const city = p.city || p.county || p.state || cityName || '';
+          const full = `${name}${house}${city ? `, ${city}` : ''}`;
 
-        const photonLocationParam = (lat && lng) ? `&lat=${lat}&lon=${lng}` : '';
-        const photonPromise = fetch(
-          `https://photon.komoot.io/api/?q=${encodeURIComponent(photonQuery)}&limit=5&lang=es${photonLocationParam}`
-        ).then(res => res.ok ? res.json() : { features: [] }).catch(() => ({ features: [] }));
-
-        const [nomData, photonData] = await Promise.all([nominatimPromise, photonPromise]);
-
-        if (Array.isArray(nomData)) {
-          nomData.forEach((item: any) => {
-            const addr = item.address || {};
-            const road = addr.road || addr.pedestrian || addr.suburb || item.display_name.split(',')[0];
-            const house = addr.house_number ? ` #${addr.house_number}` : '';
-            const city = addr.city || addr.town || addr.village || addr.municipality || cityName || '';
-            const name = `${road}${house}`;
-            const full = `${name}${city ? `, ${city}` : ''}`;
-
-            if (name && !results.some(r => r.full_address === full || r.name === name)) {
-              results.push({
-                name,
-                full_address: full,
-                city,
-                lat: parseFloat(item.lat),
-                lng: parseFloat(item.lon)
-              });
-            }
-          });
-        }
-
-        if (photonData?.features && Array.isArray(photonData.features)) {
-          photonData.features.forEach((f: any) => {
-            const p = f.properties;
-            const name = p.name || p.street || '';
-            const house = p.housenumber ? ` #${p.housenumber}` : '';
-            const city = p.city || p.county || p.state || cityName || '';
-            const full = `${name}${house}${city ? `, ${city}` : ''}`;
-
-            if (name && !results.some(r => r.full_address === full || r.name === `${name}${house}`)) {
-              results.push({
-                name: `${name}${house}`,
-                full_address: full,
-                city,
-                lat: f.geometry.coordinates[1],
-                lng: f.geometry.coordinates[0]
-              });
-            }
-          });
-        }
+          if (name && !results.some(r => r.full_address === full || r.name === `${name}${house}`)) {
+            results.push({
+              name: `${name}${house}`,
+              full_address: full,
+              city,
+              lat: f.geometry.coordinates[1],
+              lng: f.geometry.coordinates[0]
+            });
+          }
+        });
       }
 
-      // 3. Formato dinámico según el texto ingresado por el usuario
+      // Sugerencia formateada directa como opción inicial
       const formattedTitle = isStructured ? formatted : cleanText;
       const fullAddr = cityName ? `${formattedTitle}, ${cityName}` : formattedTitle;
       const customOption: Suggestion = {
@@ -278,26 +252,9 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
     return () => clearTimeout(timer);
   }, [query, cityName, userLocation]);
 
-  const handleSelect = async (s: Suggestion) => {
-    let finalAddress = s.full_address;
-    let coords = s.lat && s.lng ? { lat: s.lat, lng: s.lng } : undefined;
-
-    // Si viene de Google Places Autocomplete, obtenemos la dirección formateada y coordenadas exactas mediante Place Details
-    if (s.place_id && !coords) {
-      setIsLoading(true);
-      try {
-        const { data: dData } = await supabase.functions.invoke('google-navigation', {
-          body: { action: 'details', place_id: s.place_id }
-        });
-        if (dData?.result?.formatted_address) {
-          finalAddress = dData.result.formatted_address;
-        }
-        if (dData?.result?.lat && dData?.result?.lng) {
-          coords = { lat: dData.result.lat, lng: dData.result.lng };
-        }
-      } catch {}
-      setIsLoading(false);
-    }
+  const handleSelect = (s: Suggestion) => {
+    const finalAddress = s.full_address;
+    const coords = s.lat && s.lng ? { lat: s.lat, lng: s.lng } : undefined;
 
     onChange(finalAddress, coords);
     setQuery(finalAddress);
