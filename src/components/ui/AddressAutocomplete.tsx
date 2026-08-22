@@ -65,6 +65,37 @@ function parseAndFormatColombianAddress(raw: string): { formatted: string; isStr
   return { formatted: text, isStructured: false };
 }
 
+const MAPBOX_TOKEN = (import.meta.env.VITE_MAPBOX_TOKEN as string) || 'pk.eyJ1IjoibWFwYm94IiwiYSI6ImNpejY4NXVycTA2emYycXBndHRqcmZ3N3gifQ.rJcFIG214WwAfA';
+
+async function searchMapboxGeocoding(query: string, lat?: number, lng?: number): Promise<Suggestion[]> {
+  try {
+    const proximityParam = (typeof lat === 'number' && typeof lng === 'number') ? `&proximity=${lng},${lat}` : '';
+    const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?country=co&language=es&autocomplete=true&limit=8${proximityParam}&access_token=${MAPBOX_TOKEN}`;
+    
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const data = await res.json();
+    const features = data?.features || [];
+
+    return features.map((f: any) => {
+      const mainText = f.text ? (f.address ? `${f.text} #${f.address}` : f.text) : f.place_name.split(',')[0];
+      const fullAddress = f.place_name || mainText;
+      const subtitle = f.place_name.split(',').slice(1).join(',').trim();
+      const coords = f.center; // [lng, lat]
+
+      return {
+        name: mainText,
+        full_address: fullAddress,
+        city: subtitle,
+        lat: coords?.[1],
+        lng: coords?.[0]
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
 const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({ 
   value, 
   onChange, 
@@ -133,87 +164,64 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
       const lat = userLocation?.lat;
       const lng = userLocation?.lng;
 
-      const viewboxParam = (lat && lng) ? `&viewbox=${lng - 0.3},${lat + 0.3},${lng + 0.3},${lat - 0.3}&bounded=0` : '';
-      const locationSuffix = cityName ? `, ${cityName}` : '';
+      // 1. Consulta directa a Mapbox Search / Geocoding API
+      const mapboxResults = await searchMapboxGeocoding(cleanText, lat, lng);
+      mapboxResults.forEach(item => {
+        if (!results.some(r => r.full_address === item.full_address || r.name === item.name)) {
+          results.push(item);
+        }
+      });
 
-      // Variantes de búsqueda para capturar tanto direcciones como barrios y sectores
-      const searchQueries = [
-        `${cleanText}${locationSuffix}`,
-        `${formatted}${locationSuffix}`,
-        cleanText
-      ];
+      // Si la búsqueda tenía formato de vía estructurada (ej. "Carrera 23 #33"), consultar también el texto formateado en Mapbox
+      if (isStructured && formatted !== cleanText) {
+        const formattedMapboxResults = await searchMapboxGeocoding(formatted, lat, lng);
+        formattedMapboxResults.forEach(item => {
+          if (!results.some(r => r.full_address === item.full_address || r.name === item.name)) {
+            results.push(item);
+          }
+        });
+      }
 
-      // Consulta directa a la API de geocodificación estructurada
-      const fetchPromises = searchQueries.map(q => 
-        fetch(
-          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&addressdetails=1&limit=6&countrycodes=co${viewboxParam}`,
+      // 2. Consulta de respaldo con Nominatim y Photon si Mapbox devuelve pocos resultados
+      if (results.length < 5) {
+        const viewboxParam = (lat && lng) ? `&viewbox=${lng - 0.3},${lat + 0.3},${lng + 0.3},${lat - 0.3}&bounded=0` : '';
+        const locationSuffix = cityName ? `, ${cityName}` : '';
+        const cleanQuery = `${cleanText}${locationSuffix}`;
+
+        const nominatimPromise = fetch(
+          `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(cleanQuery)}&format=json&addressdetails=1&limit=5&countrycodes=co${viewboxParam}`,
           { headers: { 'Accept-Language': 'es' } }
-        ).then(res => res.ok ? res.json() : []).catch(() => [])
-      );
+        ).then(res => res.ok ? res.json() : []).catch(() => []);
 
-      const photonQuery = `${formatted}${locationSuffix}`;
-      const photonLocationParam = (lat && lng) ? `&lat=${lat}&lon=${lng}` : '';
-      const photonPromise = fetch(
-        `https://photon.komoot.io/api/?q=${encodeURIComponent(photonQuery)}&limit=6&lang=es${photonLocationParam}`
-      ).then(res => res.ok ? res.json() : { features: [] }).catch(() => ({ features: [] }));
+        const nomData = await nominatimPromise;
 
-      const [queryResults1, queryResults2, queryResults3, photonData] = await Promise.all([
-        ...fetchPromises,
-        photonPromise
-      ]);
+        if (Array.isArray(nomData)) {
+          nomData.forEach((item: any) => {
+            const addr = item.address || {};
+            const road = addr.road || addr.pedestrian || item.display_name.split(',')[0];
+            const house = addr.house_number ? ` #${addr.house_number}` : '';
+            const suburb = addr.suburb || addr.neighbourhood || addr.quarter || addr.city_district || '';
+            const city = addr.city || addr.town || addr.village || addr.municipality || cityName || '';
+            const state = addr.state || '';
 
-      const allNomResults = [...(queryResults1 || []), ...(queryResults2 || []), ...(queryResults3 || [])];
+            const name = `${road}${house}`.trim();
+            const locationDetails = [suburb, city, state].filter(Boolean).join(', ');
+            const full = locationDetails ? `${name}, ${locationDetails}` : name;
 
-      // Procesar y formatear resultados de Nominatim con extracción de Barrio/Comuna
-      if (Array.isArray(allNomResults)) {
-        allNomResults.forEach((item: any) => {
-          const addr = item.address || {};
-          const road = addr.road || addr.pedestrian || item.display_name.split(',')[0];
-          const house = addr.house_number ? ` #${addr.house_number}` : '';
-          const suburb = addr.suburb || addr.neighbourhood || addr.quarter || addr.city_district || '';
-          const city = addr.city || addr.town || addr.village || addr.municipality || cityName || '';
-          const state = addr.state || '';
-
-          const name = `${road}${house}`.trim();
-          
-          // Construir descripción enriquecida con Barrio, Ciudad y Departamento
-          const locationDetails = [suburb, city, state].filter(Boolean).join(', ');
-          const full = locationDetails ? `${name}, ${locationDetails}` : name;
-
-          if (name && !results.some(r => r.full_address === full || r.name === name)) {
-            results.push({
-              name,
-              full_address: full,
-              city: locationDetails,
-              lat: parseFloat(item.lat),
-              lng: parseFloat(item.lon)
-            });
-          }
-        });
+            if (name && !results.some(r => r.full_address === full || r.name === name)) {
+              results.push({
+                name,
+                full_address: full,
+                city: locationDetails,
+                lat: parseFloat(item.lat),
+                lng: parseFloat(item.lon)
+              });
+            }
+          });
+        }
       }
 
-      // Procesar resultados de Photon
-      if (photonData?.features && Array.isArray(photonData.features)) {
-        photonData.features.forEach((f: any) => {
-          const p = f.properties;
-          const name = p.name || p.street || '';
-          const house = p.housenumber ? ` #${p.housenumber}` : '';
-          const city = p.city || p.county || p.state || cityName || '';
-          const full = `${name}${house}${city ? `, ${city}` : ''}`;
-
-          if (name && !results.some(r => r.full_address === full || r.name === `${name}${house}`)) {
-            results.push({
-              name: `${name}${house}`,
-              full_address: full,
-              city,
-              lat: f.geometry.coordinates[1],
-              lng: f.geometry.coordinates[0]
-            });
-          }
-        });
-      }
-
-      // Sugerencia formateada directa como opción inicial
+      // Sugerencia personalizada estructurada estilo Colombia
       const formattedTitle = isStructured ? formatted : cleanText;
       const fullAddr = cityName ? `${formattedTitle}, ${cityName}` : formattedTitle;
       const customOption: Suggestion = {
@@ -224,7 +232,7 @@ const AddressAutocomplete: React.FC<AddressAutocompleteProps> = ({
         lng
       };
 
-      setSuggestions([customOption, ...results.slice(0, 6)]);
+      setSuggestions([customOption, ...results.slice(0, 7)]);
       setShowDropdown(true);
     } catch (error) {
       console.error('Error buscando direcciones:', error);
