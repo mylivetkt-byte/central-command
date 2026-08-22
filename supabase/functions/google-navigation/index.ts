@@ -300,7 +300,11 @@ Deno.serve(async (req) => {
 
     if (action === 'geocode') {
       const address = String(payload.address || '').trim();
-      if (!address) throw new Error('address required');
+      if (!address) {
+        return new Response(JSON.stringify({ result: null }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
+      }
       const result = await geocode(address, payload.biasLat, payload.biasLng);
       return new Response(JSON.stringify({ result }), {
         headers: { ...corsHeaders, 'Content-Type': 'application/json' },
@@ -311,7 +315,9 @@ Deno.serve(async (req) => {
       const origin = payload.origin;
       const waypoints = payload.waypoints || [];
       if (!origin || typeof origin.lat !== 'number' || typeof origin.lng !== 'number') {
-        throw new Error('origin required');
+        return new Response(JSON.stringify({ routes: [] }), {
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        });
       }
       const data = await computeRoute(origin, waypoints);
       return new Response(JSON.stringify(data), {
@@ -319,13 +325,13 @@ Deno.serve(async (req) => {
       });
     }
 
-    return new Response(JSON.stringify({ predictions: [], results: [] }), {
+    return new Response(JSON.stringify({ success: true, predictions: [], results: [], routes: [] }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
   } catch (e: any) {
     console.error('[google-navigation] error:', e?.message || e);
-    return new Response(JSON.stringify({ predictions: [], results: [], error: e?.message || 'internal error' }), {
+    return new Response(JSON.stringify({ success: false, predictions: [], results: [], routes: [], error: e?.message || 'ok' }), {
       status: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
